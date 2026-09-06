@@ -35,7 +35,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -146,20 +145,19 @@ private fun HomeHeader(avatarUrl: String?) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "hello, ",
+                    text = "hello ",
                     fontFamily = MomoScriptFont,
                     fontSize = 24.sp,
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
-                Spacer(modifier = Modifier.width(2.dp))
+                Spacer(modifier = Modifier.width(1.dp))
 
                 Text(
                     text = "MOMO",
                     fontFamily = MomoBoldFont,
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.2.sp,
+                    letterSpacing = 0.5.sp,
                     style = TextStyle(brush = MomoLogoGradient)
                 )
             }
@@ -175,7 +173,7 @@ private fun HomeHeader(avatarUrl: String?) {
                     .size(40.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.88f) {
-                        // Future: Notifications click
+                        // Notifications click
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -192,7 +190,7 @@ private fun HomeHeader(avatarUrl: String?) {
                     .size(40.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.88f) {
-                        // Future: Options menu click
+                        // Options menu click
                     },
                 contentAlignment = Alignment.Center
             ) {
