@@ -181,7 +181,7 @@ fun WelcomeScreen(
 
 /**
  * Mode 1: Exact Brand Logo Overlap Layout
- * MOMO is large and bold, with hello nested compactly inside its waistline.
+ * MOMO is locked to 76.sp, with hello scaled to fit proportionally inside its frame.
  */
 @Composable
 private fun OverlayLayout(
@@ -193,12 +193,12 @@ private fun OverlayLayout(
     Box(
         contentAlignment = Alignment.Center
     ) {
-        // Dominant Hero Base: MOMO Typography
+        // Base: MOMO Typography locked at 76.sp
         Text(
             text = "MOMO",
             fontFamily = WelcomeMomoBoldFont,
-            fontSize = 104.sp,
-            letterSpacing = 2.sp,
+            fontSize = 76.sp,
+            letterSpacing = 1.5.sp,
             style = TextStyle(brush = WelcomeMomoGradient),
             modifier = Modifier
                 .graphicsLayer {
@@ -208,13 +208,13 @@ private fun OverlayLayout(
                 }
         )
 
-        // Compact Accent Overlay: Apple Cursive Handwriting Stroke
+        // Overlay: Apple Cursive Handwriting scaled to 76.sp MOMO proportion
         AppleCursiveHelloCanvas(
             modifier = Modifier
-                .size(width = 190.dp, height = 66.dp),
+                .size(width = 138.dp, height = 48.dp),
             progress = drawProgress,
             strokeColor = strokeColor,
-            strokeWidth = 2.2.dp
+            strokeWidth = 1.8.dp
         )
     }
 }
@@ -235,19 +235,19 @@ private fun InlineLayout(
     ) {
         AppleCursiveHelloCanvas(
             modifier = Modifier
-                .size(width = 155.dp, height = 54.dp),
+                .size(width = 138.dp, height = 48.dp),
             progress = drawProgress,
             strokeColor = strokeColor,
-            strokeWidth = 2.2.dp
+            strokeWidth = 1.8.dp
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
         Text(
             text = "MOMO",
             fontFamily = WelcomeMomoBoldFont,
-            fontSize = 46.sp,
-            letterSpacing = 1.2.sp,
+            fontSize = 44.sp,
+            letterSpacing = 1.sp,
             style = TextStyle(brush = WelcomeMomoGradient),
             modifier = Modifier
                 .graphicsLayer {
@@ -275,10 +275,10 @@ private fun StackedLayout(
     ) {
         AppleCursiveHelloCanvas(
             modifier = Modifier
-                .size(width = 175.dp, height = 60.dp),
+                .size(width = 150.dp, height = 52.dp),
             progress = drawProgress,
             strokeColor = strokeColor,
-            strokeWidth = 2.2.dp
+            strokeWidth = 1.8.dp
         )
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -286,8 +286,8 @@ private fun StackedLayout(
         Text(
             text = "MOMO",
             fontFamily = WelcomeMomoBoldFont,
-            fontSize = 58.sp,
-            letterSpacing = 1.4.sp,
+            fontSize = 54.sp,
+            letterSpacing = 1.2.sp,
             style = TextStyle(brush = WelcomeMomoGradient),
             modifier = Modifier
                 .graphicsLayer {
@@ -308,7 +308,7 @@ fun AppleCursiveHelloCanvas(
     modifier: Modifier = Modifier,
     progress: Float = 1f,
     strokeColor: Color,
-    strokeWidth: Dp = 2.2.dp
+    strokeWidth: Dp = 1.8.dp
 ) {
     val density = LocalDensity.current
     val strokeWidthPx = with(density) { strokeWidth.toPx() }
