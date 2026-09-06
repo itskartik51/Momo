@@ -41,7 +41,7 @@ fun MainScreen() {
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Home page UI components will be rendered here
+            HomeScreen()
         }
     }
 }
