@@ -18,6 +18,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,9 +28,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.personal.momo.Cache.CacheManager
 
 private val BellIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -46,12 +53,20 @@ private val BellIcon: ImageVector by lazy {
 
 @Composable
 fun HomeScreen() {
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        CacheManager.init(context)
+    }
+
+    val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        HomeHeader()
+        HomeHeader(avatarUrl = avatarUrl)
 
         // Content area below header
         Box(
@@ -65,7 +80,7 @@ fun HomeScreen() {
 }
 
 @Composable
-private fun HomeHeader() {
+private fun HomeHeader(avatarUrl: String?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -73,7 +88,7 @@ private fun HomeHeader() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left Profile Placeholder & Greeting
+        // Left Profile Avatar & Greeting
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -87,8 +102,20 @@ private fun HomeHeader() {
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant,
                         shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!avatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = "Profile Avatar",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
                     )
-            )
+                }
+            }
 
             Text(
                 text = "Hello, MOMO",
