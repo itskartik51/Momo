@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 
 private val BellIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -66,15 +67,23 @@ fun HomeScreen() {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        // Header
         HomeHeader(avatarUrl = avatarUrl)
 
-        // Content area below header
+        // Dark Stage with Connected Calendar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .background(Color(0xFF060709))
         ) {
-            // Future cards, timeline, and vault components will go here
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 16.dp)
+            ) {
+                MomoCalendar()
+            }
         }
     }
 }
@@ -135,7 +144,7 @@ private fun HomeHeader(avatarUrl: String?) {
                     .size(40.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.88f) {
-                        // Future: Notifications click
+                        // Notifications action
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -152,7 +161,7 @@ private fun HomeHeader(avatarUrl: String?) {
                     .size(40.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.88f) {
-                        // Future: Options menu click
+                        // Options menu action
                     },
                 contentAlignment = Alignment.Center
             ) {
