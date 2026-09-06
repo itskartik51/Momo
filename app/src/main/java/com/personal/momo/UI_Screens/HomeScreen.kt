@@ -389,7 +389,7 @@ fun CursiveHelloText(
         Paint().apply {
             color = android.graphics.Color.WHITE
             style = Paint.Style.STROKE
-            strokeWidth = strokeWidthPx
+            this.strokeWidth = strokeWidthPx
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
             isAntiAlias = true
