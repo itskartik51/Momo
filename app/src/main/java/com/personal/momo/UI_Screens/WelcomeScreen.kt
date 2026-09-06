@@ -47,8 +47,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Teeno layout styles:
- * - OVERLAY: Logo style (hello cursive MOMO typography ke theek center par compact draw hoga)
+ * Teeno presentation styles:
+ * - OVERLAY: Logo style (hello cursive MOMO typography ke andar 4 letters ke contact me draw hoga)
  * - INLINE: Side-by-side (hello aur MOMO ek horizontal line me)
  * - STACKED: Vertical elegance (hello upar aur MOMO theek uske niche)
  */
@@ -90,7 +90,7 @@ fun WelcomeScreen(
             )
         }
 
-        // Step 2: Apple cursive handwriting stroke
+        // Step 2: Cursive handwriting stroke draw
         launch {
             drawProgress.animateTo(
                 targetValue = 1f,
@@ -98,7 +98,7 @@ fun WelcomeScreen(
             )
         }
 
-        // Step 3: Reveal MOMO right when hello finishes
+        // Step 3: MOMO reveal synchronized with hello finish
         delay(850)
         launch {
             momoAlpha.animateTo(
@@ -116,8 +116,8 @@ fun WelcomeScreen(
             )
         }
 
-        // Step 4: Settle pause and direct transition to HomeScreen
-        delay(900)
+        // Step 4: Settle pause and navigate to HomeScreen
+        delay(950)
         currentOnFinished.value()
     }
 
@@ -181,7 +181,9 @@ fun WelcomeScreen(
 
 /**
  * Mode 1: Exact Brand Logo Overlap Layout
- * MOMO is locked to 76.sp, with hello scaled to fit proportionally inside its frame.
+ * MOMO is locked at 76.sp.
+ * hello is calibrated to span from the first 'M' across to the final 'O'
+ * without exceeding the boundary of MOMO.
  */
 @Composable
 private fun OverlayLayout(
@@ -193,7 +195,7 @@ private fun OverlayLayout(
     Box(
         contentAlignment = Alignment.Center
     ) {
-        // Base: MOMO Typography locked at 76.sp
+        // Hero Base: MOMO Typography locked at 76.sp
         Text(
             text = "MOMO",
             fontFamily = WelcomeMomoBoldFont,
@@ -208,13 +210,13 @@ private fun OverlayLayout(
                 }
         )
 
-        // Overlay: Apple Cursive Handwriting scaled to 76.sp MOMO proportion
+        // Overlay: Cursive Hello with extended ligatures matching MOMO width
         AppleCursiveHelloCanvas(
             modifier = Modifier
-                .size(width = 138.dp, height = 48.dp),
+                .size(width = 240.dp, height = 48.dp),
             progress = drawProgress,
             strokeColor = strokeColor,
-            strokeWidth = 1.8.dp
+            strokeWidth = 2.dp
         )
     }
 }
@@ -235,7 +237,7 @@ private fun InlineLayout(
     ) {
         AppleCursiveHelloCanvas(
             modifier = Modifier
-                .size(width = 138.dp, height = 48.dp),
+                .size(width = 160.dp, height = 34.dp),
             progress = drawProgress,
             strokeColor = strokeColor,
             strokeWidth = 1.8.dp
@@ -275,7 +277,7 @@ private fun StackedLayout(
     ) {
         AppleCursiveHelloCanvas(
             modifier = Modifier
-                .size(width = 150.dp, height = 52.dp),
+                .size(width = 190.dp, height = 40.dp),
             progress = drawProgress,
             strokeColor = strokeColor,
             strokeWidth = 1.8.dp
@@ -300,61 +302,77 @@ private fun StackedLayout(
 }
 
 /**
- * Continuous single-stroke Apple cursive handwriting engine.
- * Mathematical cubic-bezier curves matching proper letter anatomy.
+ * Precision Cursive Handwriting Engine.
+ * - 'h': Natural upward entry across first 'M', straight vertical stem drop, rounded arch shoulder.
+ * - 'e': Authentic eyelet loop crossing back over its entry stroke.
+ * - 'l' & 'l': Harmonious ascenders looping at waistline height.
+ * - 'o': Round oval finish with horizontal flourish spanning across final 'O'.
+ * - Ligatures: Stretched horizontally so 'hello' spans the 4 MOMO letters without overshooting in height.
  */
 @Composable
 fun AppleCursiveHelloCanvas(
     modifier: Modifier = Modifier,
     progress: Float = 1f,
     strokeColor: Color,
-    strokeWidth: Dp = 1.8.dp
+    strokeWidth: Dp = 2.dp
 ) {
     val density = LocalDensity.current
     val strokeWidthPx = with(density) { strokeWidth.toPx() }
 
     val fullPath = remember {
         android.graphics.Path().apply {
-            // 'h' - tall loop & baseline drop
-            moveTo(38f, 142f)
-            cubicTo(40f, 118f, 52f, 42f, 66f, 22f)
-            cubicTo(73f, 12f, 81f, 18f, 78f, 32f)
-            cubicTo(74f, 58f, 60f, 114f, 58f, 140f)
-            cubicTo(58f, 115f, 70f, 88f, 88f, 88f)
-            cubicTo(100f, 88f, 108f, 98f, 108f, 114f)
-            cubicTo(108f, 126f, 106f, 134f, 114f, 138f)
-            cubicTo(119f, 140f, 125f, 138f, 132f, 130f)
+            // --- Entry & 'h' ---
+            // Entry stroke starts across the first 'M'
+            moveTo(20f, 75f)
+            cubicTo(42f, 75f, 62f, 70f, 82f, 45f)
+            // 'h' ascender loop to apex
+            cubicTo(92f, 30f, 98f, 15f, 106f, 15f)
+            cubicTo(112f, 15f, 112f, 24f, 108f, 40f)
+            // Straight vertical stem drop to baseline
+            cubicTo(104f, 56f, 98f, 74f, 96f, 85f)
+            // Up to rounded shoulder
+            cubicTo(96f, 68f, 106f, 53f, 122f, 53f)
+            cubicTo(134f, 53f, 140f, 64f, 140f, 75f)
+            cubicTo(140f, 82f, 144f, 85f, 152f, 85f)
 
-            // 'e' - eyelet loop
-            cubicTo(138f, 122f, 152f, 86f, 164f, 86f)
-            cubicTo(172f, 86f, 174f, 96f, 172f, 106f)
-            cubicTo(168f, 122f, 150f, 135f, 138f, 138f)
-            cubicTo(145f, 142f, 156f, 141f, 166f, 135f)
-            cubicTo(176f, 128f, 184f, 116f, 192f, 104f)
+            // --- Ligature to 'e' & 'e' Loop ---
+            // Extended ligature spanning across towards second letter
+            cubicTo(168f, 85f, 188f, 82f, 206f, 66f)
+            cubicTo(216f, 58f, 226f, 52f, 232f, 52f)
+            // Closed eyelet loop crossing over entry line
+            cubicTo(238f, 52f, 240f, 60f, 234f, 68f)
+            cubicTo(225f, 76f, 210f, 82f, 206f, 84f)
+            cubicTo(214f, 86f, 226f, 86f, 242f, 82f)
 
-            // first 'l' - ascender loop
-            cubicTo(202f, 88f, 218f, 40f, 228f, 22f)
-            cubicTo(235f, 12f, 242f, 18f, 240f, 32f)
-            cubicTo(234f, 62f, 220f, 114f, 218f, 138f)
-            cubicTo(218f, 143f, 224f, 144f, 232f, 138f)
-            cubicTo(240f, 130f, 248f, 118f, 256f, 106f)
+            // --- Ligature to first 'l' & 'l1' ---
+            // Ligature spanning across middle 'M'
+            cubicTo(258f, 78f, 276f, 64f, 290f, 42f)
+            // First 'l' ascender loop
+            cubicTo(300f, 26f, 308f, 15f, 316f, 15f)
+            cubicTo(322f, 15f, 322f, 25f, 317f, 45f)
+            // Straight drop to baseline
+            cubicTo(311f, 66f, 306f, 78f, 312f, 85f)
+            cubicTo(316f, 87f, 324f, 86f, 336f, 80f)
 
-            // second 'l' - ascender loop
-            cubicTo(266f, 88f, 282f, 40f, 292f, 22f)
-            cubicTo(299f, 12f, 306f, 18f, 304f, 32f)
-            cubicTo(298f, 62f, 284f, 114f, 282f, 138f)
-            cubicTo(282f, 143f, 288f, 144f, 296f, 138f)
-            cubicTo(304f, 130f, 314f, 116f, 322f, 104f)
+            // --- Ligature to second 'l' & 'l2' ---
+            // Ligature stretching towards final 'O'
+            cubicTo(350f, 74f, 368f, 58f, 380f, 38f)
+            // Second 'l' ascender loop
+            cubicTo(388f, 24f, 396f, 15f, 404f, 15f)
+            cubicTo(410f, 15f, 410f, 25f, 405f, 45f)
+            // Straight drop to baseline
+            cubicTo(399f, 66f, 395f, 78f, 401f, 85f)
+            cubicTo(405f, 87f, 414f, 86f, 424f, 80f)
 
-            // 'o' - clean oval and exit flourish
-            cubicTo(330f, 92f, 342f, 86f, 354f, 86f)
-            cubicTo(370f, 86f, 380f, 98f, 380f, 114f)
-            cubicTo(380f, 128f, 368f, 140f, 352f, 140f)
-            cubicTo(338f, 140f, 328f, 126f, 328f, 112f)
-            cubicTo(328f, 96f, 340f, 86f, 354f, 86f)
-            cubicTo(362f, 86f, 370f, 90f, 376f, 96f)
-            cubicTo(382f, 102f, 390f, 98f, 402f, 94f)
-            cubicTo(412f, 90f, 422f, 88f, 434f, 88f)
+            // --- Ligature to 'o', 'o' Oval & Exit Flourish ---
+            cubicTo(434f, 74f, 442f, 62f, 452f, 55f)
+            // Circular oval of 'o'
+            cubicTo(462f, 48f, 474f, 52f, 478f, 62f)
+            cubicTo(482f, 72f, 476f, 85f, 464f, 85f)
+            cubicTo(452f, 85f, 446f, 74f, 450f, 63f)
+            // Top exit loop and horizontal sweep across final 'O'
+            cubicTo(454f, 54f, 464f, 52f, 474f, 56f)
+            cubicTo(486f, 60f, 500f, 62f, 515f, 60f)
         }
     }
 
@@ -382,8 +400,8 @@ fun AppleCursiveHelloCanvas(
             segmentPath.reset()
             pathMeasure.getSegment(0f, pathLength * clampedProgress, segmentPath, true)
 
-            val scaleX = size.width / 445f
-            val scaleY = size.height / 155f
+            val scaleX = size.width / 525f
+            val scaleY = size.height / 100f
             matrix.reset()
             matrix.setScale(scaleX, scaleY)
             segmentPath.transform(matrix)
