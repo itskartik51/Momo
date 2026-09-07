@@ -2,8 +2,10 @@ package com.personal.momo.UI_Screens.Settings
 
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -16,11 +18,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +61,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.personal.momo.UI_Screens.WelcomeLayoutMode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 object WelcomeSettingsPrefs {
     private const val PREFS_NAME = "momo_welcome_settings"
@@ -90,6 +98,7 @@ fun WelcomeSettingsPopup(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
 
     var currentMode by remember {
         mutableStateOf(WelcomeSettingsPrefs.getSavedLayoutMode(context))
@@ -137,6 +146,7 @@ fun WelcomeSettingsPopup(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
+                    // Clickable "Welcome Note" title (Arrow-free trigger)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -157,58 +167,102 @@ fun WelcomeSettingsPopup(
                         )
                     }
 
+                    // Expandable Section
                     if (isExpanded) {
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        Box(
+                        val modes = listOf(
+                            WelcomeLayoutMode.OVERLAY to "Overlay",
+                            WelcomeLayoutMode.INLINE to "Inline",
+                            WelcomeLayoutMode.STACKED to "Stacked"
+                        )
+
+                        val selectedIndex = when (currentMode) {
+                            WelcomeLayoutMode.OVERLAY -> 0
+                            WelcomeLayoutMode.INLINE -> 1
+                            WelcomeLayoutMode.STACKED -> 2
+                        }
+
+                        // Smooth Spring Slide across continuous Float indices (0 -> 1 -> 2)
+                        val animatedIndex by animateFloatAsState(
+                            targetValue = selectedIndex.toFloat(),
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            label = "CapsuleSlideSpring"
+                        )
+
+                        // Outer Capsule Container (borderless, recessed tone)
+                        BoxWithConstraints(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .height(42.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.background)
                                 .padding(4.dp)
                         ) {
+                            val segmentWidth = maxWidth / 3
+
+                            // Single Independent Sliding Indicator (Back Layer)
+                            Box(
+                                modifier = Modifier
+                                    .offset {
+                                        IntOffset(
+                                            x = (animatedIndex * segmentWidth.toPx()).toInt(),
+                                            y = 0
+                                        )
+                                    }
+                                    .width(segmentWidth)
+                                    .fillMaxHeight()
+                                    .clip(CircleShape)
+                                    .background(SelectedCapsuleGradient)
+                            )
+
+                            // Interactive Option Texts Layer (Front Layer)
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxSize(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                val modes = listOf(
-                                    WelcomeLayoutMode.OVERLAY to "Overlay",
-                                    WelcomeLayoutMode.INLINE to "Inline",
-                                    WelcomeLayoutMode.STACKED to "Stacked"
-                                )
-
                                 modes.forEach { (mode, label) ->
                                     val isSelected = currentMode == mode
+
+                                    // Color Blend Sync
+                                    val textColor by animateColorAsState(
+                                        targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        animationSpec = tween(durationMillis = 200),
+                                        label = "TextColorFade_$label"
+                                    )
+
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
+                                            .fillMaxHeight()
                                             .clip(CircleShape)
-                                            .then(
-                                                if (isSelected) {
-                                                    Modifier.background(SelectedCapsuleGradient)
-                                                } else {
-                                                    Modifier
-                                                }
-                                            )
                                             .clickable(
                                                 interactionSource = remember { MutableInteractionSource() },
                                                 indication = null
                                             ) {
-                                                currentMode = mode
-                                                WelcomeSettingsPrefs.saveLayoutMode(context, mode)
-                                                toastMessage = "$label mode applied"
-                                                onDismissRequest()
-                                                onModeChanged?.invoke(mode)
-                                            }
-                                            .padding(vertical = 8.dp),
+                                                if (currentMode != mode) {
+                                                    currentMode = mode
+                                                    WelcomeSettingsPrefs.saveLayoutMode(context, mode)
+                                                    coroutineScope.launch {
+                                                        delay(260) // Slide animation settle delay
+                                                        toastMessage = "$label mode applied"
+                                                        onDismissRequest()
+                                                        onModeChanged?.invoke(mode)
+                                                    }
+                                                } else {
+                                                    onDismissRequest()
+                                                }
+                                            },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = label,
                                             fontSize = 12.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = textColor
                                         )
                                     }
                                 }
