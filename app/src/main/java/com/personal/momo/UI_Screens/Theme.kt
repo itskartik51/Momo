@@ -7,6 +7,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
@@ -30,6 +31,17 @@ val TextPrimaryLight = Color(0xFF111318)
 
 val TextSecondaryDark = Color(0xFF8A90A2)
 val TextSecondaryLight = Color(0xFF6C7280)
+
+// Centralized Momo Brand Gradients
+val MomoRedDark = Color(0xFFC91D3B)
+val MomoRedLight = Color(0xFFFF5E79)
+
+val MomoPrimaryGradient = Brush.verticalGradient(
+    colors = listOf(
+        MomoRedDark,  // Gehra Lal (Top)
+        MomoRedLight  // Luminous Soft Lal (Bottom)
+    )
+)
 
 private val DarkColorScheme = darkColorScheme(
     primary = MomoPrimaryDark,
