@@ -1,5 +1,18 @@
 package com.personal.momo.UI_Screens.Calendar
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,12 +35,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -50,6 +62,12 @@ import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
 
+private enum class CalendarViewMode {
+    DAYS,
+    YEARS,
+    MONTHS
+}
+
 @Composable
 fun MomoCalendar(
     modifier: Modifier = Modifier
@@ -59,8 +77,8 @@ fun MomoCalendar(
 
     var selectedDate by remember { mutableStateOf(today) }
     var currentYearMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
-
-    var showMonthYearPicker by remember { mutableStateOf(false) }
+    var currentViewMode by remember { mutableStateOf(CalendarViewMode.DAYS) }
+    var drillDownYear by remember { mutableIntStateOf(currentYearMonth.year) }
 
     val canGoBack = currentYearMonth.isAfter(minYearMonth)
     val daysInMonth = currentYearMonth.lengthOfMonth()
@@ -68,6 +86,23 @@ fun MomoCalendar(
     // Sunday (7 % 7 = 0) to Saturday (6 % 7 = 6)
     val startOffset = currentYearMonth.atDay(1).dayOfWeek.value % 7
     val weekDays = listOf("S", "M", "T", "W", "T", "F", "S")
+
+    val yearsList = remember { (2023..2040).toList() }
+    val monthsList = remember {
+        listOf(
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+        )
+    }
+
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (currentViewMode != CalendarViewMode.DAYS) 180f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "DropdownArrowRotation"
+    )
 
     val calendarShape = RoundedCornerShape(24.dp)
 
@@ -89,22 +124,34 @@ fun MomoCalendar(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
-            // 1. Hero Date Header
-            Text(
-                text = "${selectedDate.dayOfMonth} ${selectedDate.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${selectedDate.year}",
-                fontSize = 30.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            // 1. Hero Date Header (Date & Month standard, Year in MomoPrimaryGradient)
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${selectedDate.dayOfMonth} ${selectedDate.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Text(
+                    text = "${selectedDate.year}",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    style = androidx.compose.ui.text.TextStyle(brush = MomoPrimaryGradient)
+                )
+            }
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 2. Month-Year Selector Trigger + Navigation
+            // 2. Inline Mode Selector Row + Month Navigation Arrows
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Clickable Header that triggers the inline drill-down view
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -112,14 +159,23 @@ fun MomoCalendar(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            showMonthYearPicker = true
+                            currentViewMode = if (currentViewMode == CalendarViewMode.DAYS) {
+                                drillDownYear = currentYearMonth.year
+                                CalendarViewMode.YEARS
+                            } else {
+                                CalendarViewMode.DAYS
+                            }
                         }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "${currentYearMonth.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${currentYearMonth.year}",
+                        text = when (currentViewMode) {
+                            CalendarViewMode.DAYS -> "${currentYearMonth.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${currentYearMonth.year}"
+                            CalendarViewMode.YEARS -> "Select Year"
+                            CalendarViewMode.MONTHS -> "Select Month ($drillDownYear)"
+                        },
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -127,118 +183,251 @@ fun MomoCalendar(
 
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Choose Year and Month",
+                        contentDescription = "Toggle Year/Month View",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier
+                            .size(22.dp)
+                            .rotate(arrowRotation)
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Month Nav Arrows (Visible only in standard Days mode)
+                AnimatedVisibility(
+                    visible = currentViewMode == CalendarViewMode.DAYS,
+                    enter = fadeIn(animationSpec = tween(150)),
+                    exit = fadeOut(animationSpec = tween(100))
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .then(
-                                if (canGoBack) {
-                                    Modifier.bounceClick(scaleDown = 0.85f) {
-                                        currentYearMonth = currentYearMonth.minusMonths(1)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .then(
+                                    if (canGoBack) {
+                                        Modifier.bounceClick(scaleDown = 0.85f) {
+                                            currentYearMonth = currentYearMonth.minusMonths(1)
+                                        }
+                                    } else {
+                                        Modifier
                                     }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowLeft,
+                                contentDescription = "Previous Month",
+                                tint = if (canGoBack) {
+                                    MaterialTheme.colorScheme.onSurface
                                 } else {
-                                    Modifier
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowLeft,
-                            contentDescription = "Previous Month",
-                            tint = if (canGoBack) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
-                            },
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+                                },
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
 
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .bounceClick(scaleDown = 0.85f) {
-                                currentYearMonth = currentYearMonth.plusMonths(1)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Next Month",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .bounceClick(scaleDown = 0.85f) {
+                                    currentYearMonth = currentYearMonth.plusMonths(1)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowRight,
+                                contentDescription = "Next Month",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 3. Weekday Labels (Sunday to Saturday)
-            Row(
+            // 3. Stage Container with Animated Views
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .height(300.dp)
             ) {
-                weekDays.forEach { day ->
-                    Text(
-                        text = day,
-                        modifier = Modifier.weight(1f),
-                        textAlign = TextAlign.Center,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+                AnimatedContent(
+                    targetState = currentViewMode,
+                    transitionSpec = {
+                        when {
+                            // Standard Days -> Years (Top-to-Bottom Slide In)
+                            initialState == CalendarViewMode.DAYS && targetState == CalendarViewMode.YEARS -> {
+                                (slideInVertically(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioLowBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    ),
+                                    initialOffsetY = { -it / 2 }
+                                ) + fadeIn(tween(220)))
+                                    .togetherWith(
+                                        slideOutVertically(
+                                            animationSpec = tween(180),
+                                            targetOffsetY = { it / 3 }
+                                        ) + fadeOut(tween(160))
+                                    )
+                            }
+                            // Years -> Months (Fluid Zoom-In Transition)
+                            initialState == CalendarViewMode.YEARS && targetState == CalendarViewMode.MONTHS -> {
+                                (scaleIn(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    ),
+                                    initialScale = 0.84f
+                                ) + fadeIn(tween(200)))
+                                    .togetherWith(
+                                        scaleOut(
+                                            animationSpec = tween(160),
+                                            targetScale = 1.12f
+                                        ) + fadeOut(tween(140))
+                                    )
+                            }
+                            // Months -> Days (Auto-dismiss back to Days View)
+                            targetState == CalendarViewMode.DAYS -> {
+                                (scaleIn(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    ),
+                                    initialScale = 0.94f
+                                ) + fadeIn(tween(240)))
+                                    .togetherWith(
+                                        scaleOut(
+                                            animationSpec = tween(180),
+                                            targetScale = 0.94f
+                                        ) + fadeOut(tween(160))
+                                    )
+                            }
+                            else -> {
+                                fadeIn(tween(180)).togetherWith(fadeOut(tween(180)))
+                            }
+                        }
+                    },
+                    label = "CalendarDrillDownTransition"
+                ) { viewMode ->
+                    when (viewMode) {
+                        // Standard Calendar View
+                        CalendarViewMode.DAYS -> {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // Weekday Labels
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    weekDays.forEach { day ->
+                                        Text(
+                                            text = day,
+                                            modifier = Modifier.weight(1f),
+                                            textAlign = TextAlign.Center,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
 
-            Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
 
-            // 4. Days Grid
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                for (row in 0 until 6) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        for (col in 0 until 7) {
-                            val cellIndex = row * 7 + col
-                            val dayNumber = cellIndex - startOffset + 1
+                                // Days Grid (6 Fixed Rows)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    for (row in 0 until 6) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            for (col in 0 until 7) {
+                                                val cellIndex = row * 7 + col
+                                                val dayNumber = cellIndex - startOffset + 1
 
-                            Box(
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .height(42.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (dayNumber in 1..daysInMonth) {
+                                                        val isSelected = selectedDate.year == currentYearMonth.year &&
+                                                                selectedDate.monthValue == currentYearMonth.monthValue &&
+                                                                selectedDate.dayOfMonth == dayNumber
+
+                                                        val isToday = today.year == currentYearMonth.year &&
+                                                                today.monthValue == currentYearMonth.monthValue &&
+                                                                dayNumber == today.dayOfMonth
+
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(38.dp)
+                                                                .clip(CircleShape)
+                                                                .then(
+                                                                    if (isSelected) {
+                                                                        Modifier.background(brush = MomoPrimaryGradient)
+                                                                    } else {
+                                                                        Modifier
+                                                                    }
+                                                                )
+                                                                .clickable(
+                                                                    interactionSource = remember { MutableInteractionSource() },
+                                                                    indication = null
+                                                                ) {
+                                                                    selectedDate = currentYearMonth.atDay(dayNumber)
+                                                                },
+                                                            contentAlignment = Alignment.Center
+                                                        ) {
+                                                            Text(
+                                                                text = "$dayNumber",
+                                                                color = when {
+                                                                    isSelected -> Color.White
+                                                                    isToday -> MaterialTheme.colorScheme.primary
+                                                                    else -> MaterialTheme.colorScheme.onSurface
+                                                                },
+                                                                fontSize = 15.sp,
+                                                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
+                                                                textAlign = TextAlign.Center
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Step 1: Scrollable Years Grid (Starting 2023)
+                        CalendarViewMode.YEARS -> {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(42.dp),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxSize()
+                                    .padding(vertical = 4.dp)
                             ) {
-                                if (dayNumber in 1..daysInMonth) {
-                                    val isSelected = selectedDate.year == currentYearMonth.year &&
-                                            selectedDate.monthValue == currentYearMonth.monthValue &&
-                                            selectedDate.dayOfMonth == dayNumber
-
-                                    val isToday = today.year == currentYearMonth.year &&
-                                            today.monthValue == currentYearMonth.monthValue &&
-                                            dayNumber == today.dayOfMonth
+                                items(yearsList) { year ->
+                                    val isSelected = year == currentYearMonth.year
 
                                     Box(
                                         modifier = Modifier
-                                            .size(38.dp)
+                                            .height(44.dp)
                                             .clip(CircleShape)
                                             .then(
                                                 if (isSelected) {
@@ -251,20 +440,78 @@ fun MomoCalendar(
                                                 interactionSource = remember { MutableInteractionSource() },
                                                 indication = null
                                             ) {
-                                                selectedDate = currentYearMonth.atDay(dayNumber)
+                                                drillDownYear = year
+                                                currentViewMode = CalendarViewMode.MONTHS
                                             },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
-                                            text = "$dayNumber",
+                                            text = "$year",
+                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                            fontSize = 16.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Step 2: Months Grid (Zoom-in view, auto-dismiss to Days)
+                        CalendarViewMode.MONTHS -> {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(3),
+                                verticalArrangement = Arrangement.spacedBy(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                items(12) { index ->
+                                    val monthIndex = index + 1
+                                    val monthName = monthsList[index]
+                                    val isSelected = currentYearMonth.year == drillDownYear && currentYearMonth.monthValue == monthIndex
+
+                                    // Baseline check: Jan-Oct 2023 locked
+                                    val isLocked = drillDownYear == minYearMonth.year && monthIndex < minYearMonth.monthValue
+
+                                    Box(
+                                        modifier = Modifier
+                                            .height(46.dp)
+                                            .clip(CircleShape)
+                                            .then(
+                                                if (isSelected) {
+                                                    Modifier.background(brush = MomoPrimaryGradient)
+                                                } else {
+                                                    Modifier
+                                                }
+                                            )
+                                            .then(
+                                                if (!isLocked) {
+                                                    Modifier.clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        val targetYearMonth = YearMonth.of(drillDownYear, monthIndex)
+                                                        currentYearMonth = targetYearMonth
+                                                        val clampedDay = selectedDate.dayOfMonth.coerceAtMost(targetYearMonth.lengthOfMonth())
+                                                        selectedDate = targetYearMonth.atDay(clampedDay)
+                                                        currentViewMode = CalendarViewMode.DAYS
+                                                    }
+                                                } else {
+                                                    Modifier
+                                                }
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = monthName,
                                             color = when {
                                                 isSelected -> Color.White
-                                                isToday -> MaterialTheme.colorScheme.primary
+                                                isLocked -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
                                                 else -> MaterialTheme.colorScheme.onSurface
                                             },
                                             fontSize = 15.sp,
-                                            fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
-                                            textAlign = TextAlign.Center
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                         )
                                     }
                                 }
@@ -275,190 +522,4 @@ fun MomoCalendar(
             }
         }
     }
-
-    // Two-Step Drill-Down Picker (Years -> Months -> Auto-Dismiss)
-    if (showMonthYearPicker) {
-        MonthYearPickerDialog(
-            initialYearMonth = currentYearMonth,
-            minYearMonth = minYearMonth,
-            onDismissRequest = { showMonthYearPicker = false },
-            onYearMonthSelected = { newYearMonth ->
-                currentYearMonth = newYearMonth
-                val clampedDay = selectedDate.dayOfMonth.coerceAtMost(newYearMonth.lengthOfMonth())
-                selectedDate = newYearMonth.atDay(clampedDay)
-                showMonthYearPicker = false
-            }
-        )
-    }
-}
-
-private enum class DatePickerStep {
-    YEAR,
-    MONTH
-}
-
-@Composable
-private fun MonthYearPickerDialog(
-    initialYearMonth: YearMonth,
-    minYearMonth: YearMonth,
-    onDismissRequest: () -> Unit,
-    onYearMonthSelected: (YearMonth) -> Unit
-) {
-    var currentStep by remember { mutableStateOf(DatePickerStep.YEAR) }
-    var selectedYear by remember { mutableIntStateOf(initialYearMonth.year) }
-
-    // Strictly starting from 2023 upwards
-    val yearsList = remember { (2023..2040).toList() }
-    val monthsList = remember {
-        listOf(
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-        )
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        shape = RoundedCornerShape(24.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (currentStep == DatePickerStep.YEAR) "Select Year" else "Select Month ($selectedYear)",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                if (currentStep == DatePickerStep.MONTH) {
-                    TextButton(
-                        onClick = { currentStep = DatePickerStep.YEAR }
-                    ) {
-                        Text(
-                            text = "Change Year",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-            }
-        },
-        text = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(260.dp)
-            ) {
-                if (currentStep == DatePickerStep.YEAR) {
-                    // Step 1: Scrollable 3-Column Year Grid
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(yearsList) { year ->
-                            val isSelected = year == selectedYear
-
-                            Box(
-                                modifier = Modifier
-                                    .height(42.dp)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (isSelected) {
-                                            Modifier.background(MomoPrimaryGradient)
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        selectedYear = year
-                                        currentStep = DatePickerStep.MONTH
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "$year",
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 15.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    // Step 2: 12 Months Grid (Auto-dismiss on selection)
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(12) { index ->
-                            val monthIndex = index + 1
-                            val monthName = monthsList[index]
-                            val isSelected = initialYearMonth.year == selectedYear && initialYearMonth.monthValue == monthIndex
-
-                            // Baseline rule: Jan-Oct 2023 locked
-                            val isLocked = selectedYear == minYearMonth.year && monthIndex < minYearMonth.monthValue
-
-                            Box(
-                                modifier = Modifier
-                                    .height(42.dp)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (isSelected) {
-                                            Modifier.background(MomoPrimaryGradient)
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
-                                    .then(
-                                        if (!isLocked) {
-                                            Modifier.clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                onYearMonthSelected(YearMonth.of(selectedYear, monthIndex))
-                                            }
-                                        } else {
-                                            Modifier
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = monthName,
-                                    color = when {
-                                        isSelected -> Color.White
-                                        isLocked -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    },
-                                    fontSize = 15.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(
-                    text = "Close",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-    )
 }
