@@ -79,6 +79,7 @@ fun MomoCalendar(
     var currentYearMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     var currentViewMode by remember { mutableStateOf(CalendarViewMode.DAYS) }
     var drillDownYear by remember { mutableIntStateOf(currentYearMonth.year) }
+    var isDismissViaSelection by remember { mutableStateOf(false) }
 
     val canGoBack = currentYearMonth.isAfter(minYearMonth)
     val daysInMonth = currentYearMonth.lengthOfMonth()
@@ -151,7 +152,7 @@ fun MomoCalendar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Clickable Header that triggers the inline drill-down view
+                // Clickable Header that triggers the inline drill-down view or retracts it back up
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -159,11 +160,13 @@ fun MomoCalendar(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            currentViewMode = if (currentViewMode == CalendarViewMode.DAYS) {
+                            if (currentViewMode == CalendarViewMode.DAYS) {
                                 drillDownYear = currentYearMonth.year
-                                CalendarViewMode.YEARS
+                                isDismissViaSelection = false
+                                currentViewMode = CalendarViewMode.YEARS
                             } else {
-                                CalendarViewMode.DAYS
+                                isDismissViaSelection = false
+                                currentViewMode = CalendarViewMode.DAYS
                             }
                         }
                         .padding(vertical = 4.dp),
@@ -250,7 +253,7 @@ fun MomoCalendar(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 3. Stage Container with Animated Views
+            // 3. Stage Container with Directional Symmetrical Transitions
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -260,7 +263,7 @@ fun MomoCalendar(
                     targetState = currentViewMode,
                     transitionSpec = {
                         when {
-                            // Standard Days -> Years (Top-to-Bottom Slide In)
+                            // Standard Days -> Years (Slide In downwards from Top Header)
                             initialState == CalendarViewMode.DAYS && targetState == CalendarViewMode.YEARS -> {
                                 (slideInVertically(
                                     animationSpec = spring(
@@ -292,21 +295,39 @@ fun MomoCalendar(
                                         ) + fadeOut(tween(140))
                                     )
                             }
-                            // Months -> Days (Auto-dismiss back to Days View)
+                            // Returning to Days: Differentiated by Header Toggle vs Month Selection
                             targetState == CalendarViewMode.DAYS -> {
-                                (scaleIn(
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                    ),
-                                    initialScale = 0.94f
-                                ) + fadeIn(tween(240)))
-                                    .togetherWith(
-                                        scaleOut(
-                                            animationSpec = tween(180),
-                                            targetScale = 0.94f
-                                        ) + fadeOut(tween(160))
-                                    )
+                                if (isDismissViaSelection) {
+                                    // Auto-dismiss after Month Selection: Smooth Scale & Settle
+                                    (scaleIn(
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        ),
+                                        initialScale = 0.94f
+                                    ) + fadeIn(tween(240)))
+                                        .togetherWith(
+                                            scaleOut(
+                                                animationSpec = tween(180),
+                                                targetScale = 0.94f
+                                            ) + fadeOut(tween(160))
+                                        )
+                                } else {
+                                    // Cancelled via Header Tap: Retract from bottom to UP into the header
+                                    (slideInVertically(
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioLowBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        ),
+                                        initialOffsetY = { it / 3 }
+                                    ) + fadeIn(tween(220)))
+                                        .togetherWith(
+                                            slideOutVertically(
+                                                animationSpec = tween(200),
+                                                targetOffsetY = { -it / 2 }
+                                            ) + fadeOut(tween(180))
+                                        )
+                                }
                             }
                             else -> {
                                 fadeIn(tween(180)).togetherWith(fadeOut(tween(180)))
@@ -495,6 +516,7 @@ fun MomoCalendar(
                                                         currentYearMonth = targetYearMonth
                                                         val clampedDay = selectedDate.dayOfMonth.coerceAtMost(targetYearMonth.lengthOfMonth())
                                                         selectedDate = targetYearMonth.atDay(clampedDay)
+                                                        isDismissViaSelection = true
                                                         currentViewMode = CalendarViewMode.DAYS
                                                     }
                                                 } else {
