@@ -35,9 +35,9 @@ fun MainScreen() {
     var canExitApp by remember { mutableStateOf(true) }
     var isWelcomeFinished by rememberSaveable { mutableStateOf(false) }
 
-    // SharedPreferences se saved layout preference read karna
-    var currentLayoutMode by remember {
-        mutableStateOf(WelcomeSettingsPrefs.getSavedLayoutMode(context))
+    // SharedPreferences se saved layout mode read hota hai jo cold start par play hoga
+    val currentLayoutMode = remember {
+        WelcomeSettingsPrefs.getSavedLayoutMode(context)
     }
 
     BackHandler(enabled = !canExitApp) {
@@ -66,12 +66,7 @@ fun MainScreen() {
                         }
                     )
                 } else {
-                    HomeScreen(
-                        onPreviewWelcome = { selectedMode ->
-                            currentLayoutMode = selectedMode
-                            isWelcomeFinished = false // Option change hote hi live animation replay hoga
-                        }
-                    )
+                    HomeScreen()
                 }
             }
         }
