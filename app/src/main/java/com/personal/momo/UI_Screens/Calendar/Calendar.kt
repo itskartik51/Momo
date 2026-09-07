@@ -8,10 +8,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,7 +55,7 @@ fun MomoCalendar(
     modifier: Modifier = Modifier
 ) {
     val today = remember { LocalDate.now() }
-    val minYearMonth = remember { YearMonth.of(2023, 11) } // Lock: Minimum selectable is Nov 2023
+    val minYearMonth = remember { YearMonth.of(2023, 11) } // Baseline Lock: Nov 2023
 
     var selectedDate by remember { mutableStateOf(today) }
     var currentYearMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
@@ -123,7 +127,7 @@ fun MomoCalendar(
 
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Choose Month and Year",
+                        contentDescription = "Choose Year and Month",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp)
                     )
@@ -272,7 +276,7 @@ fun MomoCalendar(
         }
     }
 
-    // Month & Year Picker Dialog with November 2023 Lock
+    // Two-Step Drill-Down Picker (Years -> Months -> Auto-Dismiss)
     if (showMonthYearPicker) {
         MonthYearPickerDialog(
             initialYearMonth = currentYearMonth,
@@ -288,6 +292,11 @@ fun MomoCalendar(
     }
 }
 
+private enum class DatePickerStep {
+    YEAR,
+    MONTH
+}
+
 @Composable
 private fun MonthYearPickerDialog(
     initialYearMonth: YearMonth,
@@ -295,15 +304,17 @@ private fun MonthYearPickerDialog(
     onDismissRequest: () -> Unit,
     onYearMonthSelected: (YearMonth) -> Unit
 ) {
-    var pickerYear by remember { mutableIntStateOf(initialYearMonth.year) }
-    val months = remember {
+    var currentStep by remember { mutableStateOf(DatePickerStep.YEAR) }
+    var selectedYear by remember { mutableIntStateOf(initialYearMonth.year) }
+
+    // Strictly starting from 2023 upwards
+    val yearsList = remember { (2023..2040).toList() }
+    val monthsList = remember {
         listOf(
             "Jan", "Feb", "Mar", "Apr", "May", "Jun",
             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
         )
     }
-
-    val canGoBackYear = pickerYear > minYearMonth.year
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
@@ -315,83 +326,98 @@ private fun MonthYearPickerDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .then(
-                            if (canGoBackYear) {
-                                Modifier.bounceClick(scaleDown = 0.85f) {
-                                    pickerYear -= 1
-                                }
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowLeft,
-                        contentDescription = "Previous Year",
-                        tint = if (canGoBackYear) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
-                        }
-                    )
-                }
-
                 Text(
-                    text = "$pickerYear",
-                    fontSize = 20.sp,
+                    text = if (currentStep == DatePickerStep.YEAR) "Select Year" else "Select Month ($selectedYear)",
+                    fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .bounceClick(scaleDown = 0.85f) {
-                            pickerYear += 1
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowRight,
-                        contentDescription = "Next Year",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
+                if (currentStep == DatePickerStep.MONTH) {
+                    TextButton(
+                        onClick = { currentStep = DatePickerStep.YEAR }
+                    ) {
+                        Text(
+                            text = "Change Year",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         },
         text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
             ) {
-                for (rowIndex in 0 until 4) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                if (currentStep == DatePickerStep.YEAR) {
+                    // Step 1: Scrollable 3-Column Year Grid
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        for (colIndex in 0 until 3) {
-                            val monthIndex = rowIndex * 3 + colIndex + 1
-                            val monthName = months[monthIndex - 1]
-                            val isSelected = initialYearMonth.year == pickerYear && initialYearMonth.monthValue == monthIndex
-
-                            val isLocked = pickerYear == minYearMonth.year && monthIndex < minYearMonth.monthValue
+                        items(yearsList) { year ->
+                            val isSelected = year == selectedYear
 
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .height(42.dp)
+                                    .clip(CircleShape)
                                     .then(
-                                        when {
-                                            isSelected -> Modifier.background(MomoPrimaryGradient)
-                                            isLocked -> Modifier.background(Color.Transparent)
-                                            else -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                        if (isSelected) {
+                                            Modifier.background(MomoPrimaryGradient)
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        selectedYear = year
+                                        currentStep = DatePickerStep.MONTH
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$year",
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Step 2: 12 Months Grid (Auto-dismiss on selection)
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(12) { index ->
+                            val monthIndex = index + 1
+                            val monthName = monthsList[index]
+                            val isSelected = initialYearMonth.year == selectedYear && initialYearMonth.monthValue == monthIndex
+
+                            // Baseline rule: Jan-Oct 2023 locked
+                            val isLocked = selectedYear == minYearMonth.year && monthIndex < minYearMonth.monthValue
+
+                            Box(
+                                modifier = Modifier
+                                    .height(42.dp)
+                                    .clip(CircleShape)
+                                    .then(
+                                        if (isSelected) {
+                                            Modifier.background(MomoPrimaryGradient)
+                                        } else {
+                                            Modifier
                                         }
                                     )
                                     .then(
@@ -400,7 +426,7 @@ private fun MonthYearPickerDialog(
                                                 interactionSource = remember { MutableInteractionSource() },
                                                 indication = null
                                             ) {
-                                                onYearMonthSelected(YearMonth.of(pickerYear, monthIndex))
+                                                onYearMonthSelected(YearMonth.of(selectedYear, monthIndex))
                                             }
                                         } else {
                                             Modifier
@@ -412,10 +438,10 @@ private fun MonthYearPickerDialog(
                                     text = monthName,
                                     color = when {
                                         isSelected -> Color.White
-                                        isLocked -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                        isLocked -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
                                         else -> MaterialTheme.colorScheme.onSurface
                                     },
-                                    fontSize = 14.sp,
+                                    fontSize = 15.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
                             }
@@ -429,8 +455,8 @@ private fun MonthYearPickerDialog(
             TextButton(onClick = onDismissRequest) {
                 Text(
                     text = "Close",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
