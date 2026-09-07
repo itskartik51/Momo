@@ -34,24 +34,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
-
-private val MomoCalendarBadgeGradient = Brush.verticalGradient(
-    colors = listOf(
-        Color(0xFFC91D3B), // Dark Crimson Red (Top)
-        Color(0xFFFF5E79)  // Luminous Coral Red (Bottom)
-    )
-)
 
 @Composable
 fun MomoCalendar(
@@ -243,7 +236,7 @@ fun MomoCalendar(
                                             .clip(CircleShape)
                                             .then(
                                                 if (isSelected) {
-                                                    Modifier.background(brush = MomoCalendarBadgeGradient)
+                                                    Modifier.background(brush = MomoPrimaryGradient)
                                                 } else {
                                                     Modifier
                                                 }
@@ -395,7 +388,7 @@ private fun MonthYearPickerDialog(
                                     .clip(RoundedCornerShape(12.dp))
                                     .then(
                                         when {
-                                            isSelected -> Modifier.background(MomoCalendarBadgeGradient)
+                                            isSelected -> Modifier.background(MomoPrimaryGradient)
                                             isLocked -> Modifier.background(Color.Transparent)
                                             else -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                                         }
