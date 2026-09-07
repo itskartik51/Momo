@@ -98,7 +98,7 @@ fun HomeScreen() {
                 }
             )
 
-            // Dark Contrast Lower Stage
+            // Dark Contrast Lower Stage (Edge-to-edge calendar seating)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -106,9 +106,7 @@ fun HomeScreen() {
                     .background(Color(0xFF060709))
             ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = 16.dp)
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     MomoCalendar()
                 }
