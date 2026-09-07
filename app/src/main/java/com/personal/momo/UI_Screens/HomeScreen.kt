@@ -72,9 +72,7 @@ private val MomoScriptFont = FontFamily(Font(R.font.momo_script))
 private val MomoBoldFont = FontFamily(Font(R.font.momo_bold))
 
 @Composable
-fun HomeScreen(
-    onPreviewWelcome: ((WelcomeLayoutMode) -> Unit)? = null
-) {
+fun HomeScreen() {
     val context = LocalContext.current
     var showSettingsMenu by remember { mutableStateOf(false) }
 
@@ -120,11 +118,7 @@ fun HomeScreen(
         // 3-Dot Floating Settings Popup from wel_set.kt
         WelcomeSettingsPopup(
             isOpen = showSettingsMenu,
-            onDismissRequest = { showSettingsMenu = false },
-            onModeChanged = { mode ->
-                showSettingsMenu = false
-                onPreviewWelcome?.invoke(mode)
-            }
+            onDismissRequest = { showSettingsMenu = false }
         )
     }
 }
