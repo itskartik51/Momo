@@ -65,17 +65,19 @@ fun MomoCalendar(
     val startOffset = currentYearMonth.atDay(1).dayOfWeek.value % 7
     val weekDays = listOf("S", "M", "T", "W", "T", "F", "S")
 
+    val calendarShape = RoundedCornerShape(24.dp)
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
                 elevation = 12.dp,
-                shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+                shape = calendarShape,
                 clip = false,
                 ambientColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.08f),
                 spotColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.12f)
             ),
-        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+        shape = calendarShape,
         color = MaterialTheme.colorScheme.surface
     ) {
         Column(
@@ -378,7 +380,6 @@ private fun MonthYearPickerDialog(
                             val monthName = months[monthIndex - 1]
                             val isSelected = initialYearMonth.year == pickerYear && initialYearMonth.monthValue == monthIndex
 
-                            // Lock check: In 2023, months before November (Jan-Oct) are locked
                             val isLocked = pickerYear == minYearMonth.year && monthIndex < minYearMonth.monthValue
 
                             Box(
