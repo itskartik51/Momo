@@ -48,7 +48,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Teeno presentation styles:
- * - OVERLAY: Logo style (hello cursive MOMO typography ke andar 4 letters ke contact me draw hoga)
+ * - OVERLAY: Logo style (hello cursive MOMO typography ke andar 72-77% width span par draw hoga)
  * - INLINE: Side-by-side (hello aur MOMO ek horizontal line me)
  * - STACKED: Vertical elegance (hello upar aur MOMO theek uske niche)
  */
@@ -182,8 +182,8 @@ fun WelcomeScreen(
 /**
  * Mode 1: Exact Brand Logo Overlap Layout
  * MOMO is locked at 76.sp.
- * hello is calibrated to span from the first 'M' across to the final 'O'
- * without exceeding the boundary of MOMO.
+ * hello is calibrated to 218.dp width (74.5-75% coverage of MOMO)
+ * with vertical height strictly locked at 48.dp.
  */
 @Composable
 private fun OverlayLayout(
@@ -210,10 +210,10 @@ private fun OverlayLayout(
                 }
         )
 
-        // Overlay: Cursive Hello with extended ligatures matching MOMO width
+        // Overlay: Cursive Hello calibrated to 72-77% span (218.dp) with locked 48.dp height
         AppleCursiveHelloCanvas(
             modifier = Modifier
-                .size(width = 240.dp, height = 48.dp),
+                .size(width = 218.dp, height = 48.dp),
             progress = drawProgress,
             strokeColor = strokeColor,
             strokeWidth = 2.dp
@@ -303,11 +303,10 @@ private fun StackedLayout(
 
 /**
  * Precision Cursive Handwriting Engine.
- * - 'h': Natural upward entry across first 'M', straight vertical stem drop, rounded arch shoulder.
- * - 'e': Authentic eyelet loop crossing back over its entry stroke.
- * - 'l' & 'l': Harmonious ascenders looping at waistline height.
- * - 'o': Round oval finish with horizontal flourish spanning across final 'O'.
- * - Ligatures: Stretched horizontally so 'hello' spans the 4 MOMO letters without overshooting in height.
+ * - 'h': Upward diagonal entry, straight vertical stem drop, rounded arch shoulder.
+ * - 'e': Authentic eyelet loop crossing back over entry stroke.
+ * - 'l' & 'l': Ascender loops aligned within waistline.
+ * - 'o': Round oval finish with horizontal flourish across final letter.
  */
 @Composable
 fun AppleCursiveHelloCanvas(
@@ -322,55 +321,41 @@ fun AppleCursiveHelloCanvas(
     val fullPath = remember {
         android.graphics.Path().apply {
             // --- Entry & 'h' ---
-            // Entry stroke starts across the first 'M'
             moveTo(20f, 75f)
             cubicTo(42f, 75f, 62f, 70f, 82f, 45f)
-            // 'h' ascender loop to apex
             cubicTo(92f, 30f, 98f, 15f, 106f, 15f)
             cubicTo(112f, 15f, 112f, 24f, 108f, 40f)
-            // Straight vertical stem drop to baseline
             cubicTo(104f, 56f, 98f, 74f, 96f, 85f)
-            // Up to rounded shoulder
             cubicTo(96f, 68f, 106f, 53f, 122f, 53f)
             cubicTo(134f, 53f, 140f, 64f, 140f, 75f)
             cubicTo(140f, 82f, 144f, 85f, 152f, 85f)
 
             // --- Ligature to 'e' & 'e' Loop ---
-            // Extended ligature spanning across towards second letter
             cubicTo(168f, 85f, 188f, 82f, 206f, 66f)
             cubicTo(216f, 58f, 226f, 52f, 232f, 52f)
-            // Closed eyelet loop crossing over entry line
             cubicTo(238f, 52f, 240f, 60f, 234f, 68f)
             cubicTo(225f, 76f, 210f, 82f, 206f, 84f)
             cubicTo(214f, 86f, 226f, 86f, 242f, 82f)
 
             // --- Ligature to first 'l' & 'l1' ---
-            // Ligature spanning across middle 'M'
             cubicTo(258f, 78f, 276f, 64f, 290f, 42f)
-            // First 'l' ascender loop
             cubicTo(300f, 26f, 308f, 15f, 316f, 15f)
             cubicTo(322f, 15f, 322f, 25f, 317f, 45f)
-            // Straight drop to baseline
             cubicTo(311f, 66f, 306f, 78f, 312f, 85f)
             cubicTo(316f, 87f, 324f, 86f, 336f, 80f)
 
             // --- Ligature to second 'l' & 'l2' ---
-            // Ligature stretching towards final 'O'
             cubicTo(350f, 74f, 368f, 58f, 380f, 38f)
-            // Second 'l' ascender loop
             cubicTo(388f, 24f, 396f, 15f, 404f, 15f)
             cubicTo(410f, 15f, 410f, 25f, 405f, 45f)
-            // Straight drop to baseline
             cubicTo(399f, 66f, 395f, 78f, 401f, 85f)
             cubicTo(405f, 87f, 414f, 86f, 424f, 80f)
 
             // --- Ligature to 'o', 'o' Oval & Exit Flourish ---
             cubicTo(434f, 74f, 442f, 62f, 452f, 55f)
-            // Circular oval of 'o'
             cubicTo(462f, 48f, 474f, 52f, 478f, 62f)
             cubicTo(482f, 72f, 476f, 85f, 464f, 85f)
             cubicTo(452f, 85f, 446f, 74f, 450f, 63f)
-            // Top exit loop and horizontal sweep across final 'O'
             cubicTo(454f, 54f, 464f, 52f, 474f, 56f)
             cubicTo(486f, 60f, 500f, 62f, 515f, 60f)
         }
