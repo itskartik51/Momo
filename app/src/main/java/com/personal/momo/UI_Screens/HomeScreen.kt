@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,13 +61,6 @@ private val BellIcon: ImageVector by lazy {
     ).build()
 }
 
-val MomoLogoGradient = Brush.verticalGradient(
-    colors = listOf(
-        Color(0xFFC91D3B), // Dark Crimson Red (Top)
-        Color(0xFFFF5E79)  // Luminous Coral Red (Bottom)
-    )
-)
-
 private val MomoScriptFont = FontFamily(Font(R.font.momo_script))
 private val MomoBoldFont = FontFamily(Font(R.font.momo_bold))
 
@@ -98,12 +91,14 @@ fun HomeScreen() {
                 }
             )
 
-            // Dark Contrast Lower Stage (Edge-to-edge calendar seating)
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Stage area with theme adaptive background
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .background(Color(0xFF060709))
+                    .background(MaterialTheme.colorScheme.background)
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize()
@@ -179,7 +174,7 @@ private fun HomeHeader(
                     fontFamily = MomoBoldFont,
                     fontSize = 20.sp,
                     letterSpacing = 0.5.sp,
-                    style = TextStyle(brush = MomoLogoGradient)
+                    style = TextStyle(brush = MomoPrimaryGradient)
                 )
             }
         }
