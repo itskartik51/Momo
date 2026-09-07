@@ -26,11 +26,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import com.personal.momo.UI_Screens.Settings.WelcomeSettingsPrefs
 
 @Composable
 fun MainScreen() {
+    val context = LocalContext.current
     var canExitApp by remember { mutableStateOf(true) }
     var isWelcomeFinished by rememberSaveable { mutableStateOf(false) }
+
+    // SharedPreferences se saved layout preference read karna
+    var currentLayoutMode by remember {
+        mutableStateOf(WelcomeSettingsPrefs.getSavedLayoutMode(context))
+    }
 
     BackHandler(enabled = !canExitApp) {
         canExitApp = true
@@ -52,13 +60,18 @@ fun MainScreen() {
             ) { finished ->
                 if (!finished) {
                     WelcomeScreen(
-                        layoutMode = WelcomeLayoutMode.OVERLAY,
+                        layoutMode = currentLayoutMode,
                         onAnimationFinished = {
                             isWelcomeFinished = true
                         }
                     )
                 } else {
-                    HomeScreen()
+                    HomeScreen(
+                        onPreviewWelcome = { selectedMode ->
+                            currentLayoutMode = selectedMode
+                            isWelcomeFinished = false // Option change hote hi live animation replay hoga
+                        }
+                    )
                 }
             }
         }
