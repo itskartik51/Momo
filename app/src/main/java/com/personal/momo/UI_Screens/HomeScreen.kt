@@ -22,6 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,6 +44,7 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
+import com.personal.momo.UI_Screens.Settings.WelcomeSettingsPopup
 
 private val BellIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -70,6 +74,7 @@ private val MomoBoldFont = FontFamily(Font(R.font.momo_bold))
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
+    var showSettingsMenu by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         CacheManager.init(context)
@@ -77,34 +82,52 @@ fun HomeScreen() {
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Header
-        HomeHeader(avatarUrl = avatarUrl)
-
-        // Dark Contrast Lower Stage
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .background(Color(0xFF060709))
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(
+            // Header
+            HomeHeader(
+                avatarUrl = avatarUrl,
+                onMoreOptionsClick = {
+                    showSettingsMenu = !showSettingsMenu
+                }
+            )
+
+            // Dark Contrast Lower Stage
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = 16.dp)
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(Color(0xFF060709))
             ) {
-                MomoCalendar()
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 16.dp)
+                ) {
+                    MomoCalendar()
+                }
             }
         }
+
+        // 3-Dot Floating Settings Popup from wel_set.kt
+        WelcomeSettingsPopup(
+            isOpen = showSettingsMenu,
+            onDismissRequest = { showSettingsMenu = false }
+        )
     }
 }
 
 @Composable
-private fun HomeHeader(avatarUrl: String?) {
+private fun HomeHeader(
+    avatarUrl: String?,
+    onMoreOptionsClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -190,7 +213,7 @@ private fun HomeHeader(avatarUrl: String?) {
                     .size(40.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.88f) {
-                        // Options menu click
+                        onMoreOptionsClick()
                     },
                 contentAlignment = Alignment.Center
             ) {
