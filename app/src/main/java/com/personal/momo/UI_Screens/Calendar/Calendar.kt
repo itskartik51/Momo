@@ -58,9 +58,10 @@ fun MomoCalendar(
     modifier: Modifier = Modifier
 ) {
     val today = remember { LocalDate.now() }
+    val minYearMonth = remember { YearMonth.of(2023, 11) } // Lock: Minimum selectable is Nov 2023
+
     var selectedDate by remember { mutableStateOf(today) }
     var currentYearMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
-    val minYearMonth = remember { YearMonth.of(2020, 1) }
 
     var showMonthYearPicker by remember { mutableStateOf(false) }
 
@@ -71,7 +72,6 @@ fun MomoCalendar(
     val startOffset = currentYearMonth.atDay(1).dayOfWeek.value % 7
     val weekDays = listOf("S", "M", "T", "W", "T", "F", "S")
 
-    // Full-width edge-to-edge surface card with soft shadow and no border
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -90,7 +90,7 @@ fun MomoCalendar(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
-            // 1. Prominent Hero Selected Date
+            // 1. Hero Date Header
             Text(
                 text = "${selectedDate.dayOfMonth} ${selectedDate.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${selectedDate.year}",
                 fontSize = 30.sp,
@@ -100,13 +100,12 @@ fun MomoCalendar(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 2. Month & Year Selector Trigger + Month Navigation Arrows
+            // 2. Month-Year Selector Trigger + Navigation
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Clickable Month & Year Dropdown Trigger
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -135,7 +134,6 @@ fun MomoCalendar(
                     )
                 }
 
-                // Month Nav Arrows
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -188,7 +186,7 @@ fun MomoCalendar(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 3. Days of Week Header (Sunday to Saturday)
+            // 3. Weekday Labels (Sunday to Saturday)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -209,7 +207,7 @@ fun MomoCalendar(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // 4. Calendar Days Grid (6 Rows for layout stability)
+            // 4. Days Grid
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -279,10 +277,11 @@ fun MomoCalendar(
         }
     }
 
-    // Month & Year Picker Dialog
+    // Month & Year Picker Dialog with November 2023 Lock
     if (showMonthYearPicker) {
         MonthYearPickerDialog(
             initialYearMonth = currentYearMonth,
+            minYearMonth = minYearMonth,
             onDismissRequest = { showMonthYearPicker = false },
             onYearMonthSelected = { newYearMonth ->
                 currentYearMonth = newYearMonth
@@ -297,6 +296,7 @@ fun MomoCalendar(
 @Composable
 private fun MonthYearPickerDialog(
     initialYearMonth: YearMonth,
+    minYearMonth: YearMonth,
     onDismissRequest: () -> Unit,
     onYearMonthSelected: (YearMonth) -> Unit
 ) {
@@ -307,6 +307,8 @@ private fun MonthYearPickerDialog(
             "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
         )
     }
+
+    val canGoBackYear = pickerYear > minYearMonth.year
 
     AlertDialog(
         onDismissRequest = onDismissRequest,
@@ -322,15 +324,25 @@ private fun MonthYearPickerDialog(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .bounceClick(scaleDown = 0.85f) {
-                            pickerYear -= 1
-                        },
+                        .then(
+                            if (canGoBackYear) {
+                                Modifier.bounceClick(scaleDown = 0.85f) {
+                                    pickerYear -= 1
+                                }
+                            } else {
+                                Modifier
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowLeft,
                         contentDescription = "Previous Year",
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = if (canGoBackYear) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+                        }
                     )
                 }
 
@@ -373,29 +385,42 @@ private fun MonthYearPickerDialog(
                             val monthName = months[monthIndex - 1]
                             val isSelected = initialYearMonth.year == pickerYear && initialYearMonth.monthValue == monthIndex
 
+                            // Lock check: In 2023, months before November (Jan-Oct) are locked
+                            val isLocked = pickerYear == minYearMonth.year && monthIndex < minYearMonth.monthValue
+
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(44.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .then(
-                                        if (isSelected) {
-                                            Modifier.background(MomoCalendarBadgeGradient)
-                                        } else {
-                                            Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                        when {
+                                            isSelected -> Modifier.background(MomoCalendarBadgeGradient)
+                                            isLocked -> Modifier.background(Color.Transparent)
+                                            else -> Modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                                         }
                                     )
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        onYearMonthSelected(YearMonth.of(pickerYear, monthIndex))
-                                    },
+                                    .then(
+                                        if (!isLocked) {
+                                            Modifier.clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                onYearMonthSelected(YearMonth.of(pickerYear, monthIndex))
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = monthName,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    color = when {
+                                        isSelected -> Color.White
+                                        isLocked -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    },
                                     fontSize = 14.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
