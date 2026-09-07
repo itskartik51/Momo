@@ -247,13 +247,10 @@ fun WelcomeSettingsPopup(
                                                     currentMode = mode
                                                     WelcomeSettingsPrefs.saveLayoutMode(context, mode)
                                                     coroutineScope.launch {
-                                                        delay(260) // Slide animation settle delay
+                                                        delay(260)
                                                         toastMessage = "$label mode applied"
-                                                        onDismissRequest()
                                                         onModeChanged?.invoke(mode)
                                                     }
-                                                } else {
-                                                    onDismissRequest()
                                                 }
                                             },
                                         contentAlignment = Alignment.Center
