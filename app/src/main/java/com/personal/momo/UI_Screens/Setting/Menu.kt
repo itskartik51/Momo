@@ -1,7 +1,17 @@
 package com.personal.momo.UI_Screens.Settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,20 +26,115 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.WelcomeLayoutMode
 import com.personal.momo.UI_Screens.bounceClick
+
+@Composable
+fun ExpandableMenuTile(
+    icon: ImageVector,
+    title: String,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    badge: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "TileArrowRot"
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .bounceClick(scaleDown = 0.98f) { onToggle() }
+                .padding(vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(22.dp)
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    badge?.invoke()
+                }
+            }
+
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .rotate(arrowRotation)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(animationSpec = tween(200)),
+            exit = shrinkVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            ) + fadeOut(animationSpec = tween(150))
+        ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                content()
+            }
+        }
+    }
+}
 
 @Composable
 fun MenuScreen(
@@ -42,6 +147,8 @@ fun MenuScreen(
     }
 
     val scrollState = rememberScrollState()
+    var isWelcomeExpanded by remember { mutableStateOf(false) }
+    var isUpdateExpanded by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -95,7 +202,14 @@ fun MenuScreen(
                     .padding(horizontal = 20.dp, vertical = 8.dp)
             ) {
                 // 1. Welcome Note Setting Row
-                WelcomeNoteRow(onModeChanged = onModeChanged)
+                ExpandableMenuTile(
+                    icon = Icons.Default.AutoAwesome,
+                    title = "Welcome Note",
+                    isExpanded = isWelcomeExpanded,
+                    onToggle = { isWelcomeExpanded = !isWelcomeExpanded }
+                ) {
+                    WelcomeSettingsContent(onModeChanged = onModeChanged)
+                }
 
                 HorizontalDivider(
                     thickness = 1.dp,
@@ -103,7 +217,24 @@ fun MenuScreen(
                 )
 
                 // 2. RupeeFlow-Inspired App Update Row
-                AppUpdateRow(isUpdateAvailableBadge = isUpdateAvailable)
+                ExpandableMenuTile(
+                    icon = Icons.Default.Download,
+                    title = "App Update",
+                    isExpanded = isUpdateExpanded,
+                    onToggle = { isUpdateExpanded = !isUpdateExpanded },
+                    badge = {
+                        if (isUpdateAvailable && !isUpdateExpanded) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(brush = MomoPrimaryGradient)
+                            )
+                        }
+                    }
+                ) {
+                    AppUpdateContent(isExpanded = isUpdateExpanded)
+                }
 
                 HorizontalDivider(
                     thickness = 1.dp,
