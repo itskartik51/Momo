@@ -234,13 +234,13 @@ fun AppUpdateContent(isExpanded: Boolean) {
                     modifier = Modifier
                         .size(50.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        .background(brush = MomoPrimaryGradient),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.SystemUpdate,
                         contentDescription = "Momo",
-                        tint = MaterialTheme.colorScheme.onSurface,
+                        tint = Color.White,
                         modifier = Modifier.size(24.dp)
                     )
                 }
