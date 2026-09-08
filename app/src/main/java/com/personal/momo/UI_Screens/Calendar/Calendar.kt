@@ -53,12 +53,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -68,7 +66,7 @@ import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import java.time.LocalDate
 import java.time.YearMonth
-import java.time.format.TextStyle
+import java.time.format.TextStyle as DateTextStyle
 import java.util.Locale
 
 private enum class CalendarViewMode {
@@ -169,7 +167,7 @@ fun MomoCalendar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${selectedDate.dayOfMonth} ${selectedDate.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ",
+                    text = "${selectedDate.dayOfMonth} ${selectedDate.month.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH)} ",
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -179,7 +177,7 @@ fun MomoCalendar(
                     text = "${selectedDate.year}",
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
-                    style = androidx.compose.ui.text.TextStyle(brush = MomoPrimaryGradient)
+                    style = TextStyle(brush = MomoPrimaryGradient)
                 )
             }
 
@@ -211,7 +209,7 @@ fun MomoCalendar(
                 ) {
                     Text(
                         text = when (currentViewMode) {
-                            CalendarViewMode.DAYS -> "${currentYearMonth.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${currentYearMonth.year}"
+                            CalendarViewMode.DAYS -> "${currentYearMonth.month.getDisplayName(DateTextStyle.FULL, Locale.ENGLISH)} ${currentYearMonth.year}"
                             CalendarViewMode.YEARS -> "Select Year"
                             CalendarViewMode.MONTHS -> "Select Month ($drillDownYear)"
                         },
@@ -396,9 +394,6 @@ fun MomoCalendar(
 
                                                     // Status logic
                                                     val isPeriod = currentDate in confirmedBleedDates
-                                                    val prevPeriod = (col > 0) && (currentDate.minusDays(1) in confirmedBleedDates)
-                                                    val nextPeriod = (col < 6) && (currentDate.plusDays(1) in confirmedBleedDates)
-
                                                     val isFertile = currentDate in fertileDates
                                                     val isOvulation = cyclePrediction != null && currentDate.isEqual(cyclePrediction.ovulationDate)
                                                     val isSelected = selectedDate == currentDate
@@ -412,50 +407,9 @@ fun MomoCalendar(
                                                                 val cx = size.width / 2f
                                                                 val cy = size.height / 2f
                                                                 val r = 19.dp.toPx()
-                                                                val top = cy - r
-                                                                val bottom = cy + r
 
-                                                                // 1. Draw Confirmed Period Solid Gradient Pill
-                                                                if (isPeriod) {
-                                                                    when {
-                                                                        !prevPeriod && !nextPeriod -> {
-                                                                            drawCircle(
-                                                                                brush = MomoPrimaryGradient,
-                                                                                radius = r,
-                                                                                center = Offset(cx, cy)
-                                                                            )
-                                                                        }
-                                                                        !prevPeriod && nextPeriod -> {
-                                                                            val path = Path().apply {
-                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 90f, 180f, false)
-                                                                                lineTo(size.width + 1f, top)
-                                                                                lineTo(size.width + 1f, bottom)
-                                                                                close()
-                                                                            }
-                                                                            drawPath(path = path, brush = MomoPrimaryGradient)
-                                                                        }
-                                                                        prevPeriod && nextPeriod -> {
-                                                                            drawRect(
-                                                                                brush = MomoPrimaryGradient,
-                                                                                topLeft = Offset(-1f, top),
-                                                                                size = Size(size.width + 2f, 2 * r)
-                                                                            )
-                                                                        }
-                                                                        prevPeriod && !nextPeriod -> {
-                                                                            val path = Path().apply {
-                                                                                moveTo(-1f, top)
-                                                                                lineTo(cx, top)
-                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 270f, 180f, false)
-                                                                                lineTo(-1f, bottom)
-                                                                                close()
-                                                                            }
-                                                                            drawPath(path = path, brush = MomoPrimaryGradient)
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                // 2. Draw Peak Ovulation Accent Dotted Circle
-                                                                if (isOvulation && !isPeriod) {
+                                                                // 1. Peak Ovulation Accent Dotted Circle
+                                                                if (isOvulation) {
                                                                     val dashEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
                                                                     drawCircle(
                                                                         color = ovulationSkyBlue.copy(alpha = 0.08f),
@@ -470,20 +424,22 @@ fun MomoCalendar(
                                                                     )
                                                                 }
 
-                                                                // 3. Selection Highlight
-                                                                if (isSelected && !isPeriod) {
-                                                                    drawCircle(
-                                                                        brush = MomoPrimaryGradient,
-                                                                        radius = r,
-                                                                        center = Offset(cx, cy)
-                                                                    )
-                                                                } else if (isSelected && isPeriod) {
-                                                                    drawCircle(
-                                                                        color = Color.White.copy(alpha = 0.9f),
-                                                                        radius = r - 2.5.dp.toPx(),
-                                                                        center = Offset(cx, cy),
-                                                                        style = Stroke(width = 1.8.dp.toPx())
-                                                                    )
+                                                                // 2. Selection Ring / Fill Highlight
+                                                                if (isSelected) {
+                                                                    if (isPeriod) {
+                                                                        drawCircle(
+                                                                            brush = MomoPrimaryGradient,
+                                                                            radius = r,
+                                                                            center = Offset(cx, cy),
+                                                                            style = Stroke(width = 1.8.dp.toPx())
+                                                                        )
+                                                                    } else {
+                                                                        drawCircle(
+                                                                            brush = MomoPrimaryGradient,
+                                                                            radius = r,
+                                                                            center = Offset(cx, cy)
+                                                                        )
+                                                                    }
                                                                 }
                                                             }
                                                             .clickable(
@@ -496,12 +452,12 @@ fun MomoCalendar(
                                                     ) {
                                                         Text(
                                                             text = "$dayNumber",
-                                                            color = when {
-                                                                isPeriod -> Color.White
-                                                                isSelected -> Color.White
-                                                                isFertile -> ovulationSkyBlue
-                                                                isToday -> MaterialTheme.colorScheme.primary
-                                                                else -> MaterialTheme.colorScheme.onSurface
+                                                            style = when {
+                                                                isPeriod -> TextStyle(brush = MomoPrimaryGradient)
+                                                                isSelected -> TextStyle(color = Color.White)
+                                                                isFertile -> TextStyle(color = ovulationSkyBlue)
+                                                                isToday -> TextStyle(color = MaterialTheme.colorScheme.primary)
+                                                                else -> TextStyle(color = MaterialTheme.colorScheme.onSurface)
                                                             },
                                                             fontSize = 15.sp,
                                                             fontWeight = if (isPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
