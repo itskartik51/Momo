@@ -46,7 +46,7 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
-import com.personal.momo.UI_Screens.Settings.WelcomeSettingsPopup
+import com.personal.momo.UI_Screens.Settings.MomoMenuPopup
 import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
 
 private val BellIcon: ImageVector by lazy {
@@ -112,7 +112,7 @@ fun HomeScreen() {
             }
         }
 
-        WelcomeSettingsPopup(
+        MomoMenuPopup(
             isOpen = showSettingsMenu,
             onDismissRequest = { showSettingsMenu = false },
             isUpdateAvailable = isUpdateAvailable
@@ -138,7 +138,6 @@ private fun HomeHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left Profile Avatar & Typography Branding
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -189,7 +188,6 @@ private fun HomeHeader(
                 }
             }
 
-            // Right Action Buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
