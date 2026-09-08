@@ -1,0 +1,6 @@
+{
+  "latest_version_code": 1,
+  "latest_version_name": "v1.0.0",
+  "release_notes": "Initial stable release with dynamic cycle engine and in-app OTA updater.",
+  "apk_url": "https://raw.githubusercontent.com/itskartik51/Momo/main/Updates/Momo_Update.apk"
+}
