@@ -1,9 +1,5 @@
 package com.personal.momo.UI_Screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -83,52 +79,40 @@ fun HomeScreen() {
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
-    AnimatedContent(
-        targetState = isMenuOpen,
-        transitionSpec = {
-            if (targetState) {
-                slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
-            } else {
-                slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
-            }
-        },
-        label = "HomeScreenNavigationTransition"
-    ) { openMenu ->
-        if (openMenu) {
-            MenuScreen(
-                onBack = { isMenuOpen = false },
-                isUpdateAvailable = isUpdateAvailable
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
+    if (isMenuOpen) {
+        MenuScreen(
+            onBack = { isMenuOpen = false },
+            isUpdateAvailable = isUpdateAvailable
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
+                HomeHeader(
+                    avatarUrl = avatarUrl,
+                    isUpdateAvailable = isUpdateAvailable,
+                    onMenuClick = {
+                        isMenuOpen = true
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
-                    HomeHeader(
-                        avatarUrl = avatarUrl,
-                        isUpdateAvailable = isUpdateAvailable,
-                        onMenuClick = {
-                            isMenuOpen = true
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .background(MaterialTheme.colorScheme.background)
+                    Column(
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            MomoCalendar()
-                        }
+                        MomoCalendar()
                     }
                 }
             }
