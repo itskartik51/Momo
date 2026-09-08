@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,13 +49,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import java.time.LocalDate
@@ -79,7 +88,36 @@ fun MomoCalendar(
     var currentYearMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     var currentViewMode by remember { mutableStateOf(CalendarViewMode.DAYS) }
     var drillDownYear by remember { mutableIntStateOf(currentYearMonth.year) }
-    var isDismissViaSelection by remember { mutableStateOf(false) }
+
+    // 1. Collect real historical period dates from CacheManager
+    val loggedPeriodDates by CacheManager.periodDatesFlow.collectAsState()
+
+    // 2. Derive cycle predictions via ApyBdayCalculator engine
+    val cyclePrediction = remember(loggedPeriodDates) {
+        ApyBdayCalculator.calculateCycle(loggedPeriodDates)
+    }
+
+    // 3. Expand 5-day bleeding span for each logged start date
+    val confirmedBleedDates = remember(loggedPeriodDates) {
+        loggedPeriodDates.flatMap { startDate ->
+            (0L..4L).map { offset -> startDate.plusDays(offset) }
+        }.toSet()
+    }
+
+    // 4. Expand fertile window range
+    val fertileDates = remember(cyclePrediction) {
+        if (cyclePrediction != null) {
+            var curr = cyclePrediction.fertileWindowStart
+            val datesSet = mutableSetOf<LocalDate>()
+            while (!curr.isAfter(cyclePrediction.fertileWindowEnd)) {
+                datesSet.add(curr)
+                curr = curr.plusDays(1)
+            }
+            datesSet
+        } else {
+            emptySet()
+        }
+    }
 
     val canGoBack = currentYearMonth.isAfter(minYearMonth)
     val daysInMonth = currentYearMonth.lengthOfMonth()
@@ -106,6 +144,8 @@ fun MomoCalendar(
     )
 
     val calendarShape = RoundedCornerShape(24.dp)
+    val fertileOutlineColor = Color(0xFFB39DDB)
+    val ovulationDotColor = Color(0xFFBA68C8)
 
     Surface(
         modifier = modifier
@@ -125,7 +165,7 @@ fun MomoCalendar(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
-            // 1. Hero Date Header (Date & Month standard, Year in MomoPrimaryGradient)
+            // 1. Hero Date Header
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -152,7 +192,6 @@ fun MomoCalendar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Clickable Header that triggers the inline drill-down view or retracts it back up
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -160,13 +199,11 @@ fun MomoCalendar(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            if (currentViewMode == CalendarViewMode.DAYS) {
+                            currentViewMode = if (currentViewMode == CalendarViewMode.DAYS) {
                                 drillDownYear = currentYearMonth.year
-                                isDismissViaSelection = false
-                                currentViewMode = CalendarViewMode.YEARS
+                                CalendarViewMode.YEARS
                             } else {
-                                isDismissViaSelection = false
-                                currentViewMode = CalendarViewMode.DAYS
+                                CalendarViewMode.DAYS
                             }
                         }
                         .padding(vertical = 4.dp),
@@ -194,7 +231,6 @@ fun MomoCalendar(
                     )
                 }
 
-                // Month Nav Arrows (Visible only in standard Days mode)
                 AnimatedVisibility(
                     visible = currentViewMode == CalendarViewMode.DAYS,
                     enter = fadeIn(animationSpec = tween(150)),
@@ -253,7 +289,7 @@ fun MomoCalendar(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // 3. Stage Container with Directional Symmetrical Transitions
+            // 3. Stage Container with Animated Views
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -263,7 +299,6 @@ fun MomoCalendar(
                     targetState = currentViewMode,
                     transitionSpec = {
                         when {
-                            // Standard Days -> Years (Slide In downwards from Top Header)
                             initialState == CalendarViewMode.DAYS && targetState == CalendarViewMode.YEARS -> {
                                 (slideInVertically(
                                     animationSpec = spring(
@@ -279,7 +314,6 @@ fun MomoCalendar(
                                         ) + fadeOut(tween(160))
                                     )
                             }
-                            // Years -> Months (Fluid Zoom-In Transition)
                             initialState == CalendarViewMode.YEARS && targetState == CalendarViewMode.MONTHS -> {
                                 (scaleIn(
                                     animationSpec = spring(
@@ -295,39 +329,20 @@ fun MomoCalendar(
                                         ) + fadeOut(tween(140))
                                     )
                             }
-                            // Returning to Days: Differentiated by Header Toggle vs Month Selection
                             targetState == CalendarViewMode.DAYS -> {
-                                if (isDismissViaSelection) {
-                                    // Auto-dismiss after Month Selection: Smooth Scale & Settle
-                                    (scaleIn(
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessMedium
-                                        ),
-                                        initialScale = 0.94f
-                                    ) + fadeIn(tween(240)))
-                                        .togetherWith(
-                                            scaleOut(
-                                                animationSpec = tween(180),
-                                                targetScale = 0.94f
-                                            ) + fadeOut(tween(160))
-                                        )
-                                } else {
-                                    // Cancelled via Header Tap: Retract from bottom to UP into the header
-                                    (slideInVertically(
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioLowBouncy,
-                                            stiffness = Spring.StiffnessMediumLow
-                                        ),
-                                        initialOffsetY = { it / 3 }
-                                    ) + fadeIn(tween(220)))
-                                        .togetherWith(
-                                            slideOutVertically(
-                                                animationSpec = tween(200),
-                                                targetOffsetY = { -it / 2 }
-                                            ) + fadeOut(tween(180))
-                                        )
-                                }
+                                (scaleIn(
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                    ),
+                                    initialScale = 0.94f
+                                ) + fadeIn(tween(240)))
+                                    .togetherWith(
+                                        scaleOut(
+                                            animationSpec = tween(180),
+                                            targetScale = 0.94f
+                                        ) + fadeOut(tween(160))
+                                    )
                             }
                             else -> {
                                 fadeIn(tween(180)).togetherWith(fadeOut(tween(180)))
@@ -337,7 +352,6 @@ fun MomoCalendar(
                     label = "CalendarDrillDownTransition"
                 ) { viewMode ->
                     when (viewMode) {
-                        // Standard Calendar View
                         CalendarViewMode.DAYS -> {
                             Column(modifier = Modifier.fillMaxSize()) {
                                 // Weekday Labels
@@ -378,53 +392,178 @@ fun MomoCalendar(
                                                 val cellIndex = row * 7 + col
                                                 val dayNumber = cellIndex - startOffset + 1
 
-                                                Box(
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .height(42.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    if (dayNumber in 1..daysInMonth) {
-                                                        val isSelected = selectedDate.year == currentYearMonth.year &&
-                                                                selectedDate.monthValue == currentYearMonth.monthValue &&
-                                                                selectedDate.dayOfMonth == dayNumber
+                                                if (dayNumber in 1..daysInMonth) {
+                                                    val currentDate = currentYearMonth.atDay(dayNumber)
 
-                                                        val isToday = today.year == currentYearMonth.year &&
-                                                                today.monthValue == currentYearMonth.monthValue &&
-                                                                dayNumber == today.dayOfMonth
+                                                    // Status logic
+                                                    val isPeriod = currentDate in confirmedBleedDates
+                                                    val prevPeriod = (col > 0) && (currentDate.minusDays(1) in confirmedBleedDates)
+                                                    val nextPeriod = (col < 6) && (currentDate.plusDays(1) in confirmedBleedDates)
 
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(38.dp)
-                                                                .clip(CircleShape)
-                                                                .then(
-                                                                    if (isSelected) {
-                                                                        Modifier.background(brush = MomoPrimaryGradient)
-                                                                    } else {
-                                                                        Modifier
+                                                    val isFertile = currentDate in fertileDates
+                                                    val prevFertile = (col > 0) && (currentDate.minusDays(1) in fertileDates)
+                                                    val nextFertile = (col < 6) && (currentDate.plusDays(1) in fertileDates)
+
+                                                    val isOvulation = cyclePrediction != null && currentDate.isEqual(cyclePrediction.ovulationDate)
+                                                    val isSelected = selectedDate == currentDate
+                                                    val isToday = today == currentDate
+
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(42.dp)
+                                                            .drawBehind {
+                                                                val cx = size.width / 2f
+                                                                val cy = size.height / 2f
+                                                                val r = 19.dp.toPx()
+                                                                val top = cy - r
+                                                                val bottom = cy + r
+
+                                                                // 1. Draw Confirmed Period Solid Gradient Pill
+                                                                if (isPeriod) {
+                                                                    when {
+                                                                        !prevPeriod && !nextPeriod -> {
+                                                                            drawCircle(
+                                                                                brush = MomoPrimaryGradient,
+                                                                                radius = r,
+                                                                                center = Offset(cx, cy)
+                                                                            )
+                                                                        }
+                                                                        !prevPeriod && nextPeriod -> {
+                                                                            val path = Path().apply {
+                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 90f, 180f, false)
+                                                                                lineTo(size.width + 1f, top)
+                                                                                lineTo(size.width + 1f, bottom)
+                                                                                close()
+                                                                            }
+                                                                            drawPath(path = path, brush = MomoPrimaryGradient)
+                                                                        }
+                                                                        prevPeriod && nextPeriod -> {
+                                                                            drawRect(
+                                                                                brush = MomoPrimaryGradient,
+                                                                                topLeft = Offset(-1f, top),
+                                                                                size = Size(size.width + 2f, 2 * r)
+                                                                            )
+                                                                        }
+                                                                        prevPeriod && !nextPeriod -> {
+                                                                            val path = Path().apply {
+                                                                                moveTo(-1f, top)
+                                                                                lineTo(cx, top)
+                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 270f, 180f, false)
+                                                                                lineTo(-1f, bottom)
+                                                                                close()
+                                                                            }
+                                                                            drawPath(path = path, brush = MomoPrimaryGradient)
+                                                                        }
                                                                     }
-                                                                )
-                                                                .clickable(
-                                                                    interactionSource = remember { MutableInteractionSource() },
-                                                                    indication = null
-                                                                ) {
-                                                                    selectedDate = currentYearMonth.atDay(dayNumber)
-                                                                },
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Text(
-                                                                text = "$dayNumber",
-                                                                color = when {
-                                                                    isSelected -> Color.White
-                                                                    isToday -> MaterialTheme.colorScheme.primary
-                                                                    else -> MaterialTheme.colorScheme.onSurface
-                                                                },
-                                                                fontSize = 15.sp,
-                                                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Medium,
-                                                                textAlign = TextAlign.Center
-                                                            )
-                                                        }
+                                                                }
+
+                                                                // 2. Draw Fertile Window Hollow Lavender Capsule
+                                                                if (isFertile && !isPeriod) {
+                                                                    val stroke = Stroke(width = 1.8.dp.toPx())
+                                                                    when {
+                                                                        !prevFertile && !nextFertile -> {
+                                                                            drawCircle(
+                                                                                color = fertileOutlineColor,
+                                                                                radius = r,
+                                                                                center = Offset(cx, cy),
+                                                                                style = stroke
+                                                                            )
+                                                                        }
+                                                                        !prevFertile && nextFertile -> {
+                                                                            val path = Path().apply {
+                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 90f, 180f, false)
+                                                                                lineTo(size.width + 1f, top)
+                                                                            }
+                                                                            drawPath(path = path, color = fertileOutlineColor, style = stroke)
+                                                                            drawLine(
+                                                                                color = fertileOutlineColor,
+                                                                                start = Offset(cx, bottom),
+                                                                                end = Offset(size.width + 1f, bottom),
+                                                                                strokeWidth = stroke.width
+                                                                            )
+                                                                        }
+                                                                        prevFertile && nextFertile -> {
+                                                                            drawLine(
+                                                                                color = fertileOutlineColor,
+                                                                                start = Offset(-1f, top),
+                                                                                end = Offset(size.width + 1f, top),
+                                                                                strokeWidth = stroke.width
+                                                                            )
+                                                                            drawLine(
+                                                                                color = fertileOutlineColor,
+                                                                                start = Offset(-1f, bottom),
+                                                                                end = Offset(size.width + 1f, bottom),
+                                                                                strokeWidth = stroke.width
+                                                                            )
+                                                                        }
+                                                                        prevFertile && !nextFertile -> {
+                                                                            val path = Path().apply {
+                                                                                moveTo(-1f, top)
+                                                                                lineTo(cx, top)
+                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 270f, 180f, false)
+                                                                                lineTo(-1f, bottom)
+                                                                            }
+                                                                            drawPath(path = path, color = fertileOutlineColor, style = stroke)
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                // 3. Draw Peak Ovulation Dotted Circle
+                                                                if (isOvulation) {
+                                                                    val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                                                                    drawCircle(
+                                                                        color = ovulationDotColor,
+                                                                        radius = 16.5.dp.toPx(),
+                                                                        center = Offset(cx, cy),
+                                                                        style = Stroke(width = 1.8.dp.toPx(), pathEffect = dashEffect)
+                                                                    )
+                                                                }
+
+                                                                // 4. Selection Highlight
+                                                                if (isSelected && !isPeriod) {
+                                                                    drawCircle(
+                                                                        brush = MomoPrimaryGradient,
+                                                                        radius = r,
+                                                                        center = Offset(cx, cy)
+                                                                    )
+                                                                } else if (isSelected && isPeriod) {
+                                                                    drawCircle(
+                                                                        color = Color.White.copy(alpha = 0.9f),
+                                                                        radius = r - 2.5.dp.toPx(),
+                                                                        center = Offset(cx, cy),
+                                                                        style = Stroke(width = 1.8.dp.toPx())
+                                                                    )
+                                                                }
+                                                            }
+                                                            .clickable(
+                                                                interactionSource = remember { MutableInteractionSource() },
+                                                                indication = null
+                                                            ) {
+                                                                selectedDate = currentDate
+                                                            },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = "$dayNumber",
+                                                            color = when {
+                                                                isPeriod -> Color.White
+                                                                isSelected -> Color.White
+                                                                isToday -> MaterialTheme.colorScheme.primary
+                                                                else -> MaterialTheme.colorScheme.onSurface
+                                                            },
+                                                            fontSize = 15.sp,
+                                                            fontWeight = if (isPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
+                                                            textAlign = TextAlign.Center
+                                                        )
                                                     }
+                                                } else {
+                                                    // Empty cell for alignment
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(42.dp)
+                                                    )
                                                 }
                                             }
                                         }
@@ -433,7 +572,6 @@ fun MomoCalendar(
                             }
                         }
 
-                        // Step 1: Scrollable Years Grid (Starting 2023)
                         CalendarViewMode.YEARS -> {
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
@@ -477,7 +615,6 @@ fun MomoCalendar(
                             }
                         }
 
-                        // Step 2: Months Grid (Zoom-in view, auto-dismiss to Days)
                         CalendarViewMode.MONTHS -> {
                             LazyVerticalGrid(
                                 columns = GridCells.Fixed(3),
@@ -492,7 +629,6 @@ fun MomoCalendar(
                                     val monthName = monthsList[index]
                                     val isSelected = currentYearMonth.year == drillDownYear && currentYearMonth.monthValue == monthIndex
 
-                                    // Baseline check: Jan-Oct 2023 locked
                                     val isLocked = drillDownYear == minYearMonth.year && monthIndex < minYearMonth.monthValue
 
                                     Box(
@@ -516,7 +652,6 @@ fun MomoCalendar(
                                                         currentYearMonth = targetYearMonth
                                                         val clampedDay = selectedDate.dayOfMonth.coerceAtMost(targetYearMonth.lengthOfMonth())
                                                         selectedDate = targetYearMonth.atDay(clampedDay)
-                                                        isDismissViaSelection = true
                                                         currentViewMode = CalendarViewMode.DAYS
                                                     }
                                                 } else {
