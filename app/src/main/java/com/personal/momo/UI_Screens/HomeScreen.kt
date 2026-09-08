@@ -1,5 +1,13 @@
 package com.personal.momo.UI_Screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -79,40 +87,74 @@ fun HomeScreen() {
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
-    if (isMenuOpen) {
-        MenuScreen(
-            onBack = { isMenuOpen = false },
-            isUpdateAvailable = isUpdateAvailable
-        )
-    } else {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                HomeHeader(
-                    avatarUrl = avatarUrl,
-                    isUpdateAvailable = isUpdateAvailable,
-                    onMenuClick = {
-                        isMenuOpen = true
-                    }
+    AnimatedContent(
+        targetState = isMenuOpen,
+        transitionSpec = {
+            if (targetState) {
+                // Opening Menu: Subtle Scale In (0.94f -> 1.0f) + Soft Fade In with FastOutSlowInEasing
+                (fadeIn(animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)) +
+                        scaleIn(
+                            initialScale = 0.94f,
+                            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+                        )).togetherWith(
+                    fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
+                            scaleOut(
+                                targetScale = 0.94f,
+                                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                            )
                 )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .background(MaterialTheme.colorScheme.background)
+            } else {
+                // Returning to HomeScreen: Smooth Elevation Back In
+                (fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                        scaleIn(
+                            initialScale = 0.96f,
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        )).togetherWith(
+                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                            scaleOut(
+                                targetScale = 0.96f,
+                                animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
+                            )
+                )
+            }
+        },
+        label = "HomeScreenMaterialMotionTransition"
+    ) { openMenu ->
+        if (openMenu) {
+            MenuScreen(
+                onBack = { isMenuOpen = false },
+                isUpdateAvailable = isUpdateAvailable
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize()
+                    HomeHeader(
+                        avatarUrl = avatarUrl,
+                        isUpdateAvailable = isUpdateAvailable,
+                        onMenuClick = {
+                            isMenuOpen = true
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.background)
                     ) {
-                        MomoCalendar()
+                        Column(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            MomoCalendar()
+                        }
                     }
                 }
             }
