@@ -49,13 +49,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.personal.momo.UI_Screens.WelcomeLayoutMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -89,7 +86,8 @@ val SelectedCapsuleGradient = Brush.verticalGradient(
 
 @Composable
 fun WelcomeSettingsContent(
-    onModeChanged: ((WelcomeLayoutMode) -> Unit)? = null
+    onModeChanged: ((WelcomeLayoutMode) -> Unit)? = null,
+    onShowToast: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -97,7 +95,6 @@ fun WelcomeSettingsContent(
     var currentMode by remember {
         mutableStateOf(WelcomeSettingsPrefs.getSavedLayoutMode(context))
     }
-    var toastMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -112,18 +109,13 @@ fun WelcomeSettingsContent(
                     WelcomeSettingsPrefs.saveLayoutMode(context, selectedMode)
                     coroutineScope.launch {
                         delay(260)
-                        toastMessage = "$label mode applied"
+                        onShowToast?.invoke("$label mode applied")
                         onModeChanged?.invoke(selectedMode)
                     }
                 }
             }
         )
     }
-
-    WelcomeAppliedToast(
-        message = toastMessage,
-        onDismiss = { toastMessage = null }
-    )
 }
 
 @Composable
@@ -157,7 +149,7 @@ fun WelcomeModeCapsuleSelector(
             .fillMaxWidth()
             .height(42.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .background(MaterialTheme.colorScheme.surface)
             .padding(4.dp)
     ) {
         val segmentWidth = maxWidth / 3
@@ -217,11 +209,11 @@ fun WelcomeModeCapsuleSelector(
 @Composable
 fun WelcomeAppliedToast(
     message: String?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     if (message == null) return
 
-    val density = LocalDensity.current
     var isToastVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) {
@@ -232,66 +224,59 @@ fun WelcomeAppliedToast(
         onDismiss()
     }
 
-    val bottomOffsetPx = with(density) { 36.dp.roundToPx() }
-
-    Popup(
-        alignment = Alignment.BottomCenter,
-        offset = IntOffset(x = 0, y = -bottomOffsetPx),
-        properties = PopupProperties(focusable = false)
-    ) {
-        AnimatedVisibility(
-            visible = isToastVisible,
-            enter = fadeIn(animationSpec = tween(220)) + slideInVertically(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium
-                ),
-                initialOffsetY = { it / 2 }
+    AnimatedVisibility(
+        visible = isToastVisible,
+        modifier = modifier,
+        enter = fadeIn(animationSpec = tween(220)) + slideInVertically(
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium
             ),
-            exit = fadeOut(animationSpec = tween(180)) + slideOutVertically(
-                animationSpec = tween(180),
-                targetOffsetY = { it / 2 }
-            )
+            initialOffsetY = { it / 2 }
+        ),
+        exit = fadeOut(animationSpec = tween(180)) + slideOutVertically(
+            animationSpec = tween(180),
+            targetOffsetY = { it / 2 }
+        )
+    ) {
+        Surface(
+            modifier = Modifier
+                .shadow(elevation = 12.dp, shape = CircleShape)
+                .clip(CircleShape)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    shape = CircleShape
+                ),
+            color = MaterialTheme.colorScheme.surface,
+            shape = CircleShape
         ) {
-            Surface(
-                modifier = Modifier
-                    .shadow(elevation = 12.dp, shape = CircleShape)
-                    .clip(CircleShape)
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        shape = CircleShape
-                    ),
-                color = MaterialTheme.colorScheme.surface,
-                shape = CircleShape
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(SelectedCapsuleGradient),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(SelectedCapsuleGradient),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Applied",
-                            tint = Color.White,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
-
-                    Text(
-                        text = message,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Applied",
+                        tint = Color.White,
+                        modifier = Modifier.size(13.dp)
                     )
                 }
+
+                Text(
+                    text = message,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
     }
