@@ -8,12 +8,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.personal.momo.UI_Screens.MainScreen
 import com.personal.momo.UI_Screens.MomoTheme
+import com.personal.momo.UI_Screens.Settings.cleanOldUpdateApks
 import java.security.MessageDigest
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Automatically clean up old update APK files and download manager history
+        cleanOldUpdateApks(this)
 
         if (!isDeviceAuthorized()) {
             finishAndRemoveTask()
