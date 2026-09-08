@@ -10,11 +10,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +59,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -96,10 +100,6 @@ fun MomoCalendar(
     }
 
     val canGoBack = currentYearMonth.isAfter(minYearMonth)
-    val daysInMonth = currentYearMonth.lengthOfMonth()
-
-    // Sunday (7 % 7 = 0) to Saturday (6 % 7 = 6)
-    val startOffset = currentYearMonth.atDay(1).dayOfWeek.value % 7
     val weekDays = listOf("S", "M", "T", "W", "T", "F", "S")
 
     val yearsList = remember { (2023..2040).toList() }
@@ -350,118 +350,185 @@ fun MomoCalendar(
 
                                 Spacer(modifier = Modifier.height(6.dp))
 
-                                // Days Grid (6 Fixed Rows)
-                                Column(
+                                // Days Grid Container with Swipe Gestures and Directional Sliding Transitions
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    for (row in 0 until 6) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            for (col in 0 until 7) {
-                                                val cellIndex = row * 7 + col
-                                                val dayNumber = cellIndex - startOffset + 1
-
-                                                if (dayNumber in 1..daysInMonth) {
-                                                    val currentDate = currentYearMonth.atDay(dayNumber)
-
-                                                    // Fast Set membership checks directly from pre-computed CalendarCycleData
-                                                    val isPeriod = currentDate in calendarCycleData.confirmedBleedDates
-                                                    val isPredictedPeriod = (currentDate in calendarCycleData.predictedBleedDates) && !isPeriod
-                                                    val isFertile = (currentDate in calendarCycleData.fertileDates) && !isPeriod && !isPredictedPeriod
-                                                    val isOvulation = (currentDate in calendarCycleData.ovulationDates) && !isPeriod && !isPredictedPeriod
-                                                    val isSelected = selectedDate == currentDate
-                                                    val isToday = today == currentDate
-
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(42.dp)
-                                                            .drawBehind {
-                                                                val cx = size.width / 2f
-                                                                val cy = size.height / 2f
-                                                                val r = 19.dp.toPx()
-
-                                                                // 1. Peak Ovulation Accent Dotted Circle
-                                                                if (isOvulation) {
-                                                                    val dashEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                                                                    drawCircle(
-                                                                        color = ovulationSkyBlue.copy(alpha = 0.08f),
-                                                                        radius = 16.5.dp.toPx(),
-                                                                        center = Offset(cx, cy)
-                                                                    )
-                                                                    drawCircle(
-                                                                        color = ovulationSkyBlue,
-                                                                        radius = 16.5.dp.toPx(),
-                                                                        center = Offset(cx, cy),
-                                                                        style = Stroke(width = 1.8.dp.toPx(), pathEffect = dashEffect)
-                                                                    )
-                                                                }
-
-                                                                // 2. Future Predicted Period Dotted Circle in MomoPrimaryGradient
-                                                                if (isPredictedPeriod) {
-                                                                    val dashEffect = PathEffect.dashPathEffect(floatArrayOf(4.5f, 4.5f), 0f)
-                                                                    drawCircle(
-                                                                        brush = MomoPrimaryGradient,
-                                                                        radius = 16.5.dp.toPx(),
-                                                                        center = Offset(cx, cy),
-                                                                        style = Stroke(width = 1.6.dp.toPx(), pathEffect = dashEffect)
-                                                                    )
-                                                                }
-
-                                                                // 3. Selection Highlight Ring / Solid Fill
-                                                                if (isSelected) {
-                                                                    if (isPeriod || isPredictedPeriod) {
-                                                                        drawCircle(
-                                                                            brush = MomoPrimaryGradient,
-                                                                            radius = r,
-                                                                            center = Offset(cx, cy),
-                                                                            style = Stroke(width = 1.8.dp.toPx())
-                                                                        )
-                                                                    } else {
-                                                                        drawCircle(
-                                                                            brush = MomoPrimaryGradient,
-                                                                            radius = r,
-                                                                            center = Offset(cx, cy)
-                                                                        )
-                                                                    }
-                                                                }
-                                                            }
-                                                            .clickable(
-                                                                interactionSource = remember { MutableInteractionSource() },
-                                                                indication = null
-                                                            ) {
-                                                                selectedDate = currentDate
-                                                            },
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text(
-                                                            text = "$dayNumber",
-                                                            style = when {
-                                                                isPeriod -> TextStyle(brush = MomoPrimaryGradient)
-                                                                isPredictedPeriod -> TextStyle(brush = MomoPrimaryGradient)
-                                                                isSelected -> TextStyle(color = Color.White)
-                                                                isFertile -> TextStyle(color = ovulationSkyBlue)
-                                                                isToday -> TextStyle(color = MaterialTheme.colorScheme.primary)
-                                                                else -> TextStyle(color = MaterialTheme.colorScheme.onSurface)
-                                                            },
-                                                            fontSize = 15.sp,
-                                                            fontWeight = if (isPeriod || isPredictedPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
-                                                            textAlign = TextAlign.Center
-                                                        )
+                                        .weight(1f)
+                                        .pointerInput(currentYearMonth, canGoBack) {
+                                            var totalDrag = 0f
+                                            detectHorizontalDragGestures(
+                                                onDragStart = { totalDrag = 0f },
+                                                onDragEnd = {
+                                                    val swipeThreshold = 40.dp.toPx()
+                                                    if (totalDrag < -swipeThreshold) {
+                                                        // Swipe Left -> Next Month
+                                                        currentYearMonth = currentYearMonth.plusMonths(1)
+                                                    } else if (totalDrag > swipeThreshold && canGoBack) {
+                                                        // Swipe Right -> Previous Month
+                                                        currentYearMonth = currentYearMonth.minusMonths(1)
                                                     }
-                                                } else {
-                                                    // Empty cell for alignment
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .weight(1f)
-                                                            .height(42.dp)
-                                                    )
+                                                },
+                                                onDragCancel = { totalDrag = 0f },
+                                                onHorizontalDrag = { _, dragAmount ->
+                                                    totalDrag += dragAmount
+                                                }
+                                            )
+                                        }
+                                ) {
+                                    AnimatedContent(
+                                        targetState = currentYearMonth,
+                                        transitionSpec = {
+                                            if (targetState.isAfter(initialState)) {
+                                                (slideInHorizontally(
+                                                    animationSpec = spring(
+                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                        stiffness = Spring.StiffnessMediumLow
+                                                    ),
+                                                    initialOffsetX = { it }
+                                                ) + fadeIn(animationSpec = tween(180))).togetherWith(
+                                                    slideOutHorizontally(
+                                                        animationSpec = spring(
+                                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                                            stiffness = Spring.StiffnessMediumLow
+                                                        ),
+                                                        targetOffsetX = { -it }
+                                                    ) + fadeOut(animationSpec = tween(150))
+                                                )
+                                            } else {
+                                                (slideInHorizontally(
+                                                    animationSpec = spring(
+                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                        stiffness = Spring.StiffnessMediumLow
+                                                    ),
+                                                    initialOffsetX = { -it }
+                                                ) + fadeIn(animationSpec = tween(180))).togetherWith(
+                                                    slideOutHorizontally(
+                                                        animationSpec = spring(
+                                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                                            stiffness = Spring.StiffnessMediumLow
+                                                        ),
+                                                        targetOffsetX = { it }
+                                                    ) + fadeOut(animationSpec = tween(150))
+                                                )
+                                            }
+                                        },
+                                        label = "MonthGridSlideTransition"
+                                    ) { targetMonth ->
+                                        val monthDaysCount = targetMonth.lengthOfMonth()
+                                        val monthStartOffset = targetMonth.atDay(1).dayOfWeek.value % 7
+
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            for (row in 0 until 6) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    for (col in 0 until 7) {
+                                                        val cellIndex = row * 7 + col
+                                                        val dayNumber = cellIndex - monthStartOffset + 1
+
+                                                        if (dayNumber in 1..monthDaysCount) {
+                                                            val currentDate = targetMonth.atDay(dayNumber)
+
+                                                            // Fast Set membership checks directly from pre-computed CalendarCycleData
+                                                            val isPeriod = currentDate in calendarCycleData.confirmedBleedDates
+                                                            val isPredictedPeriod = (currentDate in calendarCycleData.predictedBleedDates) && !isPeriod
+                                                            val isFertile = (currentDate in calendarCycleData.fertileDates) && !isPeriod && !isPredictedPeriod
+                                                            val isOvulation = (currentDate in calendarCycleData.ovulationDates) && !isPeriod && !isPredictedPeriod
+                                                            val isSelected = selectedDate == currentDate
+                                                            val isToday = today == currentDate
+
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .height(42.dp)
+                                                                    .drawBehind {
+                                                                        val cx = size.width / 2f
+                                                                        val cy = size.height / 2f
+                                                                        val r = 19.dp.toPx()
+
+                                                                        // 1. Peak Ovulation Accent Dotted Circle
+                                                                        if (isOvulation) {
+                                                                            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                                                                            drawCircle(
+                                                                                color = ovulationSkyBlue.copy(alpha = 0.08f),
+                                                                                radius = 16.5.dp.toPx(),
+                                                                                center = Offset(cx, cy)
+                                                                            )
+                                                                            drawCircle(
+                                                                                color = ovulationSkyBlue,
+                                                                                radius = 16.5.dp.toPx(),
+                                                                                center = Offset(cx, cy),
+                                                                                style = Stroke(width = 1.8.dp.toPx(), pathEffect = dashEffect)
+                                                                            )
+                                                                        }
+
+                                                                        // 2. Future Predicted Period Dotted Circle in MomoPrimaryGradient
+                                                                        if (isPredictedPeriod) {
+                                                                            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(4.5f, 4.5f), 0f)
+                                                                            drawCircle(
+                                                                                brush = MomoPrimaryGradient,
+                                                                                radius = 16.5.dp.toPx(),
+                                                                                center = Offset(cx, cy),
+                                                                                style = Stroke(width = 1.6.dp.toPx(), pathEffect = dashEffect)
+                                                                            )
+                                                                        }
+
+                                                                        // 3. Selection Highlight Ring / Solid Fill
+                                                                        if (isSelected) {
+                                                                            if (isPeriod || isPredictedPeriod) {
+                                                                                drawCircle(
+                                                                                    brush = MomoPrimaryGradient,
+                                                                                    radius = r,
+                                                                                    center = Offset(cx, cy),
+                                                                                    style = Stroke(width = 1.8.dp.toPx())
+                                                                                )
+                                                                            } else {
+                                                                                drawCircle(
+                                                                                    brush = MomoPrimaryGradient,
+                                                                                    radius = r,
+                                                                                    center = Offset(cx, cy)
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    .clickable(
+                                                                        interactionSource = remember { MutableInteractionSource() },
+                                                                        indication = null
+                                                                    ) {
+                                                                        selectedDate = currentDate
+                                                                    },
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Text(
+                                                                    text = "$dayNumber",
+                                                                    style = when {
+                                                                        isPeriod -> TextStyle(brush = MomoPrimaryGradient)
+                                                                        isPredictedPeriod -> TextStyle(brush = MomoPrimaryGradient)
+                                                                        isSelected -> TextStyle(color = Color.White)
+                                                                        isFertile -> TextStyle(color = ovulationSkyBlue)
+                                                                        isToday -> TextStyle(color = MaterialTheme.colorScheme.primary)
+                                                                        else -> TextStyle(color = MaterialTheme.colorScheme.onSurface)
+                                                                    },
+                                                                    fontSize = 15.sp,
+                                                                    fontWeight = if (isPeriod || isPredictedPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
+                                                                    textAlign = TextAlign.Center
+                                                                )
+                                                            }
+                                                        } else {
+                                                            // Empty cell for alignment
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .height(42.dp)
+                                                                )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
