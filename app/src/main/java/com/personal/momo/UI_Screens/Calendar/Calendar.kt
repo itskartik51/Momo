@@ -102,16 +102,28 @@ fun MomoCalendar(
         }.toSet()
     }
 
-    // 4. Multi-month projection for upcoming predicted periods (6-day bleed span matching Flo)
-    val predictedBleedDates = remember(cyclePrediction) {
+    // 4. Projected future cycles chain from ApyBdayCalculator engine
+    val futureProjections = remember(cyclePrediction) {
+        if (cyclePrediction != null) {
+            ApyBdayCalculator.projectFutureCycles(cyclePrediction, count = 12)
+        } else {
+            emptyList()
+        }
+    }
+
+    // 5. Multi-month projection for upcoming predicted periods (6-day bleed span)
+    val predictedBleedDates = remember(cyclePrediction, futureProjections) {
         if (cyclePrediction != null) {
             val dates = mutableSetOf<LocalDate>()
-            var cycleStart = cyclePrediction.nextPredictedDate
-            for (cycle in 0..11) {
+            // First immediate predicted period
+            for (offset in 0L..5L) {
+                dates.add(cyclePrediction.nextPredictedDate.plusDays(offset))
+            }
+            // Subsequent chained future cycles
+            futureProjections.forEach { projected ->
                 for (offset in 0L..5L) {
-                    dates.add(cycleStart.plusDays(offset))
+                    dates.add(projected.periodStartDate.plusDays(offset))
                 }
-                cycleStart = cycleStart.plusDays(cyclePrediction.calculatedCycleLength)
             }
             dates
         } else {
@@ -119,30 +131,15 @@ fun MomoCalendar(
         }
     }
 
-    // 5. Multi-month projection for fertile windows
-    val fertileDates = remember(cyclePrediction) {
+    // 6. Single unified ovulation dates set (Exactly 1 ovulation per cycle)
+    val ovulationDates = remember(cyclePrediction, futureProjections) {
         if (cyclePrediction != null) {
             val datesSet = mutableSetOf<LocalDate>()
-            var nextPeriod = cyclePrediction.nextPredictedDate
-
-            // Initial current cycle fertile window
-            var curr = cyclePrediction.fertileWindowStart
-            while (!curr.isAfter(cyclePrediction.fertileWindowEnd)) {
-                datesSet.add(curr)
-                curr = curr.plusDays(1)
-            }
-
-            // Future projected cycles
-            for (cycle in 0..11) {
-                val futureOvulation = nextPeriod.minusDays(14L)
-                val futureStart = futureOvulation.minusDays(4L)
-                val futureEnd = futureOvulation.plusDays(2L)
-                var fCurr = futureStart
-                while (!fCurr.isAfter(futureEnd)) {
-                    datesSet.add(fCurr)
-                    fCurr = fCurr.plusDays(1)
-                }
-                nextPeriod = nextPeriod.plusDays(cyclePrediction.calculatedCycleLength)
+            // Current cycle ovulation (e.g., 9 September)
+            datesSet.add(cyclePrediction.ovulationDate)
+            // Future chained cycle ovulations (e.g., 7 October, 4 November)
+            futureProjections.forEach { projected ->
+                datesSet.add(projected.ovulationDate)
             }
             datesSet
         } else {
@@ -150,15 +147,25 @@ fun MomoCalendar(
         }
     }
 
-    // 6. Multi-month projection for ovulation dates
-    val ovulationDates = remember(cyclePrediction) {
+    // 7. Multi-month projection for fertile windows
+    val fertileDates = remember(cyclePrediction, futureProjections) {
         if (cyclePrediction != null) {
             val datesSet = mutableSetOf<LocalDate>()
-            datesSet.add(cyclePrediction.ovulationDate)
-            var nextPeriod = cyclePrediction.nextPredictedDate
-            for (cycle in 0..11) {
-                datesSet.add(nextPeriod.minusDays(14L))
-                nextPeriod = nextPeriod.plusDays(cyclePrediction.calculatedCycleLength)
+
+            // Current cycle fertile window
+            var curr = cyclePrediction.fertileWindowStart
+            while (!curr.isAfter(cyclePrediction.fertileWindowEnd)) {
+                datesSet.add(curr)
+                curr = curr.plusDays(1)
+            }
+
+            // Future projected cycles fertile windows
+            futureProjections.forEach { projected ->
+                var fCurr = projected.fertileWindowStart
+                while (!fCurr.isAfter(projected.fertileWindowEnd)) {
+                    datesSet.add(fCurr)
+                    fCurr = fCurr.plusDays(1)
+                }
             }
             datesSet
         } else {
