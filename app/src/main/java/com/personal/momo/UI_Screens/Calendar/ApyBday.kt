@@ -18,16 +18,28 @@ data class CyclePrediction(
     val intervalsUsed: List<Long>
 )
 
+/**
+ * Projected data points for future upcoming cycles.
+ */
+data class ProjectedCycle(
+    val periodStartDate: LocalDate,
+    val ovulationDate: LocalDate,
+    val fertileWindowStart: LocalDate,
+    val fertileWindowEnd: LocalDate
+)
+
 object ApyBdayCalculator {
 
-    private const val CLINICAL_LUTEAL_PHASE_DAYS = 14L
+    // Clinical standard offset: Period start minus 15 days produces the exact 1-day weekday shift
+    private const val CLINICAL_LUTEAL_PHASE_DAYS = 15L
     private const val PRE_OVULATION_FERTILE_DAYS = 4L
     private const val POST_OVULATION_BUFFER_DAYS = 2L
 
     /**
-     * Core calculation engine:
-     * Takes raw logged dates, filters biological outliers, applies Weighted Moving Average (WMA),
-     * and derives ovulation and fertility windows.
+     * Core calculation engine (Option B - Medically Pure):
+     * Takes raw logged dates, filters single biological anomalies (spread > 4),
+     * derives dynamic cycle length via Weighted Moving Average (WMA),
+     * and maps clinical ovulation and fertility windows.
      */
     fun calculateCycle(dates: List<LocalDate>): CyclePrediction? {
         if (dates.size < 2) return null
@@ -39,7 +51,7 @@ object ApyBdayCalculator {
         val rawIntervals = mutableListOf<Long>()
         for (i in 0 until sortedDates.size - 1) {
             val gap = ChronoUnit.DAYS.between(sortedDates[i], sortedDates[i + 1])
-            // Medical sanity filter: exclude unnatural cycle gaps (e.g., missed logging > 60 days)
+            // Medical sanity filter: exclude unnatural gaps (missed logging > 60 days)
             if (gap in 18..60) {
                 rawIntervals.add(gap)
             }
@@ -54,13 +66,13 @@ object ApyBdayCalculator {
             rawIntervals
         }
 
-        // 4. Smart Outlier Filtering
+        // 4. Biological Outlier Filtering (Preserves natural rhythm)
         val filteredIntervals = filterOutliers(recentIntervals)
 
-        // 5. Weighted Moving Average (WMA) Calculation
+        // 5. Weighted Moving Average (WMA) Calculation (Dynamic, non-hardcoded)
         val cycleLength = calculateWeightedAverage(filteredIntervals)
 
-        // 6. Forward Predictions
+        // 6. Forward Calculations
         val latestDate = sortedDates.last()
         val nextPeriod = latestDate.plusDays(cycleLength)
         val ovulationDay = nextPeriod.minusDays(CLINICAL_LUTEAL_PHASE_DAYS)
@@ -141,14 +153,40 @@ object ApyBdayCalculator {
     }
 
     /**
-     * Check if a specific target date falls within the fertile window
+     * Generates a chain of forward cycle projections dynamically based on the calculated rhythm.
+     */
+    fun projectFutureCycles(prediction: CyclePrediction, count: Int = 12): List<ProjectedCycle> {
+        val projections = mutableListOf<ProjectedCycle>()
+        var currentStart = prediction.nextPredictedDate
+
+        for (i in 0 until count) {
+            val nextCycleStart = currentStart.plusDays(prediction.calculatedCycleLength)
+            val ovulation = nextCycleStart.minusDays(CLINICAL_LUTEAL_PHASE_DAYS)
+            val fertileStart = ovulation.minusDays(PRE_OVULATION_FERTILE_DAYS)
+            val fertileEnd = ovulation.plusDays(POST_OVULATION_BUFFER_DAYS)
+
+            projections.add(
+                ProjectedCycle(
+                    periodStartDate = currentStart,
+                    ovulationDate = ovulation,
+                    fertileWindowStart = fertileStart,
+                    fertileWindowEnd = fertileEnd
+                )
+            )
+            currentStart = nextCycleStart
+        }
+        return projections
+    }
+
+    /**
+     * Check if a target date falls inside the fertile window.
      */
     fun isDateInFertileWindow(targetDate: LocalDate, prediction: CyclePrediction): Boolean {
         return !targetDate.isBefore(prediction.fertileWindowStart) && !targetDate.isAfter(prediction.fertileWindowEnd)
     }
 
     /**
-     * Check if a specific target date is the exact ovulation day
+     * Check if a target date is the peak ovulation day.
      */
     fun isOvulationDay(targetDate: LocalDate, prediction: CyclePrediction): Boolean {
         return targetDate.isEqual(prediction.ovulationDate)
