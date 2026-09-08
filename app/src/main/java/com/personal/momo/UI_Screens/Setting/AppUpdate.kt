@@ -18,22 +18,21 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -42,15 +41,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,15 +59,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -93,10 +86,6 @@ data class MomoUpdateInfo(
     val apkUrl: String
 )
 
-/**
- * Storage Auto-Cleaner: Removes previously downloaded update APK files from
- * private storage once the user successfully updates to that version or higher.
- */
 fun cleanOldUpdateApks(context: Context) {
     try {
         val sharedPrefs = context.getSharedPreferences("Momo_Updates", Context.MODE_PRIVATE)
@@ -129,9 +118,6 @@ fun cleanOldUpdateApks(context: Context) {
     }
 }
 
-/**
- * Silent Background Version Checker for Badges and Indicators.
- */
 suspend fun checkIsUpdateAvailable(context: Context): Boolean = withContext(Dispatchers.IO) {
     cleanOldUpdateApks(context)
 
@@ -161,20 +147,14 @@ suspend fun checkIsUpdateAvailable(context: Context): Boolean = withContext(Disp
     return@withContext false
 }
 
-/**
- * Premium MOMO-Themed Update Modal.
- */
 @Composable
-fun MomoUpdateDialog(
-    isOpen: Boolean,
-    onDismissRequest: () -> Unit
-) {
-    if (!isOpen) return
+fun AppUpdateRow(isUpdateAvailableBadge: Boolean) {
+    var updateExpanded by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var checkState by remember { mutableStateOf("CHECKING") }
+    var checkState by remember { mutableStateOf("IDLE") }
     var updateInfo by remember { mutableStateOf<MomoUpdateInfo?>(null) }
     var downloadProgress by remember { mutableFloatStateOf(0f) }
     var downloadedApkUri by remember { mutableStateOf<Uri?>(null) }
@@ -182,7 +162,7 @@ fun MomoUpdateDialog(
     val animatedDownloadProgress by animateFloatAsState(
         targetValue = downloadProgress.coerceIn(0f, 1f),
         animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
-        label = "MomoDownloadProgressAnim"
+        label = "MomoDownloadAnim"
     )
 
     val packageInfo = remember { context.packageManager.getPackageInfo(context.packageName, 0) }
@@ -190,6 +170,15 @@ fun MomoUpdateDialog(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) packageInfo.longVersionCode.toInt() else packageInfo.versionCode
     }
     val currentVersionName = remember { packageInfo.versionName ?: "1.0.0" }
+
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (updateExpanded) 180f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "UpdateArrowRot"
+    )
 
     val installLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && context.packageManager.canRequestPackageInstalls()) {
@@ -201,432 +190,429 @@ fun MomoUpdateDialog(
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         if (!isGranted) {
-            Toast.makeText(context, "Update notification disabled.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Notifications disabled.", Toast.LENGTH_SHORT).show()
         }
     }
 
-    // Trigger Version Check on Dialog Open
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    LaunchedEffect(updateExpanded) {
+        if (updateExpanded && (checkState == "IDLE" || checkState == "UP_TO_DATE")) {
+            checkState = "CHECKING"
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
             }
-        }
 
-        withContext(Dispatchers.IO) {
-            try {
-                delay(400)
-                val request = Request.Builder()
-                    .url("https://raw.githubusercontent.com/itskartik51/Momo/main/Updates/version.json")
-                    .build()
-                val response = OkHttpClient().newCall(request).execute()
-                val jsonData = response.body?.string()
+            withContext(Dispatchers.IO) {
+                try {
+                    delay(500)
+                    val request = Request.Builder()
+                        .url("https://raw.githubusercontent.com/itskartik51/Momo/main/Updates/version.json")
+                        .build()
+                    val response = OkHttpClient().newCall(request).execute()
+                    val jsonData = response.body?.string()
 
-                if (jsonData != null) {
-                    val json = JSONObject(jsonData)
-                    val serverCode = json.optInt("latest_version_code", 0)
+                    if (jsonData != null) {
+                        val json = JSONObject(jsonData)
+                        val serverCode = json.optInt("latest_version_code", 0)
 
-                    withContext(Dispatchers.Main) {
-                        if (serverCode > currentVersionCode) {
-                            updateInfo = MomoUpdateInfo(
-                                versionCode = serverCode,
-                                versionName = json.optString("latest_version_name", ""),
-                                releaseNotes = json.optString("release_notes", "Performance improvements and updates."),
-                                apkUrl = json.optString("apk_url", "")
-                            )
-                            checkState = "AVAILABLE"
-                        } else {
-                            checkState = "UP_TO_DATE"
+                        withContext(Dispatchers.Main) {
+                            if (serverCode > currentVersionCode) {
+                                updateInfo = MomoUpdateInfo(
+                                    versionCode = serverCode,
+                                    versionName = json.optString("latest_version_name", ""),
+                                    releaseNotes = json.optString("release_notes", "Performance improvements."),
+                                    apkUrl = json.optString("apk_url", "")
+                                )
+                                checkState = "AVAILABLE"
+                            } else {
+                                checkState = "UP_TO_DATE"
+                            }
                         }
+                    } else {
+                        withContext(Dispatchers.Main) { checkState = "UP_TO_DATE" }
                     }
-                } else {
+                } catch (e: Exception) {
                     withContext(Dispatchers.Main) { checkState = "UP_TO_DATE" }
                 }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) { checkState = "ERROR" }
             }
         }
     }
 
-    Dialog(
-        onDismissRequest = {
-            if (checkState != "DOWNLOADING") onDismissRequest()
-        },
-        properties = DialogProperties(dismissOnBackPress = checkState != "DOWNLOADING", dismissOnClickOutside = checkState != "DOWNLOADING")
-    ) {
-        Surface(
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp)
-                .shadow(elevation = 24.dp, shape = RoundedCornerShape(26.dp)),
-            shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.surface
+                .bounceClick(scaleDown = 0.98f) {
+                    updateExpanded = !updateExpanded
+                }
+                .padding(vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Header Bar
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = "App Update",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(22.dp)
+                )
+
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                    Text(
+                        text = "App Update",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    if (isUpdateAvailableBadge && !updateExpanded && checkState != "DOWNLOADING" && checkState != "READY") {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(8.dp)
                                 .clip(CircleShape)
-                                .background(brush = MomoPrimaryGradient),
+                                .background(brush = MomoPrimaryGradient)
+                        )
+                    }
+                }
+            }
+
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Expand",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .size(20.dp)
+                    .rotate(arrowRotation)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = updateExpanded,
+            enter = expandVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeIn(animationSpec = tween(200)),
+            exit = shrinkVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            ) + fadeOut(animationSpec = tween(150))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 10.dp, end = 10.dp, bottom = 20.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                // LEFT COLUMN: Fixed Brand Identity (35% Width)
+                Column(
+                    modifier = Modifier.weight(0.35f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(modifier = Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.SystemUpdate,
-                                contentDescription = "Momo Update",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Momo",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
                             )
                         }
+                    }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Box(modifier = Modifier.height(18.dp), contentAlignment = Alignment.Center) {
                         Text(
-                            text = "Software Update",
-                            fontSize = 17.sp,
+                            text = "Momo",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                     }
 
-                    if (checkState != "DOWNLOADING") {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .bounceClick(scaleDown = 0.85f) { onDismissRequest() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                    Box(modifier = Modifier.height(16.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "v$currentVersionName",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Animated State Container
-                Crossfade(targetState = checkState, label = "MomoUpdateStateTransition") { state ->
-                    when (state) {
-                        "CHECKING" -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 18.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                CircularProgressIndicator(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    strokeWidth = 2.5.dp,
-                                    modifier = Modifier.size(38.dp)
-                                )
-                                Spacer(modifier = Modifier.height(14.dp))
-                                Text(
-                                    text = "Checking for latest updates...",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        "UP_TO_DATE" -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(54.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primaryContainer),
-                                    contentAlignment = Alignment.Center
+                // RIGHT COLUMN: Dynamic State Switcher (65% Width)
+                Box(
+                    modifier = Modifier
+                        .weight(0.65f)
+                        .padding(start = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Crossfade(targetState = checkState, label = "MomoUpdateStateTransition") { state ->
+                        when (state) {
+                            "IDLE", "CHECKING" -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Up to date",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "You're on the latest version",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Momo v$currentVersionName is currently up to date.",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-
-                        "AVAILABLE" -> {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "New Update Available!",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "v${updateInfo?.versionName} • Current: v$currentVersionName",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = MaterialTheme.colorScheme.background
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(
-                                            text = "What's New:",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary
+                                    Box(modifier = Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Box(modifier = Modifier.height(18.dp), contentAlignment = Alignment.Center) {
                                         Text(
-                                            text = updateInfo?.releaseNotes ?: "Performance improvements.",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = "Checking...",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                    Box(modifier = Modifier.height(16.dp))
+                                }
+                            }
+
+                            "UP_TO_DATE" -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Box(modifier = Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .clip(CircleShape)
+                                                .background(brush = MomoPrimaryGradient),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Up to date",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(26.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Box(modifier = Modifier.height(18.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "You're on the latest version!",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                    Box(modifier = Modifier.height(16.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "No new updates available.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
                                         )
                                     }
                                 }
+                            }
 
-                                Spacer(modifier = Modifier.height(18.dp))
+                            "AVAILABLE" -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Box(modifier = Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "v${updateInfo?.versionName} Available",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .height(34.dp)
+                                            .clip(CircleShape)
+                                            .background(brush = MomoPrimaryGradient)
+                                            .bounceClick(scaleDown = 0.94f) {
+                                                checkState = "DOWNLOADING"
+                                                downloadProgress = 0f
+                                                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                                val uri = Uri.parse(updateInfo?.apkUrl)
+                                                val fileName = "Momo_Update_${updateInfo?.versionCode}.apk"
 
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(44.dp)
-                                        .clip(CircleShape)
-                                        .background(brush = MomoPrimaryGradient)
-                                        .bounceClick(scaleDown = 0.95f) {
-                                            checkState = "DOWNLOADING"
-                                            downloadProgress = 0f
+                                                val request = DownloadManager.Request(uri)
+                                                    .setTitle("Momo Update")
+                                                    .setDescription("Downloading latest version...")
+                                                    .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
+                                                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
 
-                                            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-                                            val uri = Uri.parse(updateInfo?.apkUrl)
-                                            val fileName = "Momo_Update_${updateInfo?.versionCode}.apk"
+                                                val downloadId = downloadManager.enqueue(request)
 
-                                            val request = DownloadManager.Request(uri)
-                                                .setTitle("Momo Update")
-                                                .setDescription("Downloading latest version v${updateInfo?.versionName}...")
-                                                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName)
-                                                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                context.getSharedPreferences("Momo_Updates", Context.MODE_PRIVATE)
+                                                    .edit()
+                                                    .putLong("last_update_download_id", downloadId)
+                                                    .apply()
 
-                                            val downloadId = downloadManager.enqueue(request)
+                                                coroutineScope.launch(Dispatchers.IO) {
+                                                    var isDownloading = true
+                                                    while (isDownloading) {
+                                                        val query = DownloadManager.Query().setFilterById(downloadId)
+                                                        val cursor = downloadManager.query(query)
+                                                        if (cursor != null && cursor.moveToFirst()) {
+                                                            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                                                            if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                                                                isDownloading = false
+                                                                val localUriStr = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
+                                                                val downloadedFile = File(Uri.parse(localUriStr).path ?: "")
+                                                                val finalUri = FileProvider.getUriForFile(context, "${context.packageName}.provider", downloadedFile)
 
-                                            context.getSharedPreferences("Momo_Updates", Context.MODE_PRIVATE)
-                                                .edit()
-                                                .putLong("last_update_download_id", downloadId)
-                                                .apply()
+                                                                context.getSharedPreferences("Momo_Updates", Context.MODE_PRIVATE)
+                                                                    .edit()
+                                                                    .putString("last_downloaded_apk_path", downloadedFile.absolutePath)
+                                                                    .putInt("last_downloaded_version_code", updateInfo?.versionCode ?: 0)
+                                                                    .apply()
 
-                                            coroutineScope.launch(Dispatchers.IO) {
-                                                var isDownloading = true
-                                                while (isDownloading) {
-                                                    val query = DownloadManager.Query().setFilterById(downloadId)
-                                                    val cursor = downloadManager.query(query)
-                                                    if (cursor != null && cursor.moveToFirst()) {
-                                                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                                                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                                                            isDownloading = false
-                                                            val localUriStr = cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI))
-                                                            val downloadedFile = File(Uri.parse(localUriStr).path ?: "")
-                                                            val finalUri = FileProvider.getUriForFile(context, "${context.packageName}.provider", downloadedFile)
-
-                                                            context.getSharedPreferences("Momo_Updates", Context.MODE_PRIVATE)
-                                                                .edit()
-                                                                .putString("last_downloaded_apk_path", downloadedFile.absolutePath)
-                                                                .putInt("last_downloaded_version_code", updateInfo?.versionCode ?: 0)
-                                                                .apply()
-
-                                                            withContext(Dispatchers.Main) { downloadProgress = 1f }
-                                                            delay(100)
-                                                            withContext(Dispatchers.Main) {
-                                                                downloadedApkUri = finalUri
-                                                                checkState = "READY"
-                                                                showUpdateReadyNotification(context, finalUri)
-                                                            }
-                                                        } else if (status == DownloadManager.STATUS_FAILED) {
-                                                            isDownloading = false
-                                                            withContext(Dispatchers.Main) {
-                                                                checkState = "ERROR"
-                                                                Toast.makeText(context, "Download failed.", Toast.LENGTH_SHORT).show()
-                                                            }
-                                                        } else {
-                                                            val bytesDownloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                                                            val bytesTotal = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                                                            if (bytesTotal > 0) {
+                                                                withContext(Dispatchers.Main) { downloadProgress = 1f }
+                                                                delay(120)
                                                                 withContext(Dispatchers.Main) {
-                                                                    downloadProgress = bytesDownloaded.toFloat() / bytesTotal.toFloat()
+                                                                    downloadedApkUri = finalUri
+                                                                    checkState = "READY"
+                                                                    showUpdateReadyNotification(context, finalUri)
+                                                                }
+                                                            } else if (status == DownloadManager.STATUS_FAILED) {
+                                                                isDownloading = false
+                                                                withContext(Dispatchers.Main) {
+                                                                    checkState = "AVAILABLE"
+                                                                    Toast.makeText(context, "Download Failed", Toast.LENGTH_SHORT).show()
+                                                                }
+                                                            } else {
+                                                                val bytesDownloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                                                                val bytesTotal = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                                                                if (bytesTotal > 0) {
+                                                                    withContext(Dispatchers.Main) {
+                                                                        downloadProgress = bytesDownloaded.toFloat() / bytesTotal.toFloat()
+                                                                    }
                                                                 }
                                                             }
                                                         }
+                                                        cursor?.close()
+                                                        if (isDownloading) delay(250)
                                                     }
-                                                    cursor?.close()
-                                                    if (isDownloading) delay(220)
                                                 }
                                             }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            .padding(horizontal = 18.dp),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Default.Download, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                                        Text("Download & Update", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text(
+                                            text = "Download",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
                                     }
                                 }
                             }
-                        }
 
-                        "DOWNLOADING" -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "Downloading Update...",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.background)
+                            "DOWNLOADING" -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
+                                    Box(modifier = Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "Downloading...",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Box(modifier = Modifier.height(18.dp), contentAlignment = Alignment.Center) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(end = 12.dp)
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .fillMaxWidth(animatedDownloadProgress)
+                                                    .clip(RoundedCornerShape(3.dp))
+                                                    .background(brush = MomoPrimaryGradient)
+                                            )
+                                        }
+                                    }
+                                    Box(modifier = Modifier.height(16.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "${(animatedDownloadProgress * 100).toInt()}%",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            "READY" -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Box(modifier = Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "Ready to Install",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     Box(
                                         modifier = Modifier
-                                            .fillMaxHeight()
-                                            .fillMaxWidth(animatedDownloadProgress)
+                                            .height(34.dp)
                                             .clip(CircleShape)
                                             .background(brush = MomoPrimaryGradient)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Text(
-                                    text = "${(animatedDownloadProgress * 100).toInt()}%",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        "READY" -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "Update Ready to Install",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Momo v${updateInfo?.versionName} has been downloaded.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(44.dp)
-                                        .clip(CircleShape)
-                                        .background(brush = MomoPrimaryGradient)
-                                        .bounceClick(scaleDown = 0.95f) {
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
-                                                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                                                    data = Uri.parse("package:${context.packageName}")
+                                            .bounceClick(scaleDown = 0.94f) {
+                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+                                                    val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                                        data = Uri.parse("package:${context.packageName}")
+                                                    }
+                                                    installLauncher.launch(intent)
+                                                    Toast.makeText(context, "Allow installs to update", Toast.LENGTH_LONG).show()
+                                                } else {
+                                                    downloadedApkUri?.let { uri -> installApk(context, uri) }
                                                 }
-                                                installLauncher.launch(intent)
-                                                Toast.makeText(context, "Allow unknown app installs to proceed", Toast.LENGTH_LONG).show()
-                                            } else {
-                                                downloadedApkUri?.let { uri -> installApk(context, uri) }
                                             }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Install Now", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            .padding(horizontal = 18.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Install",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
                                 }
-                            }
-                        }
-
-                        "ERROR" -> {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ErrorOutline,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(40.dp)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Unable to check updates",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Please check your internet connection.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }
@@ -636,9 +622,6 @@ fun MomoUpdateDialog(
     }
 }
 
-/**
- * Triggers the Android Package Installer Intent for the downloaded APK.
- */
 fun installApk(context: Context, apkUri: Uri) {
     try {
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -648,13 +631,10 @@ fun installApk(context: Context, apkUri: Uri) {
         }
         context.startActivity(intent)
     } catch (e: Exception) {
-        Toast.makeText(context, "Error launching package installer.", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Error starting installer.", Toast.LENGTH_SHORT).show()
     }
 }
 
-/**
- * Posts a System Tray Notification when the APK is ready to install.
- */
 fun showUpdateReadyNotification(context: Context, apkUri: Uri) {
     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val channelId = "momo_update_channel"
