@@ -1,13 +1,17 @@
 package com.personal.momo.UI_Screens.Settings
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,8 +26,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -99,7 +103,7 @@ fun MomoMenuPopup(
                     .animateContentSize(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessLow
+                            stiffness = Spring.StiffnessMediumLow
                         )
                     ),
                 color = MaterialTheme.colorScheme.background,
@@ -108,7 +112,7 @@ fun MomoMenuPopup(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 14.dp)
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     // 1. Welcome Note Menu Item
                     Box(
@@ -118,7 +122,7 @@ fun MomoMenuPopup(
                             .bounceClick(scaleDown = 0.98f) {
                                 isWelcomeExpanded = !isWelcomeExpanded
                             }
-                            .padding(vertical = 4.dp)
+                            .padding(vertical = 6.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -127,22 +131,14 @@ fun MomoMenuPopup(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surface),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = "Welcome Note",
-                                        tint = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Welcome Note",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(22.dp)
+                                )
 
                                 Text(
                                     text = "Welcome Note",
@@ -163,24 +159,44 @@ fun MomoMenuPopup(
                         }
                     }
 
-                    // Expandable Welcome Note Segment Slider
-                    if (isWelcomeExpanded) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                    // Smooth Synchronized Expansion for Capsule Selector
+                    AnimatedVisibility(
+                        visible = isWelcomeExpanded,
+                        enter = expandVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) + fadeIn(animationSpec = tween(200)),
+                        exit = shrinkVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        ) + fadeOut(animationSpec = tween(150))
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                        WelcomeModeCapsuleSelector(
-                            currentMode = currentMode,
-                            onModeSelected = { selectedMode, label ->
-                                if (currentMode != selectedMode) {
-                                    currentMode = selectedMode
-                                    WelcomeSettingsPrefs.saveLayoutMode(context, selectedMode)
-                                    coroutineScope.launch {
-                                        delay(260)
-                                        toastMessage = "$label mode applied"
-                                        onModeChanged?.invoke(selectedMode)
+                            WelcomeModeCapsuleSelector(
+                                currentMode = currentMode,
+                                onModeSelected = { selectedMode, label ->
+                                    if (currentMode != selectedMode) {
+                                        currentMode = selectedMode
+                                        WelcomeSettingsPrefs.saveLayoutMode(context, selectedMode)
+                                        coroutineScope.launch {
+                                            delay(260)
+                                            toastMessage = "$label mode applied"
+                                            onModeChanged?.invoke(selectedMode)
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -204,7 +220,7 @@ fun MomoMenuPopup(
                                 showUpdateDialog = true
                                 onDismissRequest()
                             }
-                            .padding(vertical = 4.dp)
+                            .padding(vertical = 6.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -213,22 +229,14 @@ fun MomoMenuPopup(
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surface),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.SystemUpdate,
-                                        contentDescription = "App Update",
-                                        tint = MaterialTheme.colorScheme.onBackground,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "App Update",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(22.dp)
+                                )
 
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
