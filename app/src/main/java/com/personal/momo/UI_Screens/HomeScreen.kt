@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,6 +47,7 @@ import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 import com.personal.momo.UI_Screens.Settings.WelcomeSettingsPopup
+import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
 
 private val BellIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -69,9 +71,11 @@ private val MomoBoldFont = FontFamily(Font(R.font.momo_bold))
 fun HomeScreen() {
     val context = LocalContext.current
     var showSettingsMenu by remember { mutableStateOf(false) }
+    var isUpdateAvailable by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         CacheManager.init(context)
+        isUpdateAvailable = checkIsUpdateAvailable(context)
     }
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
@@ -84,9 +88,9 @@ fun HomeScreen() {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Proper Surface Header matching the calendar card color in both themes
             HomeHeader(
                 avatarUrl = avatarUrl,
+                isUpdateAvailable = isUpdateAvailable,
                 onMoreOptionsClick = {
                     showSettingsMenu = !showSettingsMenu
                 }
@@ -94,7 +98,6 @@ fun HomeScreen() {
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Stage area with theme adaptive background
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -109,10 +112,10 @@ fun HomeScreen() {
             }
         }
 
-        // 3-Dot Floating Settings Popup from wel_set.kt
         WelcomeSettingsPopup(
             isOpen = showSettingsMenu,
-            onDismissRequest = { showSettingsMenu = false }
+            onDismissRequest = { showSettingsMenu = false },
+            isUpdateAvailable = isUpdateAvailable
         )
     }
 }
@@ -120,6 +123,7 @@ fun HomeScreen() {
 @Composable
 private fun HomeHeader(
     avatarUrl: String?,
+    isUpdateAvailable: Boolean,
     onMoreOptionsClick: () -> Unit
 ) {
     Surface(
@@ -222,6 +226,17 @@ private fun HomeHeader(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp)
                     )
+
+                    if (isUpdateAvailable) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = (-6).dp, y = 6.dp)
+                                .clip(CircleShape)
+                                .background(brush = MomoPrimaryGradient)
+                        )
+                    }
                 }
             }
         }
