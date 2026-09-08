@@ -53,12 +53,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.WelcomeLayoutMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -85,8 +87,8 @@ object WelcomeSettingsPrefs {
 
 private val SelectedCapsuleGradient = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFFC91D3B), // Darker Red (Top)
-        Color(0xFFFF5E79)  // Lighter Coral Red (Bottom)
+        Color(0xFFC91D3B),
+        Color(0xFFFF5E79)
     )
 )
 
@@ -94,6 +96,7 @@ private val SelectedCapsuleGradient = Brush.verticalGradient(
 fun WelcomeSettingsPopup(
     isOpen: Boolean,
     onDismissRequest: () -> Unit,
+    isUpdateAvailable: Boolean = false,
     onModeChanged: ((WelcomeLayoutMode) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -104,6 +107,7 @@ fun WelcomeSettingsPopup(
         mutableStateOf(WelcomeSettingsPrefs.getSavedLayoutMode(context))
     }
     var isExpanded by remember { mutableStateOf(false) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
 
     // Bottom Applied Toast State
     var toastMessage by remember { mutableStateOf<String?>(null) }
@@ -146,7 +150,7 @@ fun WelcomeSettingsPopup(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
-                    // Clickable "Welcome Note" title (Arrow-free trigger)
+                    // Clickable "Welcome Note" title
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -183,7 +187,6 @@ fun WelcomeSettingsPopup(
                             WelcomeLayoutMode.STACKED -> 2
                         }
 
-                        // Smooth Spring Slide across continuous Float indices (0 -> 1 -> 2)
                         val animatedIndex by animateFloatAsState(
                             targetValue = selectedIndex.toFloat(),
                             animationSpec = spring(
@@ -193,7 +196,6 @@ fun WelcomeSettingsPopup(
                             label = "CapsuleSlideSpring"
                         )
 
-                        // Outer Capsule Container (borderless, recessed tone)
                         BoxWithConstraints(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -204,7 +206,6 @@ fun WelcomeSettingsPopup(
                         ) {
                             val segmentWidth = maxWidth / 3
 
-                            // Single Independent Sliding Indicator (Back Layer)
                             Box(
                                 modifier = Modifier
                                     .offset {
@@ -219,7 +220,6 @@ fun WelcomeSettingsPopup(
                                     .background(SelectedCapsuleGradient)
                             )
 
-                            // Interactive Option Texts Layer (Front Layer)
                             Row(
                                 modifier = Modifier.fillMaxSize(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -227,7 +227,6 @@ fun WelcomeSettingsPopup(
                                 modes.forEach { (mode, label) ->
                                     val isSelected = currentMode == mode
 
-                                    // Color Blend Sync
                                     val textColor by animateColorAsState(
                                         targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                         animationSpec = tween(durationMillis = 200),
@@ -263,6 +262,69 @@ fun WelcomeSettingsPopup(
                                         )
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Minimalist Divider
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Clickable "App Update" Option
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                showUpdateDialog = true
+                                onDismissRequest()
+                            }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "App Update",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                if (isUpdateAvailable) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(brush = MomoPrimaryGradient)
+                                    )
+                                }
+                            }
+
+                            if (isUpdateAvailable) {
+                                Text(
+                                    text = "New",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    style = TextStyle(brush = MomoPrimaryGradient)
+                                )
                             }
                         }
                     }
@@ -337,4 +399,10 @@ fun WelcomeSettingsPopup(
             }
         }
     }
+
+    // 3. Central Momo Update Modal Trigger
+    MomoUpdateDialog(
+        isOpen = showUpdateDialog,
+        onDismissRequest = { showUpdateDialog = false }
+    )
 }
