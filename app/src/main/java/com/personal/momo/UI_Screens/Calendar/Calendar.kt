@@ -95,21 +95,70 @@ fun MomoCalendar(
         ApyBdayCalculator.calculateCycle(loggedPeriodDates)
     }
 
-    // 3. Expand 5-day bleeding span for each logged start date
+    // 3. Expand 5-day bleeding span for each confirmed past logged date
     val confirmedBleedDates = remember(loggedPeriodDates) {
         loggedPeriodDates.flatMap { startDate ->
             (0L..4L).map { offset -> startDate.plusDays(offset) }
         }.toSet()
     }
 
-    // 4. Expand fertile window range
+    // 4. Multi-month projection for upcoming predicted periods (6-day bleed span matching Flo)
+    val predictedBleedDates = remember(cyclePrediction) {
+        if (cyclePrediction != null) {
+            val dates = mutableSetOf<LocalDate>()
+            var cycleStart = cyclePrediction.nextPredictedDate
+            for (cycle in 0..11) {
+                for (offset in 0L..5L) {
+                    dates.add(cycleStart.plusDays(offset))
+                }
+                cycleStart = cycleStart.plusDays(cyclePrediction.calculatedCycleLength)
+            }
+            dates
+        } else {
+            emptySet()
+        }
+    }
+
+    // 5. Multi-month projection for fertile windows
     val fertileDates = remember(cyclePrediction) {
         if (cyclePrediction != null) {
-            var curr = cyclePrediction.fertileWindowStart
             val datesSet = mutableSetOf<LocalDate>()
+            var nextPeriod = cyclePrediction.nextPredictedDate
+
+            // Initial current cycle fertile window
+            var curr = cyclePrediction.fertileWindowStart
             while (!curr.isAfter(cyclePrediction.fertileWindowEnd)) {
                 datesSet.add(curr)
                 curr = curr.plusDays(1)
+            }
+
+            // Future projected cycles
+            for (cycle in 0..11) {
+                val futureOvulation = nextPeriod.minusDays(14L)
+                val futureStart = futureOvulation.minusDays(4L)
+                val futureEnd = futureOvulation.plusDays(2L)
+                var fCurr = futureStart
+                while (!fCurr.isAfter(futureEnd)) {
+                    datesSet.add(fCurr)
+                    fCurr = fCurr.plusDays(1)
+                }
+                nextPeriod = nextPeriod.plusDays(cyclePrediction.calculatedCycleLength)
+            }
+            datesSet
+        } else {
+            emptySet()
+        }
+    }
+
+    // 6. Multi-month projection for ovulation dates
+    val ovulationDates = remember(cyclePrediction) {
+        if (cyclePrediction != null) {
+            val datesSet = mutableSetOf<LocalDate>()
+            datesSet.add(cyclePrediction.ovulationDate)
+            var nextPeriod = cyclePrediction.nextPredictedDate
+            for (cycle in 0..11) {
+                datesSet.add(nextPeriod.minusDays(14L))
+                nextPeriod = nextPeriod.plusDays(cyclePrediction.calculatedCycleLength)
             }
             datesSet
         } else {
@@ -394,8 +443,9 @@ fun MomoCalendar(
 
                                                     // Status logic
                                                     val isPeriod = currentDate in confirmedBleedDates
-                                                    val isFertile = currentDate in fertileDates
-                                                    val isOvulation = cyclePrediction != null && currentDate.isEqual(cyclePrediction.ovulationDate)
+                                                    val isPredictedPeriod = (currentDate in predictedBleedDates) && !isPeriod
+                                                    val isFertile = (currentDate in fertileDates) && !isPeriod && !isPredictedPeriod
+                                                    val isOvulation = (currentDate in ovulationDates) && !isPeriod && !isPredictedPeriod
                                                     val isSelected = selectedDate == currentDate
                                                     val isToday = today == currentDate
 
@@ -424,9 +474,20 @@ fun MomoCalendar(
                                                                     )
                                                                 }
 
-                                                                // 2. Selection Ring / Fill Highlight
+                                                                // 2. Future Predicted Period Dotted Circle in MomoPrimaryGradient
+                                                                if (isPredictedPeriod) {
+                                                                    val dashEffect = PathEffect.dashPathEffect(floatArrayOf(4.5f, 4.5f), 0f)
+                                                                    drawCircle(
+                                                                        brush = MomoPrimaryGradient,
+                                                                        radius = 16.5.dp.toPx(),
+                                                                        center = Offset(cx, cy),
+                                                                        style = Stroke(width = 1.6.dp.toPx(), pathEffect = dashEffect)
+                                                                    )
+                                                                }
+
+                                                                // 3. Selection Highlight Ring / Solid Fill
                                                                 if (isSelected) {
-                                                                    if (isPeriod) {
+                                                                    if (isPeriod || isPredictedPeriod) {
                                                                         drawCircle(
                                                                             brush = MomoPrimaryGradient,
                                                                             radius = r,
@@ -454,13 +515,14 @@ fun MomoCalendar(
                                                             text = "$dayNumber",
                                                             style = when {
                                                                 isPeriod -> TextStyle(brush = MomoPrimaryGradient)
+                                                                isPredictedPeriod -> TextStyle(brush = MomoPrimaryGradient)
                                                                 isSelected -> TextStyle(color = Color.White)
                                                                 isFertile -> TextStyle(color = ovulationSkyBlue)
                                                                 isToday -> TextStyle(color = MaterialTheme.colorScheme.primary)
                                                                 else -> TextStyle(color = MaterialTheme.colorScheme.onSurface)
                                                             },
                                                             fontSize = 15.sp,
-                                                            fontWeight = if (isPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
+                                                            fontWeight = if (isPeriod || isPredictedPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
                                                             textAlign = TextAlign.Center
                                                         )
                                                     }
