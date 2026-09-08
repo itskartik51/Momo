@@ -90,87 +90,9 @@ fun MomoCalendar(
     // 1. Collect real historical period dates from CacheManager
     val loggedPeriodDates by CacheManager.periodDatesFlow.collectAsState()
 
-    // 2. Derive cycle predictions via ApyBdayCalculator engine
-    val cyclePrediction = remember(loggedPeriodDates) {
-        ApyBdayCalculator.calculateCycle(loggedPeriodDates)
-    }
-
-    // 3. Expand 5-day bleeding span for each confirmed past logged date
-    val confirmedBleedDates = remember(loggedPeriodDates) {
-        loggedPeriodDates.flatMap { startDate ->
-            (0L..4L).map { offset -> startDate.plusDays(offset) }
-        }.toSet()
-    }
-
-    // 4. Projected future cycles chain from ApyBdayCalculator engine
-    val futureProjections = remember(cyclePrediction) {
-        if (cyclePrediction != null) {
-            ApyBdayCalculator.projectFutureCycles(cyclePrediction, count = 12)
-        } else {
-            emptyList()
-        }
-    }
-
-    // 5. Multi-month projection for upcoming predicted periods (6-day bleed span)
-    val predictedBleedDates = remember(cyclePrediction, futureProjections) {
-        if (cyclePrediction != null) {
-            val dates = mutableSetOf<LocalDate>()
-            // First immediate predicted period
-            for (offset in 0L..5L) {
-                dates.add(cyclePrediction.nextPredictedDate.plusDays(offset))
-            }
-            // Subsequent chained future cycles
-            futureProjections.forEach { projected ->
-                for (offset in 0L..5L) {
-                    dates.add(projected.periodStartDate.plusDays(offset))
-                }
-            }
-            dates
-        } else {
-            emptySet()
-        }
-    }
-
-    // 6. Single unified ovulation dates set (Exactly 1 ovulation per cycle)
-    val ovulationDates = remember(cyclePrediction, futureProjections) {
-        if (cyclePrediction != null) {
-            val datesSet = mutableSetOf<LocalDate>()
-            // Current cycle ovulation (e.g., 9 September)
-            datesSet.add(cyclePrediction.ovulationDate)
-            // Future chained cycle ovulations (e.g., 7 October, 4 November)
-            futureProjections.forEach { projected ->
-                datesSet.add(projected.ovulationDate)
-            }
-            datesSet
-        } else {
-            emptySet()
-        }
-    }
-
-    // 7. Multi-month projection for fertile windows
-    val fertileDates = remember(cyclePrediction, futureProjections) {
-        if (cyclePrediction != null) {
-            val datesSet = mutableSetOf<LocalDate>()
-
-            // Current cycle fertile window
-            var curr = cyclePrediction.fertileWindowStart
-            while (!curr.isAfter(cyclePrediction.fertileWindowEnd)) {
-                datesSet.add(curr)
-                curr = curr.plusDays(1)
-            }
-
-            // Future projected cycles fertile windows
-            futureProjections.forEach { projected ->
-                var fCurr = projected.fertileWindowStart
-                while (!fCurr.isAfter(projected.fertileWindowEnd)) {
-                    datesSet.add(fCurr)
-                    fCurr = fCurr.plusDays(1)
-                }
-            }
-            datesSet
-        } else {
-            emptySet()
-        }
+    // 2. Single source of truth for all cycle calculations & pre-generated date sets
+    val calendarCycleData = remember(loggedPeriodDates) {
+        ApyBdayCalculator.getCalendarData(loggedPeriodDates)
     }
 
     val canGoBack = currentYearMonth.isAfter(minYearMonth)
@@ -448,11 +370,11 @@ fun MomoCalendar(
                                                 if (dayNumber in 1..daysInMonth) {
                                                     val currentDate = currentYearMonth.atDay(dayNumber)
 
-                                                    // Status logic
-                                                    val isPeriod = currentDate in confirmedBleedDates
-                                                    val isPredictedPeriod = (currentDate in predictedBleedDates) && !isPeriod
-                                                    val isFertile = (currentDate in fertileDates) && !isPeriod && !isPredictedPeriod
-                                                    val isOvulation = (currentDate in ovulationDates) && !isPeriod && !isPredictedPeriod
+                                                    // Fast Set membership checks directly from pre-computed CalendarCycleData
+                                                    val isPeriod = currentDate in calendarCycleData.confirmedBleedDates
+                                                    val isPredictedPeriod = (currentDate in calendarCycleData.predictedBleedDates) && !isPeriod
+                                                    val isFertile = (currentDate in calendarCycleData.fertileDates) && !isPeriod && !isPredictedPeriod
+                                                    val isOvulation = (currentDate in calendarCycleData.ovulationDates) && !isPeriod && !isPredictedPeriod
                                                     val isSelected = selectedDate == currentDate
                                                     val isToday = today == currentDate
 
