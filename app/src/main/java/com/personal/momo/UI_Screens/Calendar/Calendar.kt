@@ -144,8 +144,7 @@ fun MomoCalendar(
     )
 
     val calendarShape = RoundedCornerShape(24.dp)
-    val fertileOutlineColor = Color(0xFFB39DDB)
-    val ovulationDotColor = Color(0xFFBA68C8)
+    val ovulationSkyBlue = Color(0xFF2BA4B5)
 
     Surface(
         modifier = modifier
@@ -401,9 +400,6 @@ fun MomoCalendar(
                                                     val nextPeriod = (col < 6) && (currentDate.plusDays(1) in confirmedBleedDates)
 
                                                     val isFertile = currentDate in fertileDates
-                                                    val prevFertile = (col > 0) && (currentDate.minusDays(1) in fertileDates)
-                                                    val nextFertile = (col < 6) && (currentDate.plusDays(1) in fertileDates)
-
                                                     val isOvulation = cyclePrediction != null && currentDate.isEqual(cyclePrediction.ovulationDate)
                                                     val isSelected = selectedDate == currentDate
                                                     val isToday = today == currentDate
@@ -458,69 +454,23 @@ fun MomoCalendar(
                                                                     }
                                                                 }
 
-                                                                // 2. Draw Fertile Window Hollow Lavender Capsule
-                                                                if (isFertile && !isPeriod) {
-                                                                    val stroke = Stroke(width = 1.8.dp.toPx())
-                                                                    when {
-                                                                        !prevFertile && !nextFertile -> {
-                                                                            drawCircle(
-                                                                                color = fertileOutlineColor,
-                                                                                radius = r,
-                                                                                center = Offset(cx, cy),
-                                                                                style = stroke
-                                                                            )
-                                                                        }
-                                                                        !prevFertile && nextFertile -> {
-                                                                            val path = Path().apply {
-                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 90f, 180f, false)
-                                                                                lineTo(size.width + 1f, top)
-                                                                            }
-                                                                            drawPath(path = path, color = fertileOutlineColor, style = stroke)
-                                                                            drawLine(
-                                                                                color = fertileOutlineColor,
-                                                                                start = Offset(cx, bottom),
-                                                                                end = Offset(size.width + 1f, bottom),
-                                                                                strokeWidth = stroke.width
-                                                                            )
-                                                                        }
-                                                                        prevFertile && nextFertile -> {
-                                                                            drawLine(
-                                                                                color = fertileOutlineColor,
-                                                                                start = Offset(-1f, top),
-                                                                                end = Offset(size.width + 1f, top),
-                                                                                strokeWidth = stroke.width
-                                                                            )
-                                                                            drawLine(
-                                                                                color = fertileOutlineColor,
-                                                                                start = Offset(-1f, bottom),
-                                                                                end = Offset(size.width + 1f, bottom),
-                                                                                strokeWidth = stroke.width
-                                                                            )
-                                                                        }
-                                                                        prevFertile && !nextFertile -> {
-                                                                            val path = Path().apply {
-                                                                                moveTo(-1f, top)
-                                                                                lineTo(cx, top)
-                                                                                arcTo(Rect(Offset(cx - r, top), Size(2 * r, 2 * r)), 270f, 180f, false)
-                                                                                lineTo(-1f, bottom)
-                                                                            }
-                                                                            drawPath(path = path, color = fertileOutlineColor, style = stroke)
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                // 3. Draw Peak Ovulation Dotted Circle
-                                                                if (isOvulation) {
-                                                                    val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                                                                // 2. Draw Peak Ovulation Accent Dotted Circle
+                                                                if (isOvulation && !isPeriod) {
+                                                                    val dashEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
                                                                     drawCircle(
-                                                                        color = ovulationDotColor,
+                                                                        color = ovulationSkyBlue.copy(alpha = 0.08f),
+                                                                        radius = 16.5.dp.toPx(),
+                                                                        center = Offset(cx, cy)
+                                                                    )
+                                                                    drawCircle(
+                                                                        color = ovulationSkyBlue,
                                                                         radius = 16.5.dp.toPx(),
                                                                         center = Offset(cx, cy),
                                                                         style = Stroke(width = 1.8.dp.toPx(), pathEffect = dashEffect)
                                                                     )
                                                                 }
 
-                                                                // 4. Selection Highlight
+                                                                // 3. Selection Highlight
                                                                 if (isSelected && !isPeriod) {
                                                                     drawCircle(
                                                                         brush = MomoPrimaryGradient,
@@ -549,6 +499,7 @@ fun MomoCalendar(
                                                             color = when {
                                                                 isPeriod -> Color.White
                                                                 isSelected -> Color.White
+                                                                isFertile -> ovulationSkyBlue
                                                                 isToday -> MaterialTheme.colorScheme.primary
                                                                 else -> MaterialTheme.colorScheme.onSurface
                                                             },
