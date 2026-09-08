@@ -91,29 +91,21 @@ fun HomeScreen() {
         targetState = isMenuOpen,
         transitionSpec = {
             if (targetState) {
-                // Opening Menu: Subtle Scale In (0.94f -> 1.0f) + Soft Fade In with FastOutSlowInEasing
-                (fadeIn(animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)) +
-                        scaleIn(
-                            initialScale = 0.94f,
-                            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
-                        )).togetherWith(
-                    fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
-                            scaleOut(
-                                targetScale = 0.94f,
-                                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-                            )
-                )
-            } else {
-                // Returning to HomeScreen: Smooth Elevation Back In
+                // Opening Menu: MenuScreen softly scales and fades in; HomeScreen stays completely stationary with just a subtle fade
                 (fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
                         scaleIn(
                             initialScale = 0.96f,
                             animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
                         )).togetherWith(
-                    fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                    fadeOut(animationSpec = tween(durationMillis = 150))
+                )
+            } else {
+                // Returning Home: HomeScreen fades back in with ZERO scale/zoom; MenuScreen cleanly fades out
+                fadeIn(animationSpec = tween(durationMillis = 200)).togetherWith(
+                    fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
                             scaleOut(
                                 targetScale = 0.96f,
-                                animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
+                                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
                             )
                 )
             }
