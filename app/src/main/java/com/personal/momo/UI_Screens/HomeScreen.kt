@@ -1,5 +1,9 @@
 package com.personal.momo.UI_Screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -46,7 +49,7 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
-import com.personal.momo.UI_Screens.Settings.MomoMenuPopup
+import com.personal.momo.UI_Screens.Settings.MenuScreen
 import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
 
 private val BellIcon: ImageVector by lazy {
@@ -70,7 +73,7 @@ private val MomoBoldFont = FontFamily(Font(R.font.momo_bold))
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
-    var showSettingsMenu by remember { mutableStateOf(false) }
+    var isMenuOpen by remember { mutableStateOf(false) }
     var isUpdateAvailable by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -80,43 +83,56 @@ fun HomeScreen() {
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            HomeHeader(
-                avatarUrl = avatarUrl,
-                isUpdateAvailable = isUpdateAvailable,
-                onMoreOptionsClick = {
-                    showSettingsMenu = !showSettingsMenu
-                }
+    AnimatedContent(
+        targetState = isMenuOpen,
+        transitionSpec = {
+            if (targetState) {
+                slideInHorizontally { it } togetherWith slideOutHorizontally { -it }
+            } else {
+                slideInHorizontally { -it } togetherWith slideOutHorizontally { it }
+            }
+        },
+        label = "HomeScreenNavigationTransition"
+    ) { openMenu ->
+        if (openMenu) {
+            MenuScreen(
+                onBack = { isMenuOpen = false },
+                isUpdateAvailable = isUpdateAvailable
             )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
+        } else {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
+                    .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    MomoCalendar()
+                    HomeHeader(
+                        avatarUrl = avatarUrl,
+                        isUpdateAvailable = isUpdateAvailable,
+                        onMenuClick = {
+                            isMenuOpen = true
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.background)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            MomoCalendar()
+                        }
+                    }
                 }
             }
         }
-
-        MomoMenuPopup(
-            isOpen = showSettingsMenu,
-            onDismissRequest = { showSettingsMenu = false },
-            isUpdateAvailable = isUpdateAvailable
-        )
     }
 }
 
@@ -124,7 +140,7 @@ fun HomeScreen() {
 private fun HomeHeader(
     avatarUrl: String?,
     isUpdateAvailable: Boolean,
-    onMoreOptionsClick: () -> Unit
+    onMenuClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -138,6 +154,7 @@ private fun HomeHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Left Profile Avatar & Typography Branding
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -188,6 +205,7 @@ private fun HomeHeader(
                 }
             }
 
+            // Right Action Buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -209,21 +227,35 @@ private fun HomeHeader(
                     )
                 }
 
+                // Veggie Burger Icon (2 Parallel Rounded Bars with Update Dot)
                 Box(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
                         .bounceClick(scaleDown = 0.88f) {
-                            onMoreOptionsClick()
+                            onMenuClick()
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.5.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(18.dp)
+                                .height(2.5.dp)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(18.dp)
+                                .height(2.5.dp)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                        )
+                    }
 
                     if (isUpdateAvailable) {
                         Box(
