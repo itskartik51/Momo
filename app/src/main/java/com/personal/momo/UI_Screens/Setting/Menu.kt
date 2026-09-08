@@ -149,6 +149,7 @@ fun MenuScreen(
     val scrollState = rememberScrollState()
     var isWelcomeExpanded by remember { mutableStateOf(false) }
     var isUpdateExpanded by remember { mutableStateOf(false) }
+    var toastMessage by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = Modifier
@@ -208,7 +209,10 @@ fun MenuScreen(
                     isExpanded = isWelcomeExpanded,
                     onToggle = { isWelcomeExpanded = !isWelcomeExpanded }
                 ) {
-                    WelcomeSettingsContent(onModeChanged = onModeChanged)
+                    WelcomeSettingsContent(
+                        onModeChanged = onModeChanged,
+                        onShowToast = { toastMessage = it }
+                    )
                 }
 
                 HorizontalDivider(
@@ -242,5 +246,14 @@ fun MenuScreen(
                 )
             }
         }
+
+        // Screen-Level Floating Confirmation Toast (Anchored to Bottom Center)
+        WelcomeAppliedToast(
+            message = toastMessage,
+            onDismiss = { toastMessage = null },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 36.dp)
+        )
     }
 }
