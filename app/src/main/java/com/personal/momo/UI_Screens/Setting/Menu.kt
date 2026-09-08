@@ -1,7 +1,6 @@
 package com.personal.momo.UI_Screens.Settings
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -10,8 +9,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -83,6 +81,8 @@ fun MomoMenuPopup(
         label = "WelcomeArrowRotation"
     )
 
+    val menuShape = RoundedCornerShape(22.dp)
+
     if (isOpen) {
         Popup(
             alignment = Alignment.TopEnd,
@@ -91,23 +91,14 @@ fun MomoMenuPopup(
             properties = PopupProperties(focusable = true)
         ) {
             Surface(
-                modifier = Modifier
-                    .width(285.dp)
-                    .shadow(elevation = 18.dp, shape = RoundedCornerShape(22.dp))
-                    .clip(RoundedCornerShape(22.dp))
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(22.dp)
-                    )
-                    .animateContentSize(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    ),
+                modifier = Modifier.width(285.dp),
+                shape = menuShape,
                 color = MaterialTheme.colorScheme.background,
-                shape = RoundedCornerShape(22.dp)
+                shadowElevation = 16.dp,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                )
             ) {
                 Column(
                     modifier = Modifier
@@ -159,7 +150,7 @@ fun MomoMenuPopup(
                         }
                     }
 
-                    // Smooth Synchronized Expansion for Capsule Selector
+                    // Single-Engine Expandable Section (In-Sync with Container and Shadow)
                     AnimatedVisibility(
                         visible = isWelcomeExpanded,
                         enter = expandVertically(
@@ -167,13 +158,13 @@ fun MomoMenuPopup(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             )
-                        ) + fadeIn(animationSpec = tween(200)),
+                        ) + fadeIn(animationSpec = tween(durationMillis = 180)),
                         exit = shrinkVertically(
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
+                                stiffness = Spring.StiffnessMediumLow
                             )
-                        ) + fadeOut(animationSpec = tween(150))
+                        ) + fadeOut(animationSpec = tween(durationMillis = 140))
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth()
