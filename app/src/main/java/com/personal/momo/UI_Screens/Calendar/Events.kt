@@ -17,6 +17,11 @@ data class MomoNostalgiaEvent(
     val yearsAgo: Int
 )
 
+data class MonthEventsData(
+    val regularEventDates: Set<LocalDate>,
+    val milestoneDates: Set<LocalDate>
+)
+
 object MomoEventsCalculator {
 
     /**
@@ -56,27 +61,51 @@ object MomoEventsCalculator {
     }
 
     /**
-     * Pre-computes all dates in the current month that have either an exact or nostalgic event.
-     * Keeps the Calendar UI fast and completely dumb.
-     */
-    fun getEventDatesInMonth(yearMonth: YearMonth, allEvents: List<MomoEvent>): Set<LocalDate> {
-        val daysInMonth = yearMonth.lengthOfMonth()
-        val matchingDates = mutableSetOf<LocalDate>()
-        for (day in 1..daysInMonth) {
-            val date = yearMonth.atDay(day)
-            if (hasEventOnDate(date, allEvents)) {
-                matchingDates.add(date)
-            }
-        }
-        return matchingDates
-    }
-
-    /**
      * Checks whether any exact or nostalgic event on this day has the special milestone flag enabled.
      */
     fun hasSpecialMilestone(selectedDate: LocalDate, allEvents: List<MomoEvent>): Boolean {
         val exactMatch = getExactEventsForDate(selectedDate, allEvents).any { it.isSpecial }
         val nostalgiaMatch = getNostalgiaEvents(selectedDate, allEvents).any { it.event.isSpecial }
         return exactMatch || nostalgiaMatch
+    }
+
+    /**
+     * Pre-computes regular events and milestone events for the visible month.
+     * Keeps Calendar.kt completely dumb by providing ready-to-consume sets.
+     */
+    fun getMonthEventsData(yearMonth: YearMonth, allEvents: List<MomoEvent>): MonthEventsData {
+        val daysInMonth = yearMonth.lengthOfMonth()
+        val regularDates = mutableSetOf<LocalDate>()
+        val milestoneDates = mutableSetOf<LocalDate>()
+
+        for (day in 1..daysInMonth) {
+            val date = yearMonth.atDay(day)
+            val matchingEvents = allEvents.filter { event ->
+                event.date.month == date.month &&
+                        event.date.dayOfMonth == date.dayOfMonth &&
+                        event.date.year <= date.year
+            }
+
+            if (matchingEvents.isNotEmpty()) {
+                if (matchingEvents.any { it.isSpecial }) {
+                    milestoneDates.add(date)
+                } else {
+                    regularDates.add(date)
+                }
+            }
+        }
+
+        return MonthEventsData(
+            regularEventDates = regularDates,
+            milestoneDates = milestoneDates
+        )
+    }
+
+    /**
+     * Convenience method returning all dates with any active event in the month.
+     */
+    fun getEventDatesInMonth(yearMonth: YearMonth, allEvents: List<MomoEvent>): Set<LocalDate> {
+        val data = getMonthEventsData(yearMonth, allEvents)
+        return data.regularEventDates + data.milestoneDates
     }
 }
