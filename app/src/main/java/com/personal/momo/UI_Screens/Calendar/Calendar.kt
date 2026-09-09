@@ -43,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -83,7 +84,8 @@ private enum class CalendarViewMode {
 
 @Composable
 fun MomoCalendar(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onMonthChanged: (YearMonth) -> Unit = {}
 ) {
     val today = remember { LocalDate.now() }
     val minYearMonth = remember { YearMonth.of(2023, 11) } // Baseline Lock: Nov 2023
@@ -92,6 +94,10 @@ fun MomoCalendar(
     var currentYearMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
     var currentViewMode by remember { mutableStateOf(CalendarViewMode.DAYS) }
     var drillDownYear by remember { mutableIntStateOf(currentYearMonth.year) }
+
+    LaunchedEffect(currentYearMonth) {
+        onMonthChanged(currentYearMonth)
+    }
 
     // 1. Collect real historical period dates from CacheManager
     val loggedPeriodDates by CacheManager.periodDatesFlow.collectAsState()
@@ -372,10 +378,8 @@ fun MomoCalendar(
                                                 onDragEnd = {
                                                     val swipeThreshold = 40.dp.toPx()
                                                     if (totalDrag < -swipeThreshold) {
-                                                        // Swipe Left -> Next Month
                                                         currentYearMonth = currentYearMonth.plusMonths(1)
                                                     } else if (totalDrag > swipeThreshold && canGoBack) {
-                                                        // Swipe Right -> Previous Month
                                                         currentYearMonth = currentYearMonth.minusMonths(1)
                                                     }
                                                 },
@@ -583,7 +587,7 @@ fun MomoCalendar(
                                                                 modifier = Modifier
                                                                     .weight(1f)
                                                                     .height(42.dp)
-                                                            )
+                                                                )
                                                         }
                                                     }
                                                 }
