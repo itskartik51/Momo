@@ -104,9 +104,9 @@ fun MomoCalendar(
         ApyBdayCalculator.getCalendarData(loggedPeriodDates)
     }
 
-    // 4. Pre-computed active event dates for the visible month provided directly by Events.kt
-    val eventDatesInMonth = remember(allEvents, currentYearMonth) {
-        MomoEventsCalculator.getEventDatesInMonth(currentYearMonth, allEvents)
+    // 4. Pre-computed active event sets for the visible month provided directly by Events.kt
+    val monthEventsData = remember(allEvents, currentYearMonth) {
+        MomoEventsCalculator.getMonthEventsData(currentYearMonth, allEvents)
     }
 
     val canGoBack = currentYearMonth.isAfter(minYearMonth)
@@ -372,10 +372,8 @@ fun MomoCalendar(
                                                 onDragEnd = {
                                                     val swipeThreshold = 40.dp.toPx()
                                                     if (totalDrag < -swipeThreshold) {
-                                                        // Swipe Left -> Next Month
                                                         currentYearMonth = currentYearMonth.plusMonths(1)
                                                     } else if (totalDrag > swipeThreshold && canGoBack) {
-                                                        // Swipe Right -> Previous Month
                                                         currentYearMonth = currentYearMonth.minusMonths(1)
                                                     }
                                                 },
@@ -453,8 +451,11 @@ fun MomoCalendar(
                                                             val isSelected = selectedDate == currentDate
                                                             val isToday = today == currentDate
 
-                                                            // Purely dumb check from Events.kt pre-computed monthly summary
-                                                            val hasEvent = currentDate in eventDatesInMonth
+                                                            // Events.kt pre-computed classifications
+                                                            val isMilestone = currentDate in monthEventsData.milestoneDates
+                                                            val hasRegularEvent = currentDate in monthEventsData.regularEventDates
+
+                                                            val hasIndicatorRing = isPeriod || isPredictedPeriod || isOvulation || isMilestone
 
                                                             Box(
                                                                 modifier = Modifier
@@ -492,9 +493,20 @@ fun MomoCalendar(
                                                                             )
                                                                         }
 
-                                                                        // 3. Selection Highlight Ring / Solid Fill
+                                                                        // 3. Special Milestone Dotted Circle in Gradient6 (drawn when not overridden by predicted or ovulation circles)
+                                                                        if (isMilestone && !isPredictedPeriod && !isOvulation) {
+                                                                            val dashEffect = PathEffect.dashPathEffect(floatArrayOf(4.5f, 4.5f), 0f)
+                                                                            drawCircle(
+                                                                                brush = Gradient6,
+                                                                                radius = 16.5.dp.toPx(),
+                                                                                center = Offset(cx, cy),
+                                                                                style = Stroke(width = 1.6.dp.toPx(), pathEffect = dashEffect)
+                                                                            )
+                                                                        }
+
+                                                                        // 4. Selection Highlight: Outer stroke ring for dates with an indicator, solid fill for regular dates
                                                                         if (isSelected) {
-                                                                            if (isPeriod || isPredictedPeriod) {
+                                                                            if (hasIndicatorRing) {
                                                                                 drawCircle(
                                                                                     brush = MomoPrimaryGradient,
                                                                                     radius = r,
@@ -521,19 +533,23 @@ fun MomoCalendar(
                                                                 Text(
                                                                     text = "$dayNumber",
                                                                     style = when {
-                                                                        isPeriod -> TextStyle(brush = MomoPrimaryGradient)
-                                                                        isPredictedPeriod -> TextStyle(brush = MomoPrimaryGradient)
+                                                                        isMilestone && (isPredictedPeriod || isOvulation) -> TextStyle(brush = Gradient6)
+                                                                        isMilestone && isPeriod -> TextStyle(brush = MomoPrimaryGradient)
+                                                                        isMilestone -> TextStyle(brush = Gradient6)
+                                                                        isPeriod || isPredictedPeriod -> TextStyle(brush = MomoPrimaryGradient)
+                                                                        isOvulation -> TextStyle(color = ovulationSkyBlue)
                                                                         isSelected -> TextStyle(color = Color.White)
                                                                         isFertile -> TextStyle(color = ovulationSkyBlue)
                                                                         isToday -> TextStyle(color = MaterialTheme.colorScheme.primary)
                                                                         else -> TextStyle(color = MaterialTheme.colorScheme.onSurface)
                                                                     },
                                                                     fontSize = 15.sp,
-                                                                    fontWeight = if (isPeriod || isPredictedPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
+                                                                    fontWeight = if (isPeriod || isPredictedPeriod || isSelected || isToday || isOvulation || isMilestone) FontWeight.Bold else FontWeight.Medium,
                                                                     textAlign = TextAlign.Center
                                                                 )
 
-                                                                if (hasEvent) {
+                                                                // Regular event indicator dot (suppressed if the date is a milestone)
+                                                                if (hasRegularEvent) {
                                                                     Box(
                                                                         modifier = Modifier
                                                                             .align(Alignment.BottomCenter)
@@ -541,7 +557,7 @@ fun MomoCalendar(
                                                                             .size(4.dp)
                                                                             .clip(CircleShape)
                                                                             .background(
-                                                                                brush = if (isSelected) {
+                                                                                brush = if (isSelected && !hasIndicatorRing) {
                                                                                     SolidColor(Color.White)
                                                                                 } else {
                                                                                     Gradient6
@@ -556,7 +572,7 @@ fun MomoCalendar(
                                                                 modifier = Modifier
                                                                     .weight(1f)
                                                                     .height(42.dp)
-                                                            )
+                                                                )
                                                         }
                                                     }
                                                 }
