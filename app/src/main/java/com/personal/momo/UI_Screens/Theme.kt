@@ -43,6 +43,38 @@ val MomoPrimaryGradient = Brush.verticalGradient(
     )
 )
 
+// Endless River Gradient (Aqua to Ocean Blue)
+val Gradient2 = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF43CEA2), // Aqua Mint (Top)
+        Color(0xFF185A9D)  // Deep Ocean Blue (Bottom)
+    )
+)
+
+// Vine Gradient (Emerald Green to Deep Forest)
+val Gradient3 = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF00BF8F), // Bright Emerald (Top)
+        Color(0xFF001510)  // Deep Forest Green (Bottom)
+    )
+)
+
+// Virgin America Gradient (Violet to Crimson Red)
+val Gradient4 = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF7B4397), // Deep Violet (Left)
+        Color(0xFFDC2430)  // Vivid Crimson Red (Right)
+    )
+)
+
+// Purple Bliss Gradient (Teal Cyan to Deep Aubergine)
+val Gradient5 = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF0B8793), // Vibrant Teal Cyan (Top)
+        Color(0xFF360033)  // Deep Purple (Bottom)
+    )
+)
+
 private val DarkColorScheme = darkColorScheme(
     primary = MomoPrimaryDark,
     background = BackgroundDark,
