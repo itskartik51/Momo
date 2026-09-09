@@ -58,6 +58,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.UI_Screens.Gradient4
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import java.time.LocalDate
@@ -94,9 +96,17 @@ fun MomoCalendar(
     // 1. Collect real historical period dates from CacheManager
     val loggedPeriodDates by CacheManager.periodDatesFlow.collectAsState()
 
-    // 2. Single source of truth for all cycle calculations & pre-generated date sets
+    // 2. Collect cached events from CacheManager
+    val allEvents by CacheManager.eventsFlow.collectAsState()
+
+    // 3. Single source of truth for all cycle calculations & pre-generated date sets
     val calendarCycleData = remember(loggedPeriodDates) {
         ApyBdayCalculator.getCalendarData(loggedPeriodDates)
+    }
+
+    // 4. Pre-computed active event dates for the visible month provided directly by Events.kt
+    val eventDatesInMonth = remember(allEvents, currentYearMonth) {
+        MomoEventsCalculator.getEventDatesInMonth(currentYearMonth, allEvents)
     }
 
     val canGoBack = currentYearMonth.isAfter(minYearMonth)
@@ -443,6 +453,9 @@ fun MomoCalendar(
                                                             val isSelected = selectedDate == currentDate
                                                             val isToday = today == currentDate
 
+                                                            // Purely dumb check from Events.kt pre-computed monthly summary
+                                                            val hasEvent = currentDate in eventDatesInMonth
+
                                                             Box(
                                                                 modifier = Modifier
                                                                     .weight(1f)
@@ -519,6 +532,23 @@ fun MomoCalendar(
                                                                     fontWeight = if (isPeriod || isPredictedPeriod || isSelected || isToday || isOvulation) FontWeight.Bold else FontWeight.Medium,
                                                                     textAlign = TextAlign.Center
                                                                 )
+
+                                                                if (hasEvent) {
+                                                                    Box(
+                                                                        modifier = Modifier
+                                                                            .align(Alignment.BottomCenter)
+                                                                            .padding(bottom = 3.5.dp)
+                                                                            .size(4.dp)
+                                                                            .clip(CircleShape)
+                                                                            .background(
+                                                                                brush = if (isSelected) {
+                                                                                    SolidColor(Color.White)
+                                                                                } else {
+                                                                                    Gradient4
+                                                                                }
+                                                                            )
+                                                                    )
+                                                                }
                                                             }
                                                         } else {
                                                             // Empty cell for alignment
@@ -526,7 +556,7 @@ fun MomoCalendar(
                                                                 modifier = Modifier
                                                                     .weight(1f)
                                                                     .height(42.dp)
-                                                                )
+                                                            )
                                                         }
                                                     }
                                                 }
