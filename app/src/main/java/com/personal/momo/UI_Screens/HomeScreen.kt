@@ -22,8 +22,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,8 +55,10 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
+import com.personal.momo.UI_Screens.Calendar.MonthEventsAgendaCard
 import com.personal.momo.UI_Screens.Settings.MenuScreen
 import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
+import java.time.YearMonth
 
 private val BellIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -79,6 +83,7 @@ fun HomeScreen() {
     val context = LocalContext.current
     var isMenuOpen by remember { mutableStateOf(false) }
     var isUpdateAvailable by remember { mutableStateOf(false) }
+    var currentVisibleMonth by remember { mutableStateOf(YearMonth.now()) }
 
     LaunchedEffect(Unit) {
         CacheManager.init(context)
@@ -86,6 +91,7 @@ fun HomeScreen() {
     }
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
+    val allEvents by CacheManager.eventsFlow.collectAsState()
 
     AnimatedContent(
         targetState = isMenuOpen,
@@ -143,9 +149,23 @@ fun HomeScreen() {
                             .background(MaterialTheme.colorScheme.background)
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(bottom = 24.dp)
                         ) {
-                            MomoCalendar()
+                            MomoCalendar(
+                                onMonthChanged = { month ->
+                                    currentVisibleMonth = month
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            MonthEventsAgendaCard(
+                                currentYearMonth = currentVisibleMonth,
+                                allEvents = allEvents
+                            )
                         }
                     }
                 }
