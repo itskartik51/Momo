@@ -372,8 +372,10 @@ fun MomoCalendar(
                                                 onDragEnd = {
                                                     val swipeThreshold = 40.dp.toPx()
                                                     if (totalDrag < -swipeThreshold) {
+                                                        // Swipe Left -> Next Month
                                                         currentYearMonth = currentYearMonth.plusMonths(1)
                                                     } else if (totalDrag > swipeThreshold && canGoBack) {
+                                                        // Swipe Right -> Previous Month
                                                         currentYearMonth = currentYearMonth.minusMonths(1)
                                                     }
                                                 },
@@ -507,12 +509,21 @@ fun MomoCalendar(
                                                                         // 4. Selection Highlight: Outer stroke ring for dates with an indicator, solid fill for regular dates
                                                                         if (isSelected) {
                                                                             if (hasIndicatorRing) {
-                                                                                drawCircle(
-                                                                                    brush = MomoPrimaryGradient,
-                                                                                    radius = r,
-                                                                                    center = Offset(cx, cy),
-                                                                                    style = Stroke(width = 1.8.dp.toPx())
-                                                                                )
+                                                                                if (isOvulation) {
+                                                                                    drawCircle(
+                                                                                        color = ovulationSkyBlue,
+                                                                                        radius = r,
+                                                                                        center = Offset(cx, cy),
+                                                                                        style = Stroke(width = 1.8.dp.toPx())
+                                                                                    )
+                                                                                } else {
+                                                                                    drawCircle(
+                                                                                        brush = MomoPrimaryGradient,
+                                                                                        radius = r,
+                                                                                        center = Offset(cx, cy),
+                                                                                        style = Stroke(width = 1.8.dp.toPx())
+                                                                                    )
+                                                                                }
                                                                             } else {
                                                                                 drawCircle(
                                                                                     brush = MomoPrimaryGradient,
@@ -572,7 +583,7 @@ fun MomoCalendar(
                                                                 modifier = Modifier
                                                                     .weight(1f)
                                                                     .height(42.dp)
-                                                                )
+                                                            )
                                                         }
                                                     }
                                                 }
