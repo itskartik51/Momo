@@ -1,6 +1,7 @@
 package com.personal.momo.UI_Screens.Calendar
 
 import java.time.LocalDate
+import java.time.YearMonth
 
 data class MomoEvent(
     val id: String,
@@ -41,6 +42,33 @@ object MomoEventsCalculator {
                 yearsAgo = diffYears
             )
         }
+    }
+
+    /**
+     * Checks whether any exact or nostalgic event exists for the specified date.
+     */
+    fun hasEventOnDate(date: LocalDate, allEvents: List<MomoEvent>): Boolean {
+        return allEvents.any { event ->
+            event.date.month == date.month &&
+                    event.date.dayOfMonth == date.dayOfMonth &&
+                    event.date.year <= date.year
+        }
+    }
+
+    /**
+     * Pre-computes all dates in the current month that have either an exact or nostalgic event.
+     * Keeps the Calendar UI fast and completely dumb.
+     */
+    fun getEventDatesInMonth(yearMonth: YearMonth, allEvents: List<MomoEvent>): Set<LocalDate> {
+        val daysInMonth = yearMonth.lengthOfMonth()
+        val matchingDates = mutableSetOf<LocalDate>()
+        for (day in 1..daysInMonth) {
+            val date = yearMonth.atDay(day)
+            if (hasEventOnDate(date, allEvents)) {
+                matchingDates.add(date)
+            }
+        }
+        return matchingDates
     }
 
     /**
