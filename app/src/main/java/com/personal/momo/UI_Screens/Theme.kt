@@ -75,6 +75,22 @@ val Gradient5 = Brush.verticalGradient(
     )
 )
 
+// Sunset Amber Gradient (Bright Amber to Deep Warm Orange)
+val Gradient6 = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFFFFB300), // Bright Amber Yellow (Top)
+        Color(0xFFE65100)  // Deep Warm Orange (Bottom)
+    )
+)
+
+// Fresh Citrus Gradient (Lime to Leaf Green)
+val Gradient7 = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFFD4E157), // Light Pale Lime (Top)
+        Color(0xFF689F38)  // Fresh Leaf Green (Bottom)
+    )
+)
+
 private val DarkColorScheme = darkColorScheme(
     primary = MomoPrimaryDark,
     background = BackgroundDark,
