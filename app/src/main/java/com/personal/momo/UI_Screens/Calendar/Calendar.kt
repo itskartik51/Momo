@@ -67,7 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.Cache.CacheManager
-import com.personal.momo.UI_Screens.Gradient4
+import com.personal.momo.UI_Screens.Gradient6
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import java.time.LocalDate
@@ -537,14 +537,14 @@ fun MomoCalendar(
                                                                     Box(
                                                                         modifier = Modifier
                                                                             .align(Alignment.BottomCenter)
-                                                                            .padding(bottom = 3.5.dp)
+                                                                            .padding(bottom = 6.5.dp)
                                                                             .size(4.dp)
                                                                             .clip(CircleShape)
                                                                             .background(
                                                                                 brush = if (isSelected) {
                                                                                     SolidColor(Color.White)
                                                                                 } else {
-                                                                                    Gradient4
+                                                                                    Gradient6
                                                                                 }
                                                                             )
                                                                     )
