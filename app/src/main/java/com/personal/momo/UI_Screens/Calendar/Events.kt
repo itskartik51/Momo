@@ -238,24 +238,32 @@ private fun MonthAgendaRow(
     item: MonthAgendaItem,
     modifier: Modifier = Modifier
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
+    var isExpanded by remember(item.id) { mutableStateOf(false) }
+    var canExpand by remember(item.id) { mutableStateOf(false) }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                isExpanded = !isExpanded
-            },
+            .then(
+                if (canExpand) {
+                    Modifier
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            isExpanded = !isExpanded
+                        }
+                } else {
+                    Modifier
+                }
+            ),
         verticalAlignment = Alignment.Top
     ) {
         // 1. Date Circle Badge (Anchored at top)
@@ -324,6 +332,11 @@ private fun MonthAgendaRow(
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = if (isExpanded) Int.MAX_VALUE else 1,
                     overflow = if (isExpanded) TextOverflow.Clip else TextOverflow.Ellipsis,
+                    onTextLayout = { textLayoutResult ->
+                        if (!isExpanded) {
+                            canExpand = textLayoutResult.hasVisualOverflow
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
 
