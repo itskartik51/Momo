@@ -57,11 +57,11 @@ val Gradient2 = Brush.verticalGradient(
     )
 )
 
-// Vine Gradient (Emerald Green to Deep Forest)
+// Vine Gradient (Rich Forest Green to Luminous Emerald)
 val Gradient3 = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFF00BF8F), // Bright Emerald (Top)
-        Color(0xFF001510)  // Deep Forest Green (Bottom)
+        Color(0xFF065F46), // Rich Forest Green (Top)
+        Color(0xFF00BF8F)  // Luminous Emerald (Bottom)
     )
 )
 
