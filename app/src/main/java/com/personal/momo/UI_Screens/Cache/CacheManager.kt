@@ -3,7 +3,9 @@ package com.personal.momo.Cache
 import android.content.Context
 import android.content.SharedPreferences
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.personal.momo.UI_Screens.Calendar.MomoEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +17,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Date
+import java.util.Locale
 
 object CacheManager {
 
@@ -77,6 +81,97 @@ object CacheManager {
             }
         }
         syncFromFirestore()
+    }
+
+    /**
+     * Optimistic write for new period start date:
+     * 1. Updates in-memory flow and local SharedPreferences instantly for zero UI latency.
+     * 2. Pushes to Firestore under ApyBday/{Year} using arrayUnion on 'peri_date'.
+     * 3. Syncs fresh authoritative state from Firestore upon completion.
+     */
+    fun addPeriodDate(date: LocalDate) {
+        // Step 1: Instant Local Write (Optimistic UI Update)
+        val updatedDates = (_periodDatesFlow.value + date).distinct().sorted()
+        savePeriodDates(updatedDates)
+
+        // Step 2 & 3: Background Firestore Push & Server Reconciliation
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = FirebaseFirestore.getInstance()
+                val yearDocId = date.year.toString()
+
+                val instant = date.atStartOfDay(ZoneId.systemDefault()).toInstant()
+                val timestamp = Timestamp(Date.from(instant))
+
+                val docRef = db.collection("ApyBday").document(yearDocId)
+                docRef.set(
+                    mapOf("peri_date" to FieldValue.arrayUnion(timestamp)),
+                    SetOptions.merge()
+                ).addOnSuccessListener {
+                    syncFromFirestore()
+                }.addOnFailureListener { e ->
+                    e.printStackTrace()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * Optimistic write for new event/memory:
+     * 1. Updates in-memory flow and local SharedPreferences instantly for zero UI latency.
+     * 2. Reads existing keys for Events/{Year}, finds next 3-digit index (e.g. 001, 002).
+     * 3. Writes array payload [title, description, Timestamp, isSpecial] and reconciles with server.
+     */
+    fun addEvent(event: MomoEvent) {
+        // Step 1: Instant Local Write (Optimistic UI Update)
+        val updatedEvents = (_eventsFlow.value.filterNot { it.id == event.id } + event).sortedBy { it.date }
+        saveEvents(updatedEvents)
+
+        // Step 2 & 3: Background Firestore Push & Server Reconciliation
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = FirebaseFirestore.getInstance()
+                val yearDocId = event.date.year.toString()
+                val docRef = db.collection("Events").document(yearDocId)
+
+                docRef.get().addOnSuccessListener { snapshot ->
+                    val nextIndex = if (snapshot != null && snapshot.exists()) {
+                        val keys = snapshot.data?.keys ?: emptySet()
+                        val numericKeys = keys.mapNotNull { it.toIntOrNull() }
+                        val maxKey = numericKeys.maxOrNull() ?: 0
+                        maxKey + 1
+                    } else {
+                        1
+                    }
+
+                    val fieldKey = String.format(Locale.ENGLISH, "%03d", nextIndex)
+                    val instant = event.date.atStartOfDay(ZoneId.systemDefault()).toInstant()
+                    val timestamp = Timestamp(Date.from(instant))
+
+                    val eventPayload = listOf(
+                        event.title,
+                        event.description,
+                        timestamp,
+                        event.isSpecial
+                    )
+
+                    docRef.set(
+                        mapOf(fieldKey to eventPayload),
+                        SetOptions.merge()
+                    ).addOnSuccessListener {
+                        syncFromFirestore()
+                    }.addOnFailureListener { e ->
+                        e.printStackTrace()
+                    }
+                }.addOnFailureListener { e ->
+                    e.printStackTrace()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun syncFromFirestore() {
