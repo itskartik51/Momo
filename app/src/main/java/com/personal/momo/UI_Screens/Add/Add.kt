@@ -11,16 +11,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,8 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,17 +44,16 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -76,22 +74,23 @@ import androidx.compose.ui.window.PopupProperties
 import com.personal.momo.UI_Screens.Gradient3
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
-import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.LocalDate
 import java.time.Month
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
-import kotlin.math.abs
-
-const val MIN_YEAR = 2022
-const val MAX_YEAR = 2100
 
 enum class AddSheetType {
     NONE,
     APY_BDAY,
     EVENT,
     REMINDER
+}
+
+enum class DatePickerSegment {
+    DAY,
+    MONTH,
+    YEAR
 }
 
 private val DropletIcon: ImageVector by lazy {
@@ -142,18 +141,28 @@ private fun ActionPill(
     label: String,
     onClick: () -> Unit
 ) {
-    Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-        shadowElevation = 10.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+    // Pure Box implementation bypasses Material 3 tonal elevation color tinting, matching the form sheet background 1:1
+    Box(
         modifier = Modifier
             .wrapContentWidth()
+            .shadow(
+                elevation = 8.dp,
+                shape = CircleShape,
+                clip = false,
+                ambientColor = Color.Black.copy(alpha = 0.25f),
+                spotColor = Color.Black.copy(alpha = 0.35f)
+            )
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                shape = CircleShape
+            )
             .bounceClick(scaleDown = 0.94f) { onClick() }
+            .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -272,205 +281,287 @@ fun AddActionMenuAnchor(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun CupertinoDatePickerWheel(
+fun SegmentedDatePicker(
     selectedDate: LocalDate,
     onDateChanged: (LocalDate) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    minDate: LocalDate? = null,
+    maxDate: LocalDate? = null
 ) {
+    var activeSegment by remember { mutableStateOf(DatePickerSegment.DAY) }
+
     val currentYear = selectedDate.year
     val currentMonth = selectedDate.monthValue
     val currentDay = selectedDate.dayOfMonth
 
-    val years = remember { (MIN_YEAR..MAX_YEAR).toList() }
-    val months = remember { (1..12).toList() }
-
     val daysInMonth = remember(currentYear, currentMonth) {
         YearMonth.of(currentYear, currentMonth).lengthOfMonth()
     }
-    val availableDays = remember(daysInMonth) { (1..daysInMonth).toList() }
 
-    LaunchedEffect(daysInMonth) {
-        if (currentDay > daysInMonth) {
-            onDateChanged(LocalDate.of(currentYear, currentMonth, daysInMonth))
-        }
+    val yearsList = remember(minDate, maxDate) {
+        val start = minDate?.year ?: 2022
+        val end = maxDate?.year ?: 2035
+        (start..end).toList()
     }
 
-    val itemHeight = 44.dp
-    val wheelHeight = itemHeight * 3
+    val monthsList = remember {
+        listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    }
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .height(wheelHeight)
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-        contentAlignment = Alignment.Center
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .padding(14.dp)
     ) {
+        // 1. Top 3 Cells: Day | Month | Year
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SegmentHeaderCell(
+                text = String.format(Locale.ENGLISH, "%02d", currentDay),
+                isSelected = activeSegment == DatePickerSegment.DAY,
+                modifier = Modifier.weight(1f),
+                onClick = { activeSegment = DatePickerSegment.DAY }
+            )
+
+            SegmentHeaderCell(
+                text = Month.of(currentMonth).getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
+                isSelected = activeSegment == DatePickerSegment.MONTH,
+                modifier = Modifier.weight(1.2f),
+                onClick = { activeSegment = DatePickerSegment.MONTH }
+            )
+
+            SegmentHeaderCell(
+                text = currentYear.toString(),
+                isSelected = activeSegment == DatePickerSegment.YEAR,
+                modifier = Modifier.weight(1.1f),
+                onClick = { activeSegment = DatePickerSegment.YEAR }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // 2. Dynamic Selection Grid
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(itemHeight)
-                .padding(horizontal = 8.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface)
-        )
-
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
+                .height(200.dp)
         ) {
-            Box(modifier = Modifier.weight(1f)) {
-                SingleWheelDrum(
-                    items = availableDays,
-                    selectedItem = currentDay.coerceAtMost(daysInMonth),
-                    itemHeight = itemHeight,
-                    format = { String.format(Locale.ENGLISH, "%02d", it) }
-                ) { newDay ->
-                    if (newDay != currentDay) {
-                        onDateChanged(LocalDate.of(currentYear, currentMonth, newDay))
+            when (activeSegment) {
+                DatePickerSegment.DAY -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(7),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(daysInMonth) { index ->
+                            val day = index + 1
+                            val isSelected = day == currentDay
+                            val isEnabled = when {
+                                minDate != null && currentYear == minDate.year && currentMonth == minDate.monthValue -> day >= minDate.dayOfMonth
+                                maxDate != null && currentYear == maxDate.year && currentMonth == maxDate.monthValue -> day <= maxDate.dayOfMonth
+                                else -> true
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(CircleShape)
+                                    .then(
+                                        if (isSelected) {
+                                            Modifier.background(brush = MomoPrimaryGradient)
+                                        } else if (isEnabled) {
+                                            Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .then(
+                                        if (isEnabled) {
+                                            Modifier.bounceClick(scaleDown = 0.88f) {
+                                                onDateChanged(LocalDate.of(currentYear, currentMonth, day))
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$day",
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = when {
+                                        isSelected -> Color.White
+                                        !isEnabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
-            }
 
-            Box(modifier = Modifier.weight(1.2f)) {
-                SingleWheelDrum(
-                    items = months,
-                    selectedItem = currentMonth,
-                    itemHeight = itemHeight,
-                    format = { Month.of(it).getDisplayName(TextStyle.SHORT, Locale.ENGLISH) }
-                ) { newMonth ->
-                    if (newMonth != currentMonth) {
-                        val maxDays = YearMonth.of(currentYear, newMonth).lengthOfMonth()
-                        onDateChanged(LocalDate.of(currentYear, newMonth, currentDay.coerceAtMost(maxDays)))
+                DatePickerSegment.MONTH -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(12) { index ->
+                            val monthNum = index + 1
+                            val isSelected = monthNum == currentMonth
+                            val isEnabled = when {
+                                minDate != null && currentYear == minDate.year -> monthNum >= minDate.monthValue
+                                maxDate != null && currentYear == maxDate.year -> monthNum <= maxDate.monthValue
+                                else -> true
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .height(42.dp)
+                                    .clip(CircleShape)
+                                    .then(
+                                        if (isSelected) {
+                                            Modifier.background(brush = MomoPrimaryGradient)
+                                        } else if (isEnabled) {
+                                            Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .then(
+                                        if (isEnabled) {
+                                            Modifier.bounceClick(scaleDown = 0.9f) {
+                                                val maxDays = YearMonth.of(currentYear, monthNum).lengthOfMonth()
+                                                var clampedDay = currentDay.coerceAtMost(maxDays)
+                                                if (minDate != null && currentYear == minDate.year && monthNum == minDate.monthValue && clampedDay < minDate.dayOfMonth) {
+                                                    clampedDay = minDate.dayOfMonth
+                                                }
+                                                onDateChanged(LocalDate.of(currentYear, monthNum, clampedDay))
+                                                activeSegment = DatePickerSegment.DAY
+                                            }
+                                        } else {
+                                            Modifier
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = monthsList[index],
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = when {
+                                        isSelected -> Color.White
+                                        !isEnabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
-            }
 
-            Box(modifier = Modifier.weight(1.1f)) {
-                SingleWheelDrum(
-                    items = years,
-                    selectedItem = currentYear,
-                    itemHeight = itemHeight,
-                    format = { it.toString() }
-                ) { newYear ->
-                    if (newYear != currentYear) {
-                        val maxDays = YearMonth.of(newYear, currentMonth).lengthOfMonth()
-                        onDateChanged(LocalDate.of(newYear, currentMonth, currentDay.coerceAtMost(maxDays)))
-                    }
-                }
-            }
-        }
+                DatePickerSegment.YEAR -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(yearsList) { year ->
+                            val isSelected = year == currentYear
 
-        WheelDepthOverlay(isTop = true, itemHeight = itemHeight, modifier = Modifier.align(Alignment.TopCenter))
-        WheelDepthOverlay(isTop = false, itemHeight = itemHeight, modifier = Modifier.align(Alignment.BottomCenter))
-    }
-}
-
-@Composable
-private fun WheelDepthOverlay(isTop: Boolean, itemHeight: Dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(itemHeight)
-            .background(
-                Brush.verticalGradient(
-                    colors = if (isTop) {
-                        listOf(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f), Color.Transparent)
-                    } else {
-                        listOf(Color.Transparent, MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
-                    }
-                )
-            )
-    )
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun <T> SingleWheelDrum(
-    items: List<T>,
-    selectedItem: T,
-    itemHeight: Dp,
-    format: (T) -> String,
-    onItemSelected: (T) -> Unit
-) {
-    val initialIndex = remember { items.indexOf(selectedItem).coerceAtLeast(0) }
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
-
-    LaunchedEffect(selectedItem, items) {
-        val targetIndex = items.indexOf(selectedItem)
-        if (targetIndex >= 0 && !listState.isScrollInProgress) {
-            val layoutInfo = listState.layoutInfo
-            val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
-            val currentCenterIndex = layoutInfo.visibleItemsInfo
-                .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }?.index
-
-            if (currentCenterIndex != targetIndex) {
-                listState.animateScrollToItem(targetIndex)
-            }
-        }
-    }
-
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collect { isScrolling ->
-                if (!isScrolling) {
-                    val layoutInfo = listState.layoutInfo
-                    val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
-                    val centerItem = layoutInfo.visibleItemsInfo
-                        .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }
-
-                    centerItem?.let { itemInfo ->
-                        if (itemInfo.index in items.indices) {
-                            val selectedValue = items[itemInfo.index]
-                            if (selectedValue != selectedItem) {
-                                onItemSelected(selectedValue)
+                            Box(
+                                modifier = Modifier
+                                    .height(42.dp)
+                                    .clip(CircleShape)
+                                    .then(
+                                        if (isSelected) {
+                                            Modifier.background(brush = MomoPrimaryGradient)
+                                        } else {
+                                            Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                        }
+                                    )
+                                    .bounceClick(scaleDown = 0.9f) {
+                                        var safeMonth = currentMonth
+                                        if (minDate != null && year == minDate.year && safeMonth < minDate.monthValue) {
+                                            safeMonth = minDate.monthValue
+                                        }
+                                        val maxDays = YearMonth.of(year, safeMonth).lengthOfMonth()
+                                        var safeDay = currentDay.coerceAtMost(maxDays)
+                                        if (minDate != null && year == minDate.year && safeMonth == minDate.monthValue && safeDay < minDate.dayOfMonth) {
+                                            safeDay = minDate.dayOfMonth
+                                        }
+                                        onDateChanged(LocalDate.of(year, safeMonth, safeDay))
+                                        activeSegment = DatePickerSegment.MONTH
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$year",
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
                 }
             }
-    }
-
-    val centerVisibleIndex by remember {
-        derivedStateOf {
-            val layoutInfo = listState.layoutInfo
-            val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
-            layoutInfo.visibleItemsInfo
-                .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }?.index ?: listState.firstVisibleItemIndex
         }
     }
+}
 
-    LazyColumn(
-        state = listState,
-        flingBehavior = flingBehavior,
-        contentPadding = PaddingValues(vertical = itemHeight),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(itemHeight * 3)
+@Composable
+private fun SegmentHeaderCell(
+    text: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(46.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .then(
+                if (isSelected) {
+                    Modifier
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(
+                            width = 1.5.dp,
+                            brush = MomoPrimaryGradient,
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                } else {
+                    Modifier
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                }
+            )
+            .bounceClick(scaleDown = 0.95f) { onClick() },
+        contentAlignment = Alignment.Center
     ) {
-        items(items.size) { index ->
-            val item = items[index]
-            val isSelected = centerVisibleIndex == index
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(itemHeight),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = format(item),
-                    fontSize = if (isSelected) 17.sp else 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
+        Text(
+            text = text,
+            fontSize = 15.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+            color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
