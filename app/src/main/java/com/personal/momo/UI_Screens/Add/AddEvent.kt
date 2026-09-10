@@ -40,6 +40,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
+// Event baseline lock: 23 November 2022
+private val MIN_EVENT_DATE: LocalDate = LocalDate.of(2022, 11, 23)
+
 @Composable
 fun AddEventContent(
     onDismiss: () -> Unit,
@@ -59,7 +62,7 @@ fun AddEventContent(
         onClose = onDismiss
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 1. Title Field with Automatic Sentence Capitalization
+            // 1. Title Field (Automatic Sentence Capitalization)
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -79,7 +82,7 @@ fun AddEventContent(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 2. Description Field with Automatic Sentence Capitalization
+            // 2. Description Field (Automatic Sentence Capitalization)
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
@@ -136,11 +139,15 @@ fun AddEventContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 4. Cupertino Date Wheel
+            // 4. Cupertino Date Wheel with 23 Nov 2022 Boundary Lock
             CupertinoDatePickerWheel(
                 selectedDate = selectedDate,
                 onDateChanged = { newDate ->
-                    selectedDate = newDate
+                    selectedDate = if (newDate.isBefore(MIN_EVENT_DATE)) {
+                        MIN_EVENT_DATE
+                    } else {
+                        newDate
+                    }
                 }
             )
 
