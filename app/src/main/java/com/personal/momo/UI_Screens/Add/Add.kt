@@ -11,9 +11,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,15 +21,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -40,7 +39,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -59,7 +57,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -113,6 +110,38 @@ private val DropletIcon: ImageVector by lazy {
     ).build()
 }
 
+@Composable
+fun GradientIcon(
+    imageVector: ImageVector,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    brush: Brush = MomoPrimaryGradient,
+    size: Dp = 19.dp
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .graphicsLayer(alpha = 0.99f)
+            .drawWithCache {
+                onDrawWithContent {
+                    drawContent()
+                    drawRect(
+                        brush = brush,
+                        blendMode = BlendMode.SrcIn
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(size)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddActionMenuAnchor(
@@ -121,20 +150,21 @@ fun AddActionMenuAnchor(
     var isExpanded by remember { mutableStateOf(false) }
     var activeSheet by remember { mutableStateOf(AddSheetType.NONE) }
 
+    // Exactly 45-degree clockwise rotation
     val fabRotation by animateFloatAsState(
-        targetValue = if (isExpanded) 135f else 0f,
+        targetValue = if (isExpanded) 45f else 0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioLowBouncy,
             stiffness = Spring.StiffnessMediumLow
         ),
-        label = "FabRotationAnimation"
+        label = "Fab45DegreeRotation"
     )
 
     Box(
         modifier = modifier.wrapContentSize(),
         contentAlignment = Alignment.TopEnd
     ) {
-        // FAB Button with Gradient 3 & Clockwise Rotation Physics
+        // FAB Button with Gradient 3 & 45 Degree Clockwise Rotation Physics
         Box(
             modifier = Modifier
                 .size(38.dp)
@@ -155,7 +185,7 @@ fun AddActionMenuAnchor(
             )
         }
 
-        // Dropdown Menu Window Popup
+        // 3 Separate Right-Pinned Floating Pills Stack
         if (isExpanded) {
             Popup(
                 alignment = Alignment.TopEnd,
@@ -185,7 +215,7 @@ fun AddActionMenuAnchor(
                         ),
                         expandFrom = Alignment.Top
                     ) + fadeIn(animationSpec = tween(180)) + scaleIn(
-                        initialScale = 0.88f,
+                        initialScale = 0.85f,
                         transformOrigin = TransformOrigin(1f, 0f),
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
@@ -196,132 +226,119 @@ fun AddActionMenuAnchor(
                         animationSpec = tween(150),
                         shrinkTowards = Alignment.Top
                     ) + fadeOut(animationSpec = tween(120)) + scaleOut(
-                        targetScale = 0.88f,
+                        targetScale = 0.85f,
                         transformOrigin = TransformOrigin(1f, 0f),
                         animationSpec = tween(150)
                     )
                 ) {
-                    Surface(
-                        modifier = Modifier
-                            .width(190.dp)
-                            .shadow(elevation = 14.dp, shape = RoundedCornerShape(18.dp))
-                            .clip(RoundedCornerShape(18.dp))
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                                shape = RoundedCornerShape(18.dp)
-                            ),
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(18.dp)
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.wrapContentWidth()
                     ) {
-                        Column(
+                        // Pill 1: Add Hpy Bday (Droplet with MomoPrimaryGradient)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 10.dp,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                            ),
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp)
-                        ) {
-                            // 1. Add Hpy Bday (Water droplet with MomoPrimaryGradient)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .bounceClick(scaleDown = 0.96f) {
-                                        isExpanded = false
-                                        activeSheet = AddSheetType.APY_BDAY
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 11.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .graphicsLayer(alpha = 0.99f)
-                                        .drawWithCache {
-                                            onDrawWithContent {
-                                                drawContent()
-                                                drawRect(
-                                                    brush = MomoPrimaryGradient,
-                                                    blendMode = BlendMode.SrcIn
-                                                )
-                                            }
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = DropletIcon,
-                                        contentDescription = "Hpy Bday",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(19.dp)
-                                    )
+                                .wrapContentWidth()
+                                .bounceClick(scaleDown = 0.94f) {
+                                    isExpanded = false
+                                    activeSheet = AddSheetType.APY_BDAY
                                 }
-
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                GradientIcon(
+                                    imageVector = DropletIcon,
+                                    contentDescription = "Hpy Bday",
+                                    brush = MomoPrimaryGradient,
+                                    size = 19.dp
+                                )
                                 Text(
                                     text = "Add Hpy Bday",
                                     fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
+                        }
 
-                            HorizontalDivider(
-                                thickness = 0.8.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                            )
-
-                            // 2. Add Event (Calendar Icon)
+                        // Pill 2: Add Event (Calendar with MomoPrimaryGradient)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 10.dp,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                            ),
+                            modifier = Modifier
+                                .wrapContentWidth()
+                                .bounceClick(scaleDown = 0.94f) {
+                                    isExpanded = false
+                                    activeSheet = AddSheetType.EVENT
+                                }
+                        ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .bounceClick(scaleDown = 0.96f) {
-                                        isExpanded = false
-                                        activeSheet = AddSheetType.EVENT
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
+                                GradientIcon(
                                     imageVector = Icons.Default.DateRange,
                                     contentDescription = "Add Event",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(20.dp)
+                                    brush = MomoPrimaryGradient,
+                                    size = 19.dp
                                 )
-
                                 Text(
                                     text = "Add Event",
                                     fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
+                        }
 
-                            HorizontalDivider(
-                                thickness = 0.8.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                            )
-
-                            // 3. Add Reminder (Circle Check Icon)
+                        // Pill 3: Add Reminder (CheckCircle with MomoPrimaryGradient)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surface,
+                            shadowElevation = 10.dp,
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                            ),
+                            modifier = Modifier
+                                .wrapContentWidth()
+                                .bounceClick(scaleDown = 0.94f) {
+                                    isExpanded = false
+                                    activeSheet = AddSheetType.REMINDER
+                                }
+                        ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .bounceClick(scaleDown = 0.96f) {
-                                        isExpanded = false
-                                        activeSheet = AddSheetType.REMINDER
-                                    }
-                                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Icon(
+                                GradientIcon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = "Add Reminder",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(20.dp)
+                                    brush = MomoPrimaryGradient,
+                                    size = 19.dp
                                 )
-
                                 Text(
                                     text = "Add Reminder",
                                     fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
@@ -332,7 +349,7 @@ fun AddActionMenuAnchor(
         }
     }
 
-    // Modal Bottom Sheets
+    // Modal Bottom Sheet Handler delegating to specific screens
     if (activeSheet != AddSheetType.NONE) {
         ModalBottomSheet(
             onDismissRequest = { activeSheet = AddSheetType.NONE },
@@ -366,10 +383,8 @@ fun CupertinoDatePickerWheel(
     val currentMonth = selectedDate.monthValue
     val currentDay = selectedDate.dayOfMonth
 
-    // 1. Year List (2022..2100)
     val years = remember { (MIN_YEAR_MONTH.year..MAX_YEAR).toList() }
 
-    // 2. Month List (strictly Nov..Dec for 2022, Jan..Dec for later years)
     val availableMonths = remember(currentYear) {
         if (currentYear == MIN_YEAR_MONTH.year) {
             (MIN_YEAR_MONTH.monthValue..12).toList()
@@ -378,13 +393,11 @@ fun CupertinoDatePickerWheel(
         }
     }
 
-    // 3. Day List (calculated dynamically via Android java.time engine)
     val daysInMonth = remember(currentYear, currentMonth) {
         YearMonth.of(currentYear, currentMonth).lengthOfMonth()
     }
     val availableDays = remember(daysInMonth) { (1..daysInMonth).toList() }
 
-    // Clamp values if year/month change caused out-of-range selection
     LaunchedEffect(currentYear, currentMonth, daysInMonth) {
         var adjustedMonth = currentMonth
         var adjustedDay = currentDay
@@ -413,7 +426,6 @@ fun CupertinoDatePickerWheel(
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
         contentAlignment = Alignment.Center
     ) {
-        // Central selection pill highlight
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -423,13 +435,11 @@ fun CupertinoDatePickerWheel(
                 .background(MaterialTheme.colorScheme.surface)
         )
 
-        // 3 Vertical Snap Wheels: Day | Month | Year
         Row(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Day Drum
             Box(modifier = Modifier.weight(1f)) {
                 SingleWheelDrum(
                     items = availableDays,
@@ -444,7 +454,6 @@ fun CupertinoDatePickerWheel(
                 )
             }
 
-            // Month Drum
             Box(modifier = Modifier.weight(1.2f)) {
                 SingleWheelDrum(
                     items = availableMonths,
@@ -463,7 +472,6 @@ fun CupertinoDatePickerWheel(
                 )
             }
 
-            // Year Drum
             Box(modifier = Modifier.weight(1.1f)) {
                 SingleWheelDrum(
                     items = years,
@@ -485,7 +493,6 @@ fun CupertinoDatePickerWheel(
             }
         }
 
-        // Top & Bottom subtle fade gradients for visual drum depth
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -602,7 +609,6 @@ fun AddSheetContainer(
                 .fillMaxWidth()
                 .padding(horizontal = 22.dp, vertical = 18.dp)
         ) {
-            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
