@@ -75,11 +75,11 @@ val Gradient5 = Brush.verticalGradient(
     )
 )
 
-// Sunset Amber Gradient (Bright Amber to Deep Warm Orange)
+// Sunburst Butter Gold Gradient (Vibrant Gold to Soft Butter Cream)
 val Gradient6 = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFFFFB300), // Bright Amber Yellow (Top)
-        Color(0xFFE65100)  // Deep Warm Orange (Bottom)
+        Color(0xFFFFB800), // Vibrant Golden Yellow (Top)
+        Color(0xFFFFF8D2)  // Soft Butter Cream (Bottom)
     )
 )
 
