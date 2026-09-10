@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.UI_Screens.Add.AddActionMenuAnchor
 import com.personal.momo.UI_Screens.Gradient6
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
@@ -164,59 +165,69 @@ fun MomoCalendar(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
-            // 1. Hero Date Header (Permanently locked to today, rewinds back to current month on click)
+            // 1. Hero Date Header + Add Action Menu Anchor
             Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .bounceClick(scaleDown = 0.94f) {
-                        if (currentViewMode != CalendarViewMode.DAYS) {
-                            currentViewMode = CalendarViewMode.DAYS
-                        }
-
-                        if (currentYearMonth != todayYearMonth && !isRewinding) {
-                            coroutineScope.launch {
-                                isRewinding = true
-                                val totalMonthsDiff = (todayYearMonth.year - currentYearMonth.year) * 12 +
-                                        (todayYearMonth.monthValue - currentYearMonth.monthValue)
-                                val absDiff = abs(totalMonthsDiff)
-
-                                if (absDiff <= 1) {
-                                    currentYearMonth = todayYearMonth
-                                } else {
-                                    val steps = absDiff.coerceAtMost(4)
-                                    val intermediateMonths = (1 until steps).map { i ->
-                                        val offset = (totalMonthsDiff.toDouble() * i / steps).toLong()
-                                        currentYearMonth.plusMonths(offset)
-                                    }.distinct()
-
-                                    for (month in intermediateMonths) {
-                                        currentYearMonth = month
-                                        delay(70)
-                                    }
-                                    currentYearMonth = todayYearMonth
-                                }
-                                selectedDate = today
-                                isRewinding = false
-                            }
-                        } else {
-                            selectedDate = today
-                        }
-                    },
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "${today.dayOfMonth} ${today.month.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH)} ",
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                // Left: Hero Date Header (Permanently locked to today, rewinds back to current month on click)
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .bounceClick(scaleDown = 0.94f) {
+                            if (currentViewMode != CalendarViewMode.DAYS) {
+                                currentViewMode = CalendarViewMode.DAYS
+                            }
 
-                Text(
-                    text = "${today.year}",
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                    style = TextStyle(brush = MomoPrimaryGradient)
-                )
+                            if (currentYearMonth != todayYearMonth && !isRewinding) {
+                                coroutineScope.launch {
+                                    isRewinding = true
+                                    val totalMonthsDiff = (todayYearMonth.year - currentYearMonth.year) * 12 +
+                                            (todayYearMonth.monthValue - currentYearMonth.monthValue)
+                                    val absDiff = abs(totalMonthsDiff)
+
+                                    if (absDiff <= 1) {
+                                        currentYearMonth = todayYearMonth
+                                    } else {
+                                        val steps = absDiff.coerceAtMost(4)
+                                        val intermediateMonths = (1 until steps).map { i ->
+                                            val offset = (totalMonthsDiff.toDouble() * i / steps).toLong()
+                                            currentYearMonth.plusMonths(offset)
+                                        }.distinct()
+
+                                        for (month in intermediateMonths) {
+                                            currentYearMonth = month
+                                            delay(70)
+                                        }
+                                        currentYearMonth = todayYearMonth
+                                    }
+                                    selectedDate = today
+                                    isRewinding = false
+                                }
+                            } else {
+                                selectedDate = today
+                            }
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${today.dayOfMonth} ${today.month.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH)} ",
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Text(
+                        text = "${today.year}",
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(brush = MomoPrimaryGradient)
+                    )
+                }
+
+                // Right: Add Action Button Anchor (Gradient 3 FAB + Clockwise Rotation + Dropdown Menu)
+                AddActionMenuAnchor()
             }
 
             Spacer(modifier = Modifier.height(18.dp))
