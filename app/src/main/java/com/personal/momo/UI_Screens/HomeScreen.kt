@@ -269,7 +269,6 @@ private fun HomeHeader(
                 Box(
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(CircleShape)
                         .bounceClick(scaleDown = 0.88f) {
                             onMenuClick()
                         },
@@ -298,9 +297,9 @@ private fun HomeHeader(
                     if (isUpdateAvailable) {
                         Box(
                             modifier = Modifier
-                                .size(7.dp)
+                                .size(8.dp)
                                 .align(Alignment.TopEnd)
-                                .offset(x = (-6).dp, y = 6.dp)
+                                .offset(x = (-4).dp, y = 4.dp)
                                 .clip(CircleShape)
                                 .background(brush = MomoPrimaryGradient)
                         )
