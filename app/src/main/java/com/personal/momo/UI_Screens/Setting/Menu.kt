@@ -3,7 +3,6 @@ package com.personal.momo.UI_Screens.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -28,7 +27,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,23 +57,13 @@ fun ExpandableMenuTile(
     badge: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val arrowRotation by animateFloatAsState(
-        targetValue = if (isExpanded) 180f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "TileArrowRot"
-    )
-
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .bounceClick(scaleDown = 0.98f) { onToggle() }
                 .padding(vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -103,15 +90,6 @@ fun ExpandableMenuTile(
                     badge?.invoke()
                 }
             }
-
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = "Expand",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(20.dp)
-                    .rotate(arrowRotation)
-            )
         }
 
         AnimatedVisibility(
@@ -227,7 +205,7 @@ fun MenuScreen(
                     isExpanded = isUpdateExpanded,
                     onToggle = { isUpdateExpanded = !isUpdateExpanded },
                     badge = {
-                        if (isUpdateAvailable && !isUpdateExpanded) {
+                        if (isUpdateAvailable) {
                             Box(
                                 modifier = Modifier
                                     .size(8.dp)
