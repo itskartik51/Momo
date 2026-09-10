@@ -39,7 +39,6 @@ fun AddApyBdayContent(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Cupertino Drum Selector
             CupertinoDatePickerWheel(
                 selectedDate = selectedDate,
                 onDateChanged = { newDate ->
