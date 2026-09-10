@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
@@ -84,7 +83,6 @@ import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
 
-// Baseline boundary constraint: November 2022
 val MIN_YEAR_MONTH: YearMonth = YearMonth.of(2022, 11)
 const val MAX_YEAR = 2100
 
@@ -103,9 +101,7 @@ private val DropletIcon: ImageVector by lazy {
         viewportWidth = 24f,
         viewportHeight = 24f
     ).addPath(
-        pathData = PathParser().parsePathString(
-            "M12 2.69L6.34 8.35a8 8 0 1 0 11.32 0L12 2.69z"
-        ).toNodes(),
+        pathData = PathParser().parsePathString("M12 2.69L6.34 8.35a8 8 0 1 0 11.32 0L12 2.69z").toNodes(),
         fill = SolidColor(Color.White)
     ).build()
 }
@@ -125,10 +121,7 @@ fun GradientIcon(
             .drawWithCache {
                 onDrawWithContent {
                     drawContent()
-                    drawRect(
-                        brush = brush,
-                        blendMode = BlendMode.SrcIn
-                    )
+                    drawRect(brush = brush, blendMode = BlendMode.SrcIn)
                 }
             },
         contentAlignment = Alignment.Center
@@ -142,15 +135,43 @@ fun GradientIcon(
     }
 }
 
+@Composable
+private fun ActionPill(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 10.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+        modifier = Modifier
+            .wrapContentWidth()
+            .bounceClick(scaleDown = 0.94f) { onClick() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            GradientIcon(imageVector = icon, contentDescription = label)
+            Text(
+                text = label,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddActionMenuAnchor(
-    modifier: Modifier = Modifier
-) {
+fun AddActionMenuAnchor(modifier: Modifier = Modifier) {
     var isExpanded by remember { mutableStateOf(false) }
     var activeSheet by remember { mutableStateOf(AddSheetType.NONE) }
 
-    // Exactly 45-degree clockwise rotation
     val fabRotation by animateFloatAsState(
         targetValue = if (isExpanded) 45f else 0f,
         animationSpec = spring(
@@ -164,15 +185,12 @@ fun AddActionMenuAnchor(
         modifier = modifier.wrapContentSize(),
         contentAlignment = Alignment.TopEnd
     ) {
-        // FAB Button with Gradient 3 & 45 Degree Clockwise Rotation Physics
         Box(
             modifier = Modifier
                 .size(38.dp)
                 .clip(CircleShape)
                 .background(brush = Gradient3)
-                .bounceClick(scaleDown = 0.88f) {
-                    isExpanded = !isExpanded
-                },
+                .bounceClick(scaleDown = 0.88f) { isExpanded = !isExpanded },
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -185,47 +203,27 @@ fun AddActionMenuAnchor(
             )
         }
 
-        // 3 Separate Right-Pinned Floating Pills Stack
         if (isExpanded) {
             Popup(
                 alignment = Alignment.TopEnd,
-                offset = IntOffset(
-                    x = 0,
-                    y = with(LocalDensity.current) { 46.dp.roundToPx() }
-                ),
+                offset = IntOffset(x = 0, y = with(LocalDensity.current) { 46.dp.roundToPx() }),
                 onDismissRequest = { isExpanded = false },
-                properties = PopupProperties(
-                    focusable = true,
-                    dismissOnClickOutside = true,
-                    dismissOnBackPress = true
-                )
+                properties = PopupProperties(focusable = true, dismissOnClickOutside = true, dismissOnBackPress = true)
             ) {
                 var isVisible by remember { mutableStateOf(false) }
-
-                LaunchedEffect(Unit) {
-                    isVisible = true
-                }
+                LaunchedEffect(Unit) { isVisible = true }
 
                 AnimatedVisibility(
                     visible = isVisible,
                     enter = expandVertically(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        ),
+                        animationSpec = spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow),
                         expandFrom = Alignment.Top
-                    ) + fadeIn(animationSpec = tween(180)) + scaleIn(
+                    ) + fadeIn(tween(180)) + scaleIn(
                         initialScale = 0.85f,
                         transformOrigin = TransformOrigin(1f, 0f),
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
+                        animationSpec = spring(Spring.DampingRatioLowBouncy, Spring.StiffnessMediumLow)
                     ),
-                    exit = shrinkVertically(
-                        animationSpec = tween(150),
-                        shrinkTowards = Alignment.Top
-                    ) + fadeOut(animationSpec = tween(120)) + scaleOut(
+                    exit = shrinkVertically(tween(150), Alignment.Top) + fadeOut(tween(120)) + scaleOut(
                         targetScale = 0.85f,
                         transformOrigin = TransformOrigin(1f, 0f),
                         animationSpec = tween(150)
@@ -236,112 +234,17 @@ fun AddActionMenuAnchor(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.wrapContentWidth()
                     ) {
-                        // Pill 1: Add Hpy Bday (Droplet with MomoPrimaryGradient)
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 10.dp,
-                            border = BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                            ),
-                            modifier = Modifier
-                                .wrapContentWidth()
-                                .bounceClick(scaleDown = 0.94f) {
-                                    isExpanded = false
-                                    activeSheet = AddSheetType.APY_BDAY
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                GradientIcon(
-                                    imageVector = DropletIcon,
-                                    contentDescription = "Hpy Bday",
-                                    brush = MomoPrimaryGradient,
-                                    size = 19.dp
-                                )
-                                Text(
-                                    text = "Add Hpy Bday",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
+                        ActionPill(DropletIcon, "Add Hpy Bday") {
+                            isExpanded = false
+                            activeSheet = AddSheetType.APY_BDAY
                         }
-
-                        // Pill 2: Add Event (Calendar with MomoPrimaryGradient)
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 10.dp,
-                            border = BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                            ),
-                            modifier = Modifier
-                                .wrapContentWidth()
-                                .bounceClick(scaleDown = 0.94f) {
-                                    isExpanded = false
-                                    activeSheet = AddSheetType.EVENT
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                GradientIcon(
-                                    imageVector = Icons.Default.DateRange,
-                                    contentDescription = "Add Event",
-                                    brush = MomoPrimaryGradient,
-                                    size = 19.dp
-                                )
-                                Text(
-                                    text = "Add Event",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
+                        ActionPill(Icons.Default.DateRange, "Add Event") {
+                            isExpanded = false
+                            activeSheet = AddSheetType.EVENT
                         }
-
-                        // Pill 3: Add Reminder (CheckCircle with MomoPrimaryGradient)
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 10.dp,
-                            border = BorderStroke(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                            ),
-                            modifier = Modifier
-                                .wrapContentWidth()
-                                .bounceClick(scaleDown = 0.94f) {
-                                    isExpanded = false
-                                    activeSheet = AddSheetType.REMINDER
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                GradientIcon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Add Reminder",
-                                    brush = MomoPrimaryGradient,
-                                    size = 19.dp
-                                )
-                                Text(
-                                    text = "Add Reminder",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
+                        ActionPill(Icons.Default.CheckCircle, "Add Reminder") {
+                            isExpanded = false
+                            activeSheet = AddSheetType.REMINDER
                         }
                     }
                 }
@@ -349,7 +252,6 @@ fun AddActionMenuAnchor(
         }
     }
 
-    // Modal Bottom Sheet Handler delegating to specific screens
     if (activeSheet != AddSheetType.NONE) {
         ModalBottomSheet(
             onDismissRequest = { activeSheet = AddSheetType.NONE },
@@ -358,15 +260,9 @@ fun AddActionMenuAnchor(
             dragHandle = null
         ) {
             when (activeSheet) {
-                AddSheetType.APY_BDAY -> AddApyBdayContent(
-                    onDismiss = { activeSheet = AddSheetType.NONE }
-                )
-                AddSheetType.EVENT -> AddEventContent(
-                    onDismiss = { activeSheet = AddSheetType.NONE }
-                )
-                AddSheetType.REMINDER -> AddReminderContent(
-                    onDismiss = { activeSheet = AddSheetType.NONE }
-                )
+                AddSheetType.APY_BDAY -> AddApyBdayContent(onDismiss = { activeSheet = AddSheetType.NONE })
+                AddSheetType.EVENT -> AddEventContent(onDismiss = { activeSheet = AddSheetType.NONE })
+                AddSheetType.REMINDER -> AddReminderContent(onDismiss = { activeSheet = AddSheetType.NONE })
                 AddSheetType.NONE -> {}
             }
         }
@@ -384,39 +280,24 @@ fun CupertinoDatePickerWheel(
     val currentDay = selectedDate.dayOfMonth
 
     val years = remember { (MIN_YEAR_MONTH.year..MAX_YEAR).toList() }
-
     val availableMonths = remember(currentYear) {
-        if (currentYear == MIN_YEAR_MONTH.year) {
-            (MIN_YEAR_MONTH.monthValue..12).toList()
-        } else {
-            (1..12).toList()
-        }
+        if (currentYear == MIN_YEAR_MONTH.year) (MIN_YEAR_MONTH.monthValue..12).toList() else (1..12).toList()
     }
-
     val daysInMonth = remember(currentYear, currentMonth) {
         YearMonth.of(currentYear, currentMonth).lengthOfMonth()
     }
     val availableDays = remember(daysInMonth) { (1..daysInMonth).toList() }
 
     LaunchedEffect(currentYear, currentMonth, daysInMonth) {
-        var adjustedMonth = currentMonth
-        var adjustedDay = currentDay
-
-        if (currentYear == MIN_YEAR_MONTH.year && adjustedMonth < MIN_YEAR_MONTH.monthValue) {
-            adjustedMonth = MIN_YEAR_MONTH.monthValue
-        }
-        if (adjustedDay > daysInMonth) {
-            adjustedDay = daysInMonth
-        }
-
-        if (adjustedMonth != currentMonth || adjustedDay != currentDay) {
-            onDateChanged(LocalDate.of(currentYear, adjustedMonth, adjustedDay))
+        val safeMonth = if (currentYear == MIN_YEAR_MONTH.year) currentMonth.coerceAtLeast(MIN_YEAR_MONTH.monthValue) else currentMonth
+        val safeDay = currentDay.coerceAtMost(daysInMonth)
+        if (safeMonth != currentMonth || safeDay != currentDay) {
+            onDateChanged(LocalDate.of(currentYear, safeMonth, safeDay))
         }
     }
 
     val itemHeight = 44.dp
-    val visibleItems = 3
-    val wheelHeight = itemHeight * visibleItems
+    val wheelHeight = itemHeight * 3
 
     Box(
         modifier = modifier
@@ -441,87 +322,50 @@ fun CupertinoDatePickerWheel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(modifier = Modifier.weight(1f)) {
-                SingleWheelDrum(
-                    items = availableDays,
-                    selectedItem = currentDay,
-                    itemHeight = itemHeight,
-                    format = { String.format(Locale.ENGLISH, "%02d", it) },
-                    onItemSelected = { newDay ->
-                        if (newDay != currentDay) {
-                            onDateChanged(LocalDate.of(currentYear, currentMonth, newDay))
-                        }
-                    }
-                )
+                SingleWheelDrum(availableDays, currentDay, itemHeight, { String.format(Locale.ENGLISH, "%02d", it) }) {
+                    if (it != currentDay) onDateChanged(LocalDate.of(currentYear, currentMonth, it))
+                }
             }
-
             Box(modifier = Modifier.weight(1.2f)) {
-                SingleWheelDrum(
-                    items = availableMonths,
-                    selectedItem = currentMonth,
-                    itemHeight = itemHeight,
-                    format = { monthNum ->
-                        Month.of(monthNum).getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
-                    },
-                    onItemSelected = { newMonth ->
-                        if (newMonth != currentMonth) {
-                            val maxDays = YearMonth.of(currentYear, newMonth).lengthOfMonth()
-                            val clampedDay = currentDay.coerceAtMost(maxDays)
-                            onDateChanged(LocalDate.of(currentYear, newMonth, clampedDay))
-                        }
+                SingleWheelDrum(availableMonths, currentMonth, itemHeight, { Month.of(it).getDisplayName(TextStyle.SHORT, Locale.ENGLISH) }) {
+                    if (it != currentMonth) {
+                        val maxDays = YearMonth.of(currentYear, it).lengthOfMonth()
+                        onDateChanged(LocalDate.of(currentYear, it, currentDay.coerceAtMost(maxDays)))
                     }
-                )
+                }
             }
-
             Box(modifier = Modifier.weight(1.1f)) {
-                SingleWheelDrum(
-                    items = years,
-                    selectedItem = currentYear,
-                    itemHeight = itemHeight,
-                    format = { it.toString() },
-                    onItemSelected = { newYear ->
-                        if (newYear != currentYear) {
-                            var targetMonth = currentMonth
-                            if (newYear == MIN_YEAR_MONTH.year && targetMonth < MIN_YEAR_MONTH.monthValue) {
-                                targetMonth = MIN_YEAR_MONTH.monthValue
-                            }
-                            val maxDays = YearMonth.of(newYear, targetMonth).lengthOfMonth()
-                            val clampedDay = currentDay.coerceAtMost(maxDays)
-                            onDateChanged(LocalDate.of(newYear, targetMonth, clampedDay))
-                        }
+                SingleWheelDrum(years, currentYear, itemHeight, { it.toString() }) {
+                    if (it != currentYear) {
+                        val targetMonth = if (it == MIN_YEAR_MONTH.year) currentMonth.coerceAtLeast(MIN_YEAR_MONTH.monthValue) else currentMonth
+                        val maxDays = YearMonth.of(it, targetMonth).lengthOfMonth()
+                        onDateChanged(LocalDate.of(it, targetMonth, currentDay.coerceAtMost(maxDays)))
                     }
-                )
+                }
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(itemHeight)
-                .align(Alignment.TopCenter)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(itemHeight)
-                .align(Alignment.BottomCenter)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
-                        )
-                    )
-                )
-        )
+        WheelDepthOverlay(isTop = true, itemHeight = itemHeight, modifier = Modifier.align(Alignment.TopCenter))
+        WheelDepthOverlay(isTop = false, itemHeight = itemHeight, modifier = Modifier.align(Alignment.BottomCenter))
     }
+}
+
+@Composable
+private fun WheelDepthOverlay(isTop: Boolean, itemHeight: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(itemHeight)
+            .background(
+                Brush.verticalGradient(
+                    colors = if (isTop) {
+                        listOf(MaterialTheme.colorScheme.surface.copy(alpha = 0.75f), Color.Transparent)
+                    } else {
+                        listOf(Color.Transparent, MaterialTheme.colorScheme.surface.copy(alpha = 0.75f))
+                    }
+                )
+            )
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -533,29 +377,19 @@ private fun <T> SingleWheelDrum(
     format: (T) -> String,
     onItemSelected: (T) -> Unit
 ) {
-    val initialIndex = remember(items, selectedItem) {
-        val idx = items.indexOf(selectedItem)
-        if (idx >= 0) idx else 0
-    }
-
+    val initialIndex = remember(items, selectedItem) { items.indexOf(selectedItem).coerceAtLeast(0) }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
 
     LaunchedEffect(items, selectedItem) {
-        val targetIndex = items.indexOf(selectedItem)
-        if (targetIndex >= 0 && listState.firstVisibleItemIndex != targetIndex) {
-            listState.animateScrollToItem(targetIndex)
-        }
+        val target = items.indexOf(selectedItem)
+        if (target >= 0 && listState.firstVisibleItemIndex != target) listState.animateScrollToItem(target)
     }
 
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .distinctUntilChanged()
-            .collect { index ->
-                if (index in items.indices) {
-                    onItemSelected(items[index])
-                }
-            }
+            .collect { index -> if (index in items.indices) onItemSelected(items[index]) }
     }
 
     LazyColumn(
@@ -569,9 +403,7 @@ private fun <T> SingleWheelDrum(
     ) {
         items(items.size) { index ->
             val item = items[index]
-            val isSelected by remember {
-                derivedStateOf { listState.firstVisibleItemIndex == index }
-            }
+            val isSelected by remember { derivedStateOf { listState.firstVisibleItemIndex == index } }
 
             Box(
                 modifier = Modifier
@@ -639,7 +471,6 @@ fun AddSheetContainer(
             }
 
             Spacer(modifier = Modifier.height(18.dp))
-
             content()
         }
     }
@@ -659,13 +490,7 @@ fun AddActionButton(
             .height(50.dp)
             .clip(CircleShape)
             .background(if (enabled) brush else Brush.linearGradient(listOf(Color.Gray, Color.DarkGray)))
-            .then(
-                if (enabled) {
-                    Modifier.bounceClick(scaleDown = 0.95f) { onClick() }
-                } else {
-                    Modifier
-                }
-            ),
+            .then(if (enabled) Modifier.bounceClick(scaleDown = 0.95f) { onClick() } else Modifier),
         contentAlignment = Alignment.Center
     ) {
         Text(
