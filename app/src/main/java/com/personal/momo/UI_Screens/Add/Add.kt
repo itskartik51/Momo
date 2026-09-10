@@ -82,8 +82,9 @@ import java.time.Month
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.math.abs
 
-val MIN_YEAR_MONTH: YearMonth = YearMonth.of(2022, 11)
+const val MIN_YEAR = 2022
 const val MAX_YEAR = 2100
 
 enum class AddSheetType {
@@ -279,20 +280,18 @@ fun CupertinoDatePickerWheel(
     val currentMonth = selectedDate.monthValue
     val currentDay = selectedDate.dayOfMonth
 
-    val years = remember { (MIN_YEAR_MONTH.year..MAX_YEAR).toList() }
-    val availableMonths = remember(currentYear) {
-        if (currentYear == MIN_YEAR_MONTH.year) (MIN_YEAR_MONTH.monthValue..12).toList() else (1..12).toList()
-    }
+    val years = remember { (MIN_YEAR..MAX_YEAR).toList() }
+    val months = remember { (1..12).toList() }
+
     val daysInMonth = remember(currentYear, currentMonth) {
         YearMonth.of(currentYear, currentMonth).lengthOfMonth()
     }
     val availableDays = remember(daysInMonth) { (1..daysInMonth).toList() }
 
-    LaunchedEffect(currentYear, currentMonth, daysInMonth) {
-        val safeMonth = if (currentYear == MIN_YEAR_MONTH.year) currentMonth.coerceAtLeast(MIN_YEAR_MONTH.monthValue) else currentMonth
-        val safeDay = currentDay.coerceAtMost(daysInMonth)
-        if (safeMonth != currentMonth || safeDay != currentDay) {
-            onDateChanged(LocalDate.of(currentYear, safeMonth, safeDay))
+    // Clamp day safely if month change causes overflow
+    LaunchedEffect(daysInMonth) {
+        if (currentDay > daysInMonth) {
+            onDateChanged(LocalDate.of(currentYear, currentMonth, daysInMonth))
         }
     }
 
@@ -307,6 +306,7 @@ fun CupertinoDatePickerWheel(
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
         contentAlignment = Alignment.Center
     ) {
+        // Selection pill highlight
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -321,25 +321,46 @@ fun CupertinoDatePickerWheel(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Day Drum
             Box(modifier = Modifier.weight(1f)) {
-                SingleWheelDrum(availableDays, currentDay, itemHeight, { String.format(Locale.ENGLISH, "%02d", it) }) {
-                    if (it != currentDay) onDateChanged(LocalDate.of(currentYear, currentMonth, it))
-                }
-            }
-            Box(modifier = Modifier.weight(1.2f)) {
-                SingleWheelDrum(availableMonths, currentMonth, itemHeight, { Month.of(it).getDisplayName(TextStyle.SHORT, Locale.ENGLISH) }) {
-                    if (it != currentMonth) {
-                        val maxDays = YearMonth.of(currentYear, it).lengthOfMonth()
-                        onDateChanged(LocalDate.of(currentYear, it, currentDay.coerceAtMost(maxDays)))
+                SingleWheelDrum(
+                    items = availableDays,
+                    selectedItem = currentDay.coerceAtMost(daysInMonth),
+                    itemHeight = itemHeight,
+                    format = { String.format(Locale.ENGLISH, "%02d", it) }
+                ) { newDay ->
+                    if (newDay != currentDay) {
+                        onDateChanged(LocalDate.of(currentYear, currentMonth, newDay))
                     }
                 }
             }
+
+            // Month Drum
+            Box(modifier = Modifier.weight(1.2f)) {
+                SingleWheelDrum(
+                    items = months,
+                    selectedItem = currentMonth,
+                    itemHeight = itemHeight,
+                    format = { Month.of(it).getDisplayName(TextStyle.SHORT, Locale.ENGLISH) }
+                ) { newMonth ->
+                    if (newMonth != currentMonth) {
+                        val maxDays = YearMonth.of(currentYear, newMonth).lengthOfMonth()
+                        onDateChanged(LocalDate.of(currentYear, newMonth, currentDay.coerceAtMost(maxDays)))
+                    }
+                }
+            }
+
+            // Year Drum
             Box(modifier = Modifier.weight(1.1f)) {
-                SingleWheelDrum(years, currentYear, itemHeight, { it.toString() }) {
-                    if (it != currentYear) {
-                        val targetMonth = if (it == MIN_YEAR_MONTH.year) currentMonth.coerceAtLeast(MIN_YEAR_MONTH.monthValue) else currentMonth
-                        val maxDays = YearMonth.of(it, targetMonth).lengthOfMonth()
-                        onDateChanged(LocalDate.of(it, targetMonth, currentDay.coerceAtMost(maxDays)))
+                SingleWheelDrum(
+                    items = years,
+                    selectedItem = currentYear,
+                    itemHeight = itemHeight,
+                    format = { it.toString() }
+                ) { newYear ->
+                    if (newYear != currentYear) {
+                        val maxDays = YearMonth.of(newYear, currentMonth).lengthOfMonth()
+                        onDateChanged(LocalDate.of(newYear, currentMonth, currentDay.coerceAtMost(maxDays)))
                     }
                 }
             }
@@ -377,19 +398,56 @@ private fun <T> SingleWheelDrum(
     format: (T) -> String,
     onItemSelected: (T) -> Unit
 ) {
-    val initialIndex = remember(items, selectedItem) { items.indexOf(selectedItem).coerceAtLeast(0) }
+    val initialIndex = remember { items.indexOf(selectedItem).coerceAtLeast(0) }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
 
-    LaunchedEffect(items, selectedItem) {
-        val target = items.indexOf(selectedItem)
-        if (target >= 0 && listState.firstVisibleItemIndex != target) listState.animateScrollToItem(target)
+    // 1. Programmatic scroll only when user is NOT dragging
+    LaunchedEffect(selectedItem, items) {
+        val targetIndex = items.indexOf(selectedItem)
+        if (targetIndex >= 0 && !listState.isScrollInProgress) {
+            val layoutInfo = listState.layoutInfo
+            val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+            val currentCenterIndex = layoutInfo.visibleItemsInfo
+                .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }?.index
+
+            if (currentCenterIndex != targetIndex) {
+                listState.animateScrollToItem(targetIndex)
+            }
+        }
     }
 
+    // 2. Trigger onItemSelected ONLY when user scroll finishes snapping
     LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }
+        snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
-            .collect { index -> if (index in items.indices) onItemSelected(items[index]) }
+            .collect { isScrolling ->
+                if (!isScrolling) {
+                    val layoutInfo = listState.layoutInfo
+                    val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+                    val centerItem = layoutInfo.visibleItemsInfo
+                        .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }
+
+                    centerItem?.let { itemInfo ->
+                        if (itemInfo.index in items.indices) {
+                            val selectedValue = items[itemInfo.index]
+                            if (selectedValue != selectedItem) {
+                                onItemSelected(selectedValue)
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
+    // Dynamic centered index for precise text bold/size highlight
+    val centerVisibleIndex by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+            layoutInfo.visibleItemsInfo
+                .minByOrNull { abs((it.offset + it.size / 2) - viewportCenter) }?.index ?: listState.firstVisibleItemIndex
+        }
     }
 
     LazyColumn(
@@ -403,7 +461,7 @@ private fun <T> SingleWheelDrum(
     ) {
         items(items.size) { index ->
             val item = items[index]
-            val isSelected by remember { derivedStateOf { listState.firstVisibleItemIndex == index } }
+            val isSelected = centerVisibleIndex == index
 
             Box(
                 modifier = Modifier
@@ -415,7 +473,7 @@ private fun <T> SingleWheelDrum(
                     text = format(item),
                     fontSize = if (isSelected) 17.sp else 14.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                     textAlign = TextAlign.Center
                 )
             }
