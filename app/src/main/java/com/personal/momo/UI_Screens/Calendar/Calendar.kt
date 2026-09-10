@@ -49,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,10 +72,13 @@ import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Gradient6
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle as DateTextStyle
 import java.util.Locale
+import kotlin.math.abs
 
 private enum class CalendarViewMode {
     DAYS,
@@ -88,7 +92,11 @@ fun MomoCalendar(
     onMonthChanged: (YearMonth) -> Unit = {}
 ) {
     val today = remember { LocalDate.now() }
+    val todayYearMonth = remember(today) { YearMonth.from(today) }
     val minYearMonth = remember { YearMonth.of(2023, 11) } // Baseline Lock: Nov 2023
+
+    val coroutineScope = rememberCoroutineScope()
+    var isRewinding by remember { mutableStateOf(false) }
 
     var selectedDate by remember { mutableStateOf(today) }
     var currentYearMonth by remember { mutableStateOf(YearMonth.from(selectedDate)) }
@@ -156,19 +164,55 @@ fun MomoCalendar(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
-            // 1. Hero Date Header
+            // 1. Hero Date Header (Permanently locked to today, rewinds back to current month on click)
             Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .bounceClick(scaleDown = 0.94f) {
+                        if (currentViewMode != CalendarViewMode.DAYS) {
+                            currentViewMode = CalendarViewMode.DAYS
+                        }
+
+                        if (currentYearMonth != todayYearMonth && !isRewinding) {
+                            coroutineScope.launch {
+                                isRewinding = true
+                                val totalMonthsDiff = (todayYearMonth.year - currentYearMonth.year) * 12 +
+                                        (todayYearMonth.monthValue - currentYearMonth.monthValue)
+                                val absDiff = abs(totalMonthsDiff)
+
+                                if (absDiff <= 1) {
+                                    currentYearMonth = todayYearMonth
+                                } else {
+                                    val steps = absDiff.coerceAtMost(4)
+                                    val intermediateMonths = (1 until steps).map { i ->
+                                        val offset = (totalMonthsDiff.toDouble() * i / steps).toLong()
+                                        currentYearMonth.plusMonths(offset)
+                                    }.distinct()
+
+                                    for (month in intermediateMonths) {
+                                        currentYearMonth = month
+                                        delay(70)
+                                    }
+                                    currentYearMonth = todayYearMonth
+                                }
+                                selectedDate = today
+                                isRewinding = false
+                            }
+                        } else {
+                            selectedDate = today
+                        }
+                    },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${selectedDate.dayOfMonth} ${selectedDate.month.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH)} ",
+                    text = "${today.dayOfMonth} ${today.month.getDisplayName(DateTextStyle.SHORT, Locale.ENGLISH)} ",
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Text(
-                    text = "${selectedDate.year}",
+                    text = "${today.year}",
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                     style = TextStyle(brush = MomoPrimaryGradient)
@@ -378,8 +422,10 @@ fun MomoCalendar(
                                                 onDragEnd = {
                                                     val swipeThreshold = 40.dp.toPx()
                                                     if (totalDrag < -swipeThreshold) {
+                                                        // Swipe Left -> Next Month
                                                         currentYearMonth = currentYearMonth.plusMonths(1)
                                                     } else if (totalDrag > swipeThreshold && canGoBack) {
+                                                        // Swipe Right -> Previous Month
                                                         currentYearMonth = currentYearMonth.minusMonths(1)
                                                     }
                                                 },
