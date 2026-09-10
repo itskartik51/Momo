@@ -29,11 +29,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Calendar.MomoEvent
 import com.personal.momo.UI_Screens.Gradient6
+import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
@@ -57,13 +59,16 @@ fun AddEventContent(
         onClose = onDismiss
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 1. Title Field
+            // 1. Title Field with Automatic Sentence Capitalization
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
                 label = { Text("Event Title") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Next
+                ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
@@ -74,13 +79,16 @@ fun AddEventContent(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 2. Description Field
+            // 2. Description Field with Automatic Sentence Capitalization
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
                 label = { Text("Description") },
                 maxLines = 3,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Done
+                ),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -142,7 +150,7 @@ fun AddEventContent(
             AddActionButton(
                 text = "Save Memory",
                 enabled = isFormValid,
-                brush = if (isSpecial) Gradient6 else com.personal.momo.UI_Screens.MomoPrimaryGradient,
+                brush = if (isSpecial) Gradient6 else MomoPrimaryGradient,
                 onClick = {
                     if (isFormValid) {
                         val epoch = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
