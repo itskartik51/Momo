@@ -62,7 +62,6 @@ fun AddEventContent(
         onClose = onDismiss
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // 1. Title Field (Automatic Sentence Capitalization)
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -82,7 +81,6 @@ fun AddEventContent(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 2. Description Field (Automatic Sentence Capitalization)
             OutlinedTextField(
                 value = description,
                 onValueChange = { description = it },
@@ -103,7 +101,6 @@ fun AddEventContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 3. Special Milestone Switch
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -139,21 +136,17 @@ fun AddEventContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 4. Cupertino Date Wheel with 23 Nov 2022 Boundary Lock
-            CupertinoDatePickerWheel(
+            // Segmented Grid Date Picker with 23 Nov 2022 Constraint Lock
+            SegmentedDatePicker(
                 selectedDate = selectedDate,
+                minDate = MIN_EVENT_DATE,
                 onDateChanged = { newDate ->
-                    selectedDate = if (newDate.isBefore(MIN_EVENT_DATE)) {
-                        MIN_EVENT_DATE
-                    } else {
-                        newDate
-                    }
+                    selectedDate = if (newDate.isBefore(MIN_EVENT_DATE)) MIN_EVENT_DATE else newDate
                 }
             )
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 5. Action Button
             AddActionButton(
                 text = "Save Memory",
                 enabled = isFormValid,
