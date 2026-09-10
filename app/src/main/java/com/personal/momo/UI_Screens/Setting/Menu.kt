@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -126,6 +127,7 @@ fun MenuScreen(
 
     val scrollState = rememberScrollState()
     var isWelcomeExpanded by remember { mutableStateOf(false) }
+    var isThemeExpanded by remember { mutableStateOf(false) }
     var isUpdateExpanded by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
 
@@ -198,7 +200,24 @@ fun MenuScreen(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                 )
 
-                // 2. RupeeFlow-Inspired App Update Row
+                // 2. Theme Setting Row
+                ExpandableMenuTile(
+                    icon = Icons.Default.Palette,
+                    title = "Theme",
+                    isExpanded = isThemeExpanded,
+                    onToggle = { isThemeExpanded = !isThemeExpanded }
+                ) {
+                    ThemeSettingsContent(
+                        onShowToast = { toastMessage = it }
+                    )
+                }
+
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                )
+
+                // 3. RupeeFlow-Inspired App Update Row
                 ExpandableMenuTile(
                     icon = Icons.Default.Download,
                     title = "App Update",
