@@ -39,7 +39,7 @@ fun AddApyBdayContent(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            CupertinoDatePickerWheel(
+            SegmentedDatePicker(
                 selectedDate = selectedDate,
                 onDateChanged = { newDate ->
                     selectedDate = newDate
