@@ -145,6 +145,7 @@ private fun ActionPill(
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
         shadowElevation = 10.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
         modifier = Modifier
@@ -288,7 +289,6 @@ fun CupertinoDatePickerWheel(
     }
     val availableDays = remember(daysInMonth) { (1..daysInMonth).toList() }
 
-    // Clamp day safely if month change causes overflow
     LaunchedEffect(daysInMonth) {
         if (currentDay > daysInMonth) {
             onDateChanged(LocalDate.of(currentYear, currentMonth, daysInMonth))
@@ -306,7 +306,6 @@ fun CupertinoDatePickerWheel(
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
         contentAlignment = Alignment.Center
     ) {
-        // Selection pill highlight
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -321,7 +320,6 @@ fun CupertinoDatePickerWheel(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Day Drum
             Box(modifier = Modifier.weight(1f)) {
                 SingleWheelDrum(
                     items = availableDays,
@@ -335,7 +333,6 @@ fun CupertinoDatePickerWheel(
                 }
             }
 
-            // Month Drum
             Box(modifier = Modifier.weight(1.2f)) {
                 SingleWheelDrum(
                     items = months,
@@ -350,7 +347,6 @@ fun CupertinoDatePickerWheel(
                 }
             }
 
-            // Year Drum
             Box(modifier = Modifier.weight(1.1f)) {
                 SingleWheelDrum(
                     items = years,
@@ -402,7 +398,6 @@ private fun <T> SingleWheelDrum(
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
     val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
 
-    // 1. Programmatic scroll only when user is NOT dragging
     LaunchedEffect(selectedItem, items) {
         val targetIndex = items.indexOf(selectedItem)
         if (targetIndex >= 0 && !listState.isScrollInProgress) {
@@ -417,7 +412,6 @@ private fun <T> SingleWheelDrum(
         }
     }
 
-    // 2. Trigger onItemSelected ONLY when user scroll finishes snapping
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
@@ -440,7 +434,6 @@ private fun <T> SingleWheelDrum(
             }
     }
 
-    // Dynamic centered index for precise text bold/size highlight
     val centerVisibleIndex by remember {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
