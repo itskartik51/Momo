@@ -24,6 +24,7 @@ fun AddApyBdayContent(
     onDateConfirmed: ((LocalDate) -> Unit)? = null
 ) {
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     AddSheetContainer(
         title = "Log Period",
@@ -39,12 +40,23 @@ fun AddApyBdayContent(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            SegmentedDatePicker(
-                selectedDate = selectedDate,
-                onDateChanged = { newDate ->
-                    selectedDate = newDate
-                }
+            // 100% Full-Width Date Selector Cell with native Material DatePicker Dialog
+            DateSelectorCell(
+                date = selectedDate,
+                label = "Period Start Date",
+                onClick = { showDatePicker = true },
+                modifier = Modifier.fillMaxWidth()
             )
+
+            if (showDatePicker) {
+                MomoNativeDatePickerDialog(
+                    initialDate = selectedDate,
+                    onDateSelected = { newDate ->
+                        selectedDate = newDate
+                    },
+                    onDismiss = { showDatePicker = false }
+                )
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
