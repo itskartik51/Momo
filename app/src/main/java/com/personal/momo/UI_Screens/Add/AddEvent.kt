@@ -1,7 +1,10 @@
 package com.personal.momo.UI_Screens.Add
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,11 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,9 +44,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
-// Event baseline lock: 23 November 2022
-private val MIN_EVENT_DATE: LocalDate = LocalDate.of(2022, 11, 23)
-
 @Composable
 fun AddEventContent(
     onDismiss: () -> Unit,
@@ -55,6 +56,9 @@ fun AddEventContent(
     var isSpecial by remember { mutableStateOf(false) }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
 
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showMilestoneDropdown by remember { mutableStateOf(false) }
+
     val isFormValid = title.isNotBlank() && description.isNotBlank()
 
     AddSheetContainer(
@@ -62,91 +66,142 @@ fun AddEventContent(
         onClose = onDismiss
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
+            // 1. Title Input with MomoPrimaryGradient focus border
+            MomoGradientTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Event Title") },
+                label = "Event Title",
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Next
                 ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            OutlinedTextField(
+            // 2. Description Input with MomoPrimaryGradient focus border
+            MomoGradientTextField(
                 value = description,
                 onValueChange = { description = it },
-                label = { Text("Description") },
+                label = "Description",
                 maxLines = 3,
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Done
                 ),
                 keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // 3. Side-by-side Row: 60% Date Picker Cell + 40% Milestone Dropdown Cell
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "Special Milestone",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Highlights in Gold Gradient",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                // 60% Date Selector
+                DateSelectorCell(
+                    date = selectedDate,
+                    label = "Date",
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.weight(0.6f)
+                )
 
-                Switch(
-                    checked = isSpecial,
-                    onCheckedChange = { isSpecial = it },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Color(0xFFFFB800)
-                    )
+                // 40% Milestone Dropdown Selector
+                Box(
+                    modifier = Modifier
+                        .weight(0.4f)
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        .border(
+                            width = 1.dp,
+                            color = if (isSpecial) Color(0xFFFFB800).copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant,
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                        .clickable { showMilestoneDropdown = true }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Milestone",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = if (isSpecial) "True" else "False",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSpecial) Color(0xFFFFB800) else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Toggle Milestone",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showMilestoneDropdown,
+                        onDismissRequest = { showMilestoneDropdown = false },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "False",
+                                    fontWeight = if (!isSpecial) FontWeight.Bold else FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            },
+                            onClick = {
+                                isSpecial = false
+                                showMilestoneDropdown = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = "True",
+                                    fontWeight = if (isSpecial) FontWeight.Bold else FontWeight.Medium,
+                                    color = Color(0xFFFFB800)
+                                )
+                            },
+                            onClick = {
+                                isSpecial = true
+                                showMilestoneDropdown = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Native Android Date Picker Dialog
+            if (showDatePicker) {
+                MomoNativeDatePickerDialog(
+                    initialDate = selectedDate,
+                    onDateSelected = { newDate ->
+                        selectedDate = newDate
+                    },
+                    onDismiss = { showDatePicker = false }
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
-            // Segmented Grid Date Picker with 23 Nov 2022 Constraint Lock
-            SegmentedDatePicker(
-                selectedDate = selectedDate,
-                minDate = MIN_EVENT_DATE,
-                onDateChanged = { newDate ->
-                    selectedDate = if (newDate.isBefore(MIN_EVENT_DATE)) MIN_EVENT_DATE else newDate
-                }
-            )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
+            // 4. Save Action Button
             AddActionButton(
                 text = "Save Memory",
                 enabled = isFormValid,
