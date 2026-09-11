@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,9 +46,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personal.momo.UI_Screens.MomoPrimaryDark
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.WelcomeLayoutMode
 import com.personal.momo.UI_Screens.bounceClick
+import kotlinx.coroutines.delay
+import java.time.LocalDateTime
+import java.time.Period
+import java.util.Locale
 
 @Composable
 fun ExpandableMenuTile(
@@ -116,6 +122,65 @@ fun ExpandableMenuTile(
 }
 
 @Composable
+fun MenuHeaderCounter(
+    startDate: LocalDateTime,
+    modifier: Modifier = Modifier
+) {
+    var years by remember { mutableStateOf(0) }
+    var months by remember { mutableStateOf(0) }
+    var days by remember { mutableStateOf(0) }
+    var timeString by remember { mutableStateOf("00:00:00") }
+
+    // Lifecycle-aware: Stops immediately when leaving Menu screen or app
+    LaunchedEffect(startDate) {
+        while (true) {
+            val now = LocalDateTime.now()
+            if (!now.isBefore(startDate)) {
+                val period = Period.between(startDate.toLocalDate(), now.toLocalDate())
+                years = period.years
+                months = period.months
+                days = period.days
+                timeString = String.format(
+                    Locale.ENGLISH,
+                    "%02d:%02d:%02d",
+                    now.hour,
+                    now.minute,
+                    now.second
+                )
+            }
+            delay(1000L)
+        }
+    }
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "${years}y ${months}m ${days}d",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Text(
+            text = "•",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
+
+        Text(
+            text = timeString,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MomoPrimaryDark
+        )
+    }
+}
+
+@Composable
 fun MenuScreen(
     onBack: () -> Unit,
     isUpdateAvailable: Boolean = false,
@@ -137,7 +202,7 @@ fun MenuScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header Top Bar
+            // Header Top Bar with Live Clean Ticker
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surface,
@@ -164,13 +229,11 @@ fun MenuScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
 
-                    Text(
-                        text = "Menu",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                    // Option A Inline Counter replacing standard "Menu" text
+                    MenuHeaderCounter(
+                        startDate = LocalDateTime.of(2022, 11, 23, 0, 0, 0)
                     )
                 }
             }
