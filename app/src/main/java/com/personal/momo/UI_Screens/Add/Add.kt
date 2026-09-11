@@ -13,35 +13,40 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -64,7 +70,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -72,12 +77,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.personal.momo.UI_Screens.Gradient3
+import com.personal.momo.UI_Screens.MomoPrimaryDark
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
+import java.time.Instant
 import java.time.LocalDate
-import java.time.Month
-import java.time.YearMonth
-import java.time.format.TextStyle
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 enum class AddSheetType {
@@ -85,12 +91,6 @@ enum class AddSheetType {
     APY_BDAY,
     EVENT,
     REMINDER
-}
-
-enum class DatePickerSegment {
-    DAY,
-    MONTH,
-    YEAR
 }
 
 private val DropletIcon: ImageVector by lazy {
@@ -141,7 +141,6 @@ private fun ActionPill(
     label: String,
     onClick: () -> Unit
 ) {
-    // Pure Box implementation bypasses Material 3 tonal elevation color tinting, matching the form sheet background 1:1
     Box(
         modifier = Modifier
             .wrapContentWidth()
@@ -280,287 +279,172 @@ fun AddActionMenuAnchor(modifier: Modifier = Modifier) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SegmentedDatePicker(
-    selectedDate: LocalDate,
-    onDateChanged: (LocalDate) -> Unit,
-    modifier: Modifier = Modifier,
-    minDate: LocalDate? = null,
-    maxDate: LocalDate? = null
+fun MomoNativeDatePickerDialog(
+    initialDate: LocalDate,
+    onDateSelected: (LocalDate) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    var activeSegment by remember { mutableStateOf(DatePickerSegment.DAY) }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = initialDate.atStartOfDay(ZoneId.of("UTC")).toInstant().toEpochMilli()
+    )
 
-    val currentYear = selectedDate.year
-    val currentMonth = selectedDate.monthValue
-    val currentDay = selectedDate.dayOfMonth
-
-    val daysInMonth = remember(currentYear, currentMonth) {
-        YearMonth.of(currentYear, currentMonth).lengthOfMonth()
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val pickedDate = Instant.ofEpochMilli(millis)
+                            .atZone(ZoneId.of("UTC"))
+                            .toLocalDate()
+                        onDateSelected(pickedDate)
+                    }
+                    onDismiss()
+                }
+            ) {
+                Text(
+                    text = "OK",
+                    fontWeight = FontWeight.Bold,
+                    color = MomoPrimaryDark
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = "Cancel",
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        colors = DatePickerDefaults.colors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        DatePicker(
+            state = datePickerState,
+            colors = DatePickerDefaults.colors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                headlineContentColor = MaterialTheme.colorScheme.onSurface,
+                weekdayContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                subheadContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                yearContentColor = MaterialTheme.colorScheme.onSurface,
+                currentYearContentColor = MomoPrimaryDark,
+                selectedYearContainerColor = MomoPrimaryDark,
+                selectedYearContentColor = Color.White,
+                dayContentColor = MaterialTheme.colorScheme.onSurface,
+                disabledDayContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                selectedDayContainerColor = MomoPrimaryDark,
+                selectedDayContentColor = Color.White,
+                todayDateBorderColor = MomoPrimaryDark,
+                todayContentColor = MomoPrimaryDark
+            )
+        )
     }
+}
 
-    val yearsList = remember(minDate, maxDate) {
-        val start = minDate?.year ?: 2022
-        val end = maxDate?.year ?: 2035
-        (start..end).toList()
-    }
-
-    val monthsList = remember {
-        listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-    }
-
-    Column(
+@Composable
+fun DateSelectorCell(
+    date: LocalDate,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String = "Date"
+) {
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .height(56.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                shape = RoundedCornerShape(20.dp)
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(14.dp)
             )
-            .padding(14.dp)
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.CenterStart
     ) {
-        // 1. Top 3 Cells: Day | Month | Year
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            SegmentHeaderCell(
-                text = String.format(Locale.ENGLISH, "%02d", currentDay),
-                isSelected = activeSegment == DatePickerSegment.DAY,
-                modifier = Modifier.weight(1f),
-                onClick = { activeSegment = DatePickerSegment.DAY }
-            )
-
-            SegmentHeaderCell(
-                text = Month.of(currentMonth).getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
-                isSelected = activeSegment == DatePickerSegment.MONTH,
-                modifier = Modifier.weight(1.2f),
-                onClick = { activeSegment = DatePickerSegment.MONTH }
-            )
-
-            SegmentHeaderCell(
-                text = currentYear.toString(),
-                isSelected = activeSegment == DatePickerSegment.YEAR,
-                modifier = Modifier.weight(1.1f),
-                onClick = { activeSegment = DatePickerSegment.YEAR }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 2. Dynamic Selection Grid
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp)
-        ) {
-            when (activeSegment) {
-                DatePickerSegment.DAY -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(7),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(daysInMonth) { index ->
-                            val day = index + 1
-                            val isSelected = day == currentDay
-                            val isEnabled = when {
-                                minDate != null && currentYear == minDate.year && currentMonth == minDate.monthValue -> day >= minDate.dayOfMonth
-                                maxDate != null && currentYear == maxDate.year && currentMonth == maxDate.monthValue -> day <= maxDate.dayOfMonth
-                                else -> true
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (isSelected) {
-                                            Modifier.background(brush = MomoPrimaryGradient)
-                                        } else if (isEnabled) {
-                                            Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
-                                    .then(
-                                        if (isEnabled) {
-                                            Modifier.bounceClick(scaleDown = 0.88f) {
-                                                onDateChanged(LocalDate.of(currentYear, currentMonth, day))
-                                            }
-                                        } else {
-                                            Modifier
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "$day",
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = when {
-                                        isSelected -> Color.White
-                                        !isEnabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                DatePickerSegment.MONTH -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(12) { index ->
-                            val monthNum = index + 1
-                            val isSelected = monthNum == currentMonth
-                            val isEnabled = when {
-                                minDate != null && currentYear == minDate.year -> monthNum >= minDate.monthValue
-                                maxDate != null && currentYear == maxDate.year -> monthNum <= maxDate.monthValue
-                                else -> true
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .height(42.dp)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (isSelected) {
-                                            Modifier.background(brush = MomoPrimaryGradient)
-                                        } else if (isEnabled) {
-                                            Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
-                                    .then(
-                                        if (isEnabled) {
-                                            Modifier.bounceClick(scaleDown = 0.9f) {
-                                                val maxDays = YearMonth.of(currentYear, monthNum).lengthOfMonth()
-                                                var clampedDay = currentDay.coerceAtMost(maxDays)
-                                                if (minDate != null && currentYear == minDate.year && monthNum == minDate.monthValue && clampedDay < minDate.dayOfMonth) {
-                                                    clampedDay = minDate.dayOfMonth
-                                                }
-                                                onDateChanged(LocalDate.of(currentYear, monthNum, clampedDay))
-                                                activeSegment = DatePickerSegment.DAY
-                                            }
-                                        } else {
-                                            Modifier
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = monthsList[index],
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = when {
-                                        isSelected -> Color.White
-                                        !isEnabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                DatePickerSegment.YEAR -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(yearsList) { year ->
-                            val isSelected = year == currentYear
-
-                            Box(
-                                modifier = Modifier
-                                    .height(42.dp)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (isSelected) {
-                                            Modifier.background(brush = MomoPrimaryGradient)
-                                        } else {
-                                            Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                                        }
-                                    )
-                                    .bounceClick(scaleDown = 0.9f) {
-                                        var safeMonth = currentMonth
-                                        if (minDate != null && year == minDate.year && safeMonth < minDate.monthValue) {
-                                            safeMonth = minDate.monthValue
-                                        }
-                                        val maxDays = YearMonth.of(year, safeMonth).lengthOfMonth()
-                                        var safeDay = currentDay.coerceAtMost(maxDays)
-                                        if (minDate != null && year == minDate.year && safeMonth == minDate.monthValue && safeDay < minDate.dayOfMonth) {
-                                            safeDay = minDate.dayOfMonth
-                                        }
-                                        onDateChanged(LocalDate.of(year, safeMonth, safeDay))
-                                        activeSegment = DatePickerSegment.MONTH
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "$year",
-                                    fontSize = 15.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
+            Column {
+                Text(
+                    text = label,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = date.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)),
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
+            GradientIcon(
+                imageVector = Icons.Default.DateRange,
+                contentDescription = "Select Date",
+                size = 20.dp
+            )
         }
     }
 }
 
 @Composable
-private fun SegmentHeaderCell(
-    text: String,
-    isSelected: Boolean,
+fun MomoGradientTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    singleLine: Boolean = false,
+    maxLines: Int = if (singleLine) 1 else 3,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+
     Box(
         modifier = modifier
-            .height(46.dp)
             .clip(RoundedCornerShape(14.dp))
             .then(
-                if (isSelected) {
-                    Modifier
-                        .background(MaterialTheme.colorScheme.surface)
-                        .border(
-                            width = 1.5.dp,
-                            brush = MomoPrimaryGradient,
-                            shape = RoundedCornerShape(14.dp)
-                        )
+                if (isFocused) {
+                    Modifier.border(
+                        width = 1.6.dp,
+                        brush = MomoPrimaryGradient,
+                        shape = RoundedCornerShape(14.dp)
+                    )
                 } else {
-                    Modifier
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                            shape = RoundedCornerShape(14.dp)
-                        )
+                    Modifier.border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        shape = RoundedCornerShape(14.dp)
+                    )
                 }
             )
-            .bounceClick(scaleDown = 0.95f) { onClick() },
-        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            fontSize = 15.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-            color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            singleLine = singleLine,
+            maxLines = maxLines,
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent
+            ),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { isFocused = it.isFocused }
         )
     }
 }
