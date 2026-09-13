@@ -14,14 +14,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -43,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -129,7 +129,9 @@ fun MenuHeaderCounter(
     var years by remember { mutableStateOf(0) }
     var months by remember { mutableStateOf(0) }
     var days by remember { mutableStateOf(0) }
-    var timeString by remember { mutableStateOf("00:00:00") }
+    var hours by remember { mutableStateOf("00") }
+    var minutes by remember { mutableStateOf("00") }
+    var seconds by remember { mutableStateOf("00") }
 
     // Lifecycle-aware: Stops immediately when leaving Menu screen or app
     LaunchedEffect(startDate) {
@@ -140,43 +142,44 @@ fun MenuHeaderCounter(
                 years = period.years
                 months = period.months
                 days = period.days
-                timeString = String.format(
-                    Locale.ENGLISH,
-                    "%02d:%02d:%02d",
-                    now.hour,
-                    now.minute,
-                    now.second
-                )
+                hours = String.format(Locale.ENGLISH, "%02d", now.hour)
+                minutes = String.format(Locale.ENGLISH, "%02d", now.minute)
+                seconds = String.format(Locale.ENGLISH, "%02d", now.second)
             }
             delay(1000L)
         }
     }
 
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    val baseStyle = TextStyle(
+        fontSize = 17.sp,
+        fontWeight = FontWeight.Bold,
+        fontFeatureSettings = "tnum"
+    )
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = "${years}y ${months}m ${days}d",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "${years}y ${months}m ${days}d ${hours}h ${minutes}m ",
+                style = baseStyle.copy(
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            )
 
-        Text(
-            text = "•",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
-
-        Text(
-            text = timeString,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MomoPrimaryDark
-        )
+            Text(
+                text = "${seconds}s",
+                style = baseStyle.copy(
+                    brush = MomoPrimaryGradient
+                )
+            )
+        }
     }
 }
 
@@ -202,21 +205,21 @@ fun MenuScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header Top Bar with Live Clean Ticker
+            // Header Top Bar with Centered Counter & Anchor Back Button
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 3.dp
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .size(40.dp)
+                            .align(Alignment.CenterStart)
                             .clip(CircleShape)
                             .bounceClick(scaleDown = 0.88f) { onBack() },
                         contentAlignment = Alignment.Center
@@ -229,11 +232,10 @@ fun MenuScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    // Option A Inline Counter replacing standard "Menu" text
+                    // Floating Capsule Counter anchored to exact screen center
                     MenuHeaderCounter(
-                        startDate = LocalDateTime.of(2022, 11, 23, 0, 0, 0)
+                        startDate = LocalDateTime.of(2022, 11, 23, 0, 0, 0),
+                        modifier = Modifier.align(Alignment.Center)
                     )
                 }
             }
