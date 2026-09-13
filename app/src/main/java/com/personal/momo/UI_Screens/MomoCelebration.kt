@@ -3,8 +3,12 @@ package com.personal.momo.UI_Screens
 import android.graphics.Path
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.PathShape
+import android.media.AudioAttributes
+import android.media.SoundPool
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -12,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import nl.dionsegijn.konfetti.compose.KonfettiView
 import nl.dionsegijn.konfetti.core.Party
 import nl.dionsegijn.konfetti.core.Position
@@ -65,19 +71,70 @@ object MomoCelebrationShapes {
 }
 
 /**
- * Screen-wide realistic bottom-center cannon blast reaching full screen height on milestone anniversaries.
+ * Screen-wide realistic bottom-center cannon blast with zero-latency audio and subtle micro-haptics.
  */
 @Composable
 fun MomoBottomCannonCelebration(
     trigger: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val view = LocalView.current
+
     var celebrationParties by remember { mutableStateOf<List<Party>>(emptyList()) }
     var hasCelebratedToday by rememberSaveable { mutableStateOf(false) }
+
+    var soundId by remember { mutableStateOf(0) }
+    var isSoundLoaded by remember { mutableStateOf(false) }
+    var pendingPlay by remember { mutableStateOf(false) }
+
+    val soundPool = remember {
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        SoundPool.Builder()
+            .setMaxStreams(2)
+            .setAudioAttributes(audioAttributes)
+            .build().apply {
+                setOnLoadCompleteListener { _, sampleId, status ->
+                    if (status == 0) {
+                        isSoundLoaded = true
+                        if (pendingPlay) {
+                            play(sampleId, 1f, 1f, 1, 0, 1f)
+                            pendingPlay = false
+                        }
+                    }
+                }
+            }
+    }
+
+    DisposableEffect(Unit) {
+        val resId = context.resources.getIdentifier("popper", "raw", context.packageName)
+        if (resId != 0) {
+            soundId = soundPool.load(context, resId, 1)
+        }
+        onDispose {
+            soundPool.release()
+        }
+    }
 
     LaunchedEffect(trigger) {
         if (trigger && !hasCelebratedToday) {
             hasCelebratedToday = true
+
+            // 1. Feather-light haptic micro-tap (no continuous motor rumble)
+            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+
+            // 2. Synchronized zero-latency SoundPool audio
+            if (isSoundLoaded && soundId != 0) {
+                soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
+            } else {
+                pendingPlay = true
+            }
+
+            // 3. Upward cannon party blast
             celebrationParties = listOf(
                 Party(
                     speed = 35f,
