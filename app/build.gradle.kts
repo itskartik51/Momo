@@ -12,8 +12,8 @@ android {
         applicationId = "com.personal.momo"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.2405.04"
+        versionCode = 5
+        versionName = "1.2405.05"
 
         resourceConfigurations += listOf("en", "hi")
     }
@@ -77,7 +77,7 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Firebase Platform, Firestore & Silent Anonymous Authentication
+    // Firebase Platform, Firestore & Silent Authentication
     implementation(platform("com.google.firebase:firebase-bom:33.2.0"))
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
