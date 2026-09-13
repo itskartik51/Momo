@@ -65,7 +65,7 @@ object MomoCelebrationShapes {
 }
 
 /**
- * Screen-wide realistic bottom-center cannon blast triggered on Milestone anniversaries.
+ * Screen-wide realistic bottom-center cannon blast reaching full screen height on milestone anniversaries.
  */
 @Composable
 fun MomoBottomCannonCelebration(
@@ -80,16 +80,16 @@ fun MomoBottomCannonCelebration(
             hasCelebratedToday = true
             celebrationParties = listOf(
                 Party(
-                    speed = 16f,
-                    maxSpeed = 44f,
-                    damping = 0.89f,
+                    speed = 35f,
+                    maxSpeed = 65f,
+                    damping = 0.93f,
                     angle = 270,
-                    spread = 82,
+                    spread = 65,
                     colors = MomoCelebrationColors,
                     shapes = MomoCelebrationShapes.shapes,
-                    timeToLive = 3800L,
+                    timeToLive = 5000L,
                     position = Position.Relative(0.5, 1.0),
-                    emitter = Emitter(duration = 150, TimeUnit.MILLISECONDS).max(120)
+                    emitter = Emitter(duration = 200, TimeUnit.MILLISECONDS).max(140)
                 )
             )
         }
@@ -104,7 +104,7 @@ fun MomoBottomCannonCelebration(
 }
 
 /**
- * Gentle, slow-drifting colorful snowfall overlay for milestone event cards.
+ * Dense, continuous colorful snowfall overlay for milestone event cards.
  */
 @Composable
 fun MomoMilestoneSnowfall(
@@ -120,9 +120,9 @@ fun MomoMilestoneSnowfall(
                 spread = 60,
                 colors = MomoCelebrationColors,
                 shapes = MomoCelebrationShapes.shapes,
-                timeToLive = 3200L,
+                timeToLive = 3500L,
                 position = Position.Relative(0.0, 0.0).between(Position.Relative(1.0, 0.0)),
-                emitter = Emitter(duration = 5, TimeUnit.SECONDS).perSecond(12)
+                emitter = Emitter(duration = 100, TimeUnit.DAYS).perSecond(35)
             )
         )
     }
