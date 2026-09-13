@@ -36,7 +36,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,17 +55,11 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
-import com.personal.momo.UI_Screens.Calendar.MomoCelebrationShapes
 import com.personal.momo.UI_Screens.Calendar.MomoEventsCalculator
 import com.personal.momo.UI_Screens.Calendar.MonthEventsAgendaCard
 import com.personal.momo.UI_Screens.Settings.MenuScreen
 import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
-import nl.dionsegijn.konfetti.compose.KonfettiView
-import nl.dionsegijn.konfetti.core.Party
-import nl.dionsegijn.konfetti.core.Position
-import nl.dionsegijn.konfetti.core.emitter.Emitter
 import java.time.YearMonth
-import java.util.concurrent.TimeUnit
 
 private val BellIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -103,36 +96,6 @@ fun HomeScreen() {
 
     val isMilestoneToday = remember(allEvents) {
         MomoEventsCalculator.hasMilestoneAnniversaryToday(allEvents)
-    }
-
-    var celebrationParties by remember { mutableStateOf<List<Party>>(emptyList()) }
-    var hasCelebratedToday by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(isMilestoneToday) {
-        if (isMilestoneToday && !hasCelebratedToday) {
-            hasCelebratedToday = true
-            celebrationParties = listOf(
-                Party(
-                    speed = 16f,
-                    maxSpeed = 44f,
-                    damping = 0.89f,
-                    angle = 270,
-                    spread = 82,
-                    colors = listOf(
-                        0xFFC91D3B.toInt(),
-                        0xFFFF5E79.toInt(),
-                        0xFFFFB800.toInt(),
-                        0xFFFF3B30.toInt(),
-                        0xFFFF9500.toInt(),
-                        0xFFE040FB.toInt()
-                    ),
-                    shapes = MomoCelebrationShapes.shapes,
-                    timeToLive = 3800L,
-                    position = Position.Relative(0.5, 1.0),
-                    emitter = Emitter(duration = 150, TimeUnit.MILLISECONDS).max(120)
-                )
-            )
-        }
     }
 
     AnimatedContent(
@@ -212,12 +175,8 @@ fun HomeScreen() {
                     }
                 }
 
-                if (celebrationParties.isNotEmpty()) {
-                    KonfettiView(
-                        modifier = Modifier.fillMaxSize(),
-                        parties = celebrationParties
-                    )
-                }
+                // Milestone Celebration Cannon Blast (Bottom-Center, upward angle 270°)
+                MomoBottomCannonCelebration(trigger = isMilestoneToday)
             }
         }
     }
