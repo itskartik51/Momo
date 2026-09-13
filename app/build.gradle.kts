@@ -77,9 +77,10 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Firebase Platform & Firestore
+    // Firebase Platform, Firestore & Silent Anonymous Authentication
     implementation(platform("com.google.firebase:firebase-bom:33.2.0"))
     implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
 
     // Coil Image Loader for Jetpack Compose
     implementation("io.coil-kt:coil-compose:2.6.0")
