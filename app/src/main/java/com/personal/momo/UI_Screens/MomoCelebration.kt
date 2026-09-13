@@ -121,7 +121,7 @@ fun MomoMilestoneSnowfall(
                 colors = MomoCelebrationColors,
                 shapes = MomoCelebrationShapes.shapes,
                 timeToLive = 3200L,
-                position = Position.Between(Position.Relative(0.0, 0.0), Position.Relative(1.0, 0.0)),
+                position = Position.Relative(0.0, 0.0).between(Position.Relative(1.0, 0.0)),
                 emitter = Emitter(duration = 5, TimeUnit.SECONDS).perSecond(12)
             )
         )
