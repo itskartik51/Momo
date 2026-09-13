@@ -164,19 +164,23 @@ object MomoEventsCalculator {
     }
 
     /**
-     * Aggregates all nostalgia memories for the visible month across all past years,
+     * Aggregates memories for the visible month across both current and past years,
      * sorted ascending by the day of the month.
      */
     fun getMonthAgendaEvents(yearMonth: YearMonth, allEvents: List<MomoEvent>): List<MonthAgendaItem> {
         val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
         return allEvents.filter { event ->
-            event.date.month == yearMonth.month && event.date.year < yearMonth.year
+            event.date.month == yearMonth.month && event.date.year <= yearMonth.year
         }.sortedWith(
             compareBy<MomoEvent> { it.date.dayOfMonth }
                 .thenByDescending { it.date.year }
         ).map { event ->
             val diffYears = yearMonth.year - event.date.year
-            val timeAgo = if (diffYears == 1) "1 Year" else "$diffYears Years"
+            val timeAgo = when {
+                diffYears <= 0 -> ""
+                diffYears == 1 -> "1 Year"
+                else -> "$diffYears Years"
+            }
             MonthAgendaItem(
                 id = event.id,
                 dayNumber = event.date.dayOfMonth,
@@ -319,7 +323,7 @@ private fun MonthAgendaRow(
                 )
             }
 
-            // Line 2: Description (takes full width when expanded) + Relative Time Ago (animated out on click)
+            // Line 2: Description (takes full width if time ago is absent or expanded) + Relative Time Ago
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -341,7 +345,7 @@ private fun MonthAgendaRow(
                 )
 
                 AnimatedVisibility(
-                    visible = !isExpanded,
+                    visible = !isExpanded && item.timeAgoText.isNotBlank(),
                     enter = fadeIn(animationSpec = tween(140)) + expandHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
