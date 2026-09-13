@@ -3,6 +3,7 @@ package com.personal.momo.Cache
 import android.content.Context
 import android.content.SharedPreferences
 import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -84,6 +85,25 @@ object CacheManager {
     }
 
     /**
+     * Ensures an authenticated session is present before performing Firestore operations.
+     * If the cached session exists, it executes immediately. Otherwise, it signs in anonymously.
+     */
+    private fun ensureAuth(onReady: () -> Unit) {
+        val auth = FirebaseAuth.getInstance()
+        if (auth.currentUser != null) {
+            onReady()
+        } else {
+            auth.signInAnonymously()
+                .addOnSuccessListener {
+                    onReady()
+                }
+                .addOnFailureListener { e ->
+                    e.printStackTrace()
+                }
+        }
+    }
+
+    /**
      * Optimistic write for new period start date:
      * 1. Updates in-memory flow and local SharedPreferences instantly for zero UI latency.
      * 2. Pushes to Firestore under ApyBday/{Year} using arrayUnion on 'peri_date'.
@@ -95,25 +115,27 @@ object CacheManager {
         savePeriodDates(updatedDates)
 
         // Step 2 & 3: Background Firestore Push & Server Reconciliation
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val db = FirebaseFirestore.getInstance()
-                val yearDocId = date.year.toString()
+        ensureAuth {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = FirebaseFirestore.getInstance()
+                    val yearDocId = date.year.toString()
 
-                val instant = date.atStartOfDay(ZoneId.systemDefault()).toInstant()
-                val timestamp = Timestamp(Date.from(instant))
+                    val instant = date.atStartOfDay(ZoneId.systemDefault()).toInstant()
+                    val timestamp = Timestamp(Date.from(instant))
 
-                val docRef = db.collection("ApyBday").document(yearDocId)
-                docRef.set(
-                    mapOf("peri_date" to FieldValue.arrayUnion(timestamp)),
-                    SetOptions.merge()
-                ).addOnSuccessListener {
-                    syncFromFirestore()
-                }.addOnFailureListener { e ->
+                    val docRef = db.collection("ApyBday").document(yearDocId)
+                    docRef.set(
+                        mapOf("peri_date" to FieldValue.arrayUnion(timestamp)),
+                        SetOptions.merge()
+                    ).addOnSuccessListener {
+                        syncFromFirestore()
+                    }.addOnFailureListener { e ->
+                        e.printStackTrace()
+                    }
+                } catch (e: Exception) {
                     e.printStackTrace()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
@@ -130,164 +152,168 @@ object CacheManager {
         saveEvents(updatedEvents)
 
         // Step 2 & 3: Background Firestore Push & Server Reconciliation
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val db = FirebaseFirestore.getInstance()
-                val yearDocId = event.date.year.toString()
-                val docRef = db.collection("Events").document(yearDocId)
+        ensureAuth {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = FirebaseFirestore.getInstance()
+                    val yearDocId = event.date.year.toString()
+                    val docRef = db.collection("Events").document(yearDocId)
 
-                docRef.get().addOnSuccessListener { snapshot ->
-                    val nextIndex = if (snapshot != null && snapshot.exists()) {
-                        val keys = snapshot.data?.keys ?: emptySet()
-                        val numericKeys = keys.mapNotNull { it.toIntOrNull() }
-                        val maxKey = numericKeys.maxOrNull() ?: 0
-                        maxKey + 1
-                    } else {
-                        1
-                    }
+                    docRef.get().addOnSuccessListener { snapshot ->
+                        val nextIndex = if (snapshot != null && snapshot.exists()) {
+                            val keys = snapshot.data?.keys ?: emptySet()
+                            val numericKeys = keys.mapNotNull { it.toIntOrNull() }
+                            val maxKey = numericKeys.maxOrNull() ?: 0
+                            maxKey + 1
+                        } else {
+                            1
+                        }
 
-                    val fieldKey = String.format(Locale.ENGLISH, "%03d", nextIndex)
-                    val instant = event.date.atStartOfDay(ZoneId.systemDefault()).toInstant()
-                    val timestamp = Timestamp(Date.from(instant))
+                        val fieldKey = String.format(Locale.ENGLISH, "%03d", nextIndex)
+                        val instant = event.date.atStartOfDay(ZoneId.systemDefault()).toInstant()
+                        val timestamp = Timestamp(Date.from(instant))
 
-                    val eventPayload = listOf(
-                        event.title,
-                        event.description,
-                        timestamp,
-                        event.isSpecial
-                    )
+                        val eventPayload = listOf(
+                            event.title,
+                            event.description,
+                            timestamp,
+                            event.isSpecial
+                        )
 
-                    docRef.set(
-                        mapOf(fieldKey to eventPayload),
-                        SetOptions.merge()
-                    ).addOnSuccessListener {
-                        syncFromFirestore()
+                        docRef.set(
+                            mapOf(fieldKey to eventPayload),
+                            SetOptions.merge()
+                        ).addOnSuccessListener {
+                            syncFromFirestore()
+                        }.addOnFailureListener { e ->
+                            e.printStackTrace()
+                        }
                     }.addOnFailureListener { e ->
                         e.printStackTrace()
                     }
-                }.addOnFailureListener { e ->
+                } catch (e: Exception) {
                     e.printStackTrace()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
 
     fun syncFromFirestore() {
-        CoroutineScope(Dispatchers.IO).launch {
-            val db = FirebaseFirestore.getInstance()
+        ensureAuth {
+            CoroutineScope(Dispatchers.IO).launch {
+                val db = FirebaseFirestore.getInstance()
 
-            // 1. Sync Avatar Configuration
-            try {
-                db.collection("App")
-                    .document("home_config")
-                    .get()
-                    .addOnSuccessListener { document ->
-                        if (document != null && document.exists()) {
-                            val rawUrl = document.getString("ic_avt")
-                            if (!rawUrl.isNullOrBlank()) {
-                                val directUrl = resolveDriveUrl(rawUrl)
-                                if (directUrl != _avatarUrlFlow.value) {
-                                    saveAvatarUrl(directUrl)
-                                }
-                            }
-                        }
-                    }
-                    .addOnFailureListener {
-                        // Silent fail for offline resiliency
-                    }
-            } catch (e: Exception) {
-                // Ignore network exceptions
-            }
-
-            // 2. Sync Entire ApyBday Collection (All Years)
-            try {
-                db.collection("ApyBday")
-                    .get()
-                    .addOnSuccessListener { querySnapshot ->
-                        if (querySnapshot != null && !querySnapshot.isEmpty) {
-                            val zoneId = ZoneId.systemDefault()
-                            val collectedDates = mutableSetOf<LocalDate>()
-
-                            for (document in querySnapshot.documents) {
-                                val rawTimestamps = document.get("peri_date") as? List<*>
-                                rawTimestamps?.forEach { item ->
-                                    if (item is Timestamp) {
-                                        val localDate = item.toDate()
-                                            .toInstant()
-                                            .atZone(zoneId)
-                                            .toLocalDate()
-                                        collectedDates.add(localDate)
+                // 1. Sync Avatar Configuration
+                try {
+                    db.collection("App")
+                        .document("home_config")
+                        .get()
+                        .addOnSuccessListener { document ->
+                            if (document != null && document.exists()) {
+                                val rawUrl = document.getString("ic_avt")
+                                if (!rawUrl.isNullOrBlank()) {
+                                    val directUrl = resolveDriveUrl(rawUrl)
+                                    if (directUrl != _avatarUrlFlow.value) {
+                                        saveAvatarUrl(directUrl)
                                     }
                                 }
                             }
+                        }
+                        .addOnFailureListener {
+                            // Silent fail for offline resiliency
+                        }
+                } catch (e: Exception) {
+                    // Ignore network exceptions
+                }
 
-                            val sortedDates = collectedDates.sorted()
-                            if (sortedDates != _periodDatesFlow.value) {
-                                savePeriodDates(sortedDates)
+                // 2. Sync Entire ApyBday Collection (All Years)
+                try {
+                    db.collection("ApyBday")
+                        .get()
+                        .addOnSuccessListener { querySnapshot ->
+                            if (querySnapshot != null && !querySnapshot.isEmpty) {
+                                val zoneId = ZoneId.systemDefault()
+                                val collectedDates = mutableSetOf<LocalDate>()
+
+                                for (document in querySnapshot.documents) {
+                                    val rawTimestamps = document.get("peri_date") as? List<*>
+                                    rawTimestamps?.forEach { item ->
+                                        if (item is Timestamp) {
+                                            val localDate = item.toDate()
+                                                .toInstant()
+                                                .atZone(zoneId)
+                                                .toLocalDate()
+                                            collectedDates.add(localDate)
+                                        }
+                                    }
+                                }
+
+                                val sortedDates = collectedDates.sorted()
+                                if (sortedDates != _periodDatesFlow.value) {
+                                    savePeriodDates(sortedDates)
+                                }
                             }
                         }
-                    }
-                    .addOnFailureListener {
-                        // Silent fail: Keeps existing cached dates during offline use
-                    }
-            } catch (e: Exception) {
-                // Ignore network exceptions
-            }
+                        .addOnFailureListener {
+                            // Silent fail: Keeps existing cached dates during offline use
+                        }
+                } catch (e: Exception) {
+                    // Ignore network exceptions
+                }
 
-            // 3. Sync Entire Events Collection (All Documents & Years)
-            try {
-                db.collection("Events")
-                    .get()
-                    .addOnSuccessListener { querySnapshot ->
-                        if (querySnapshot != null && !querySnapshot.isEmpty) {
-                            val zoneId = ZoneId.systemDefault()
-                            val collectedEvents = mutableListOf<MomoEvent>()
+                // 3. Sync Entire Events Collection (All Documents & Years)
+                try {
+                    db.collection("Events")
+                        .get()
+                        .addOnSuccessListener { querySnapshot ->
+                            if (querySnapshot != null && !querySnapshot.isEmpty) {
+                                val zoneId = ZoneId.systemDefault()
+                                val collectedEvents = mutableListOf<MomoEvent>()
 
-                            for (document in querySnapshot.documents) {
-                                val docId = document.id
-                                val data = document.data ?: continue
+                                for (document in querySnapshot.documents) {
+                                    val docId = document.id
+                                    val data = document.data ?: continue
 
-                                for ((key, value) in data) {
-                                    val array = value as? List<*> ?: continue
-                                    if (array.size >= 3) {
-                                        val title = array.getOrNull(0) as? String ?: ""
-                                        val description = array.getOrNull(1) as? String ?: ""
-                                        val timestamp = array.getOrNull(2) as? Timestamp ?: continue
-                                        val isSpecial = (array.getOrNull(3) as? Boolean) ?: false
+                                    for ((key, value) in data) {
+                                        val array = value as? List<*> ?: continue
+                                        if (array.size >= 3) {
+                                            val title = array.getOrNull(0) as? String ?: ""
+                                            val description = array.getOrNull(1) as? String ?: ""
+                                            val timestamp = array.getOrNull(2) as? Timestamp ?: continue
+                                            val isSpecial = (array.getOrNull(3) as? Boolean) ?: false
 
-                                        val localDate = timestamp.toDate()
-                                            .toInstant()
-                                            .atZone(zoneId)
-                                            .toLocalDate()
-                                        val epochMillis = timestamp.toDate().time
+                                            val localDate = timestamp.toDate()
+                                                .toInstant()
+                                                .atZone(zoneId)
+                                                .toLocalDate()
+                                            val epochMillis = timestamp.toDate().time
 
-                                        collectedEvents.add(
-                                            MomoEvent(
-                                                id = "${docId}_$key",
-                                                title = title,
-                                                description = description,
-                                                date = localDate,
-                                                epochMillis = epochMillis,
-                                                isSpecial = isSpecial
+                                            collectedEvents.add(
+                                                MomoEvent(
+                                                    id = "${docId}_$key",
+                                                    title = title,
+                                                    description = description,
+                                                    date = localDate,
+                                                    epochMillis = epochMillis,
+                                                    isSpecial = isSpecial
+                                                )
                                             )
-                                        )
+                                        }
                                     }
                                 }
-                            }
 
-                            val sortedEvents = collectedEvents.sortedBy { it.date }
-                            if (sortedEvents != _eventsFlow.value) {
-                                saveEvents(sortedEvents)
+                                val sortedEvents = collectedEvents.sortedBy { it.date }
+                                if (sortedEvents != _eventsFlow.value) {
+                                    saveEvents(sortedEvents)
+                                }
                             }
                         }
-                    }
-                    .addOnFailureListener {
-                        // Silent fail for offline resiliency
-                    }
-            } catch (e: Exception) {
-                // Ignore network exceptions
+                        .addOnFailureListener {
+                            // Silent fail for offline resiliency
+                        }
+                } catch (e: Exception) {
+                    // Ignore network exceptions
+                }
             }
         }
     }
