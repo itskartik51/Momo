@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.delay
 import nl.dionsegijn.konfetti.compose.KonfettiView
 import nl.dionsegijn.konfetti.core.Party
 import nl.dionsegijn.konfetti.core.Position
@@ -86,7 +87,6 @@ fun MomoBottomCannonCelebration(
 
     var soundId by remember { mutableStateOf(0) }
     var isSoundLoaded by remember { mutableStateOf(false) }
-    var pendingPlay by remember { mutableStateOf(false) }
 
     val soundPool = remember {
         val audioAttributes = AudioAttributes.Builder()
@@ -98,13 +98,9 @@ fun MomoBottomCannonCelebration(
             .setMaxStreams(2)
             .setAudioAttributes(audioAttributes)
             .build().apply {
-                setOnLoadCompleteListener { _, sampleId, status ->
+                setOnLoadCompleteListener { _, _, status ->
                     if (status == 0) {
                         isSoundLoaded = true
-                        if (pendingPlay) {
-                            play(sampleId, 1f, 1f, 1, 0, 1f)
-                            pendingPlay = false
-                        }
                     }
                 }
             }
@@ -124,17 +120,28 @@ fun MomoBottomCannonCelebration(
         if (trigger && !hasCelebratedToday) {
             hasCelebratedToday = true
 
-            // 1. Feather-light haptic micro-tap (no continuous motor rumble)
-            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-
-            // 2. Synchronized zero-latency SoundPool audio
-            if (isSoundLoaded && soundId != 0) {
-                soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
-            } else {
-                pendingPlay = true
+            // Wait for audio memory decoding to complete so sound and blast occur on the exact same frame
+            val resId = context.resources.getIdentifier("popper", "raw", context.packageName)
+            if (resId != 0) {
+                var elapsed = 0L
+                while (!isSoundLoaded && elapsed < 400L) {
+                    delay(20)
+                    elapsed += 20
+                }
             }
 
-            // 3. Upward cannon party blast
+            // 1. Subtle tactile feedback with system-view bypass flag
+            view.performHapticFeedback(
+                HapticFeedbackConstants.KEYBOARD_TAP,
+                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+            )
+
+            // 2. Play zero-latency SoundPool audio
+            if (isSoundLoaded && soundId != 0) {
+                soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
+            }
+
+            // 3. Upward cannon party blast triggered simultaneously
             celebrationParties = listOf(
                 Party(
                     speed = 35f,
