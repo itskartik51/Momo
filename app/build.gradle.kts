@@ -84,4 +84,7 @@ dependencies {
 
     // Coil Image Loader for Jetpack Compose
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Konfetti Celebration Particle System
+    implementation("nl.dionsegijn:konfetti-compose:2.0.4")
 }
