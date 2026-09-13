@@ -7,6 +7,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.personal.momo.SecurityConfig
 import com.personal.momo.UI_Screens.Calendar.MomoEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -85,21 +86,25 @@ object CacheManager {
     }
 
     /**
-     * Ensures an authenticated session is present before performing Firestore operations.
-     * If the cached session exists, it executes immediately. Otherwise, it signs in anonymously.
+     * Ensures an authenticated internal session is present before performing Firestore operations.
+     * Re-uses existing session if available; otherwise performs a silent background login.
      */
     private fun ensureAuth(onReady: () -> Unit) {
         val auth = FirebaseAuth.getInstance()
         if (auth.currentUser != null) {
             onReady()
         } else {
-            auth.signInAnonymously()
-                .addOnSuccessListener {
-                    onReady()
-                }
-                .addOnFailureListener { e ->
-                    e.printStackTrace()
-                }
+            if (SecurityConfig.AUTH_EMAIL.isNotBlank() && SecurityConfig.AUTH_PASS.isNotBlank()) {
+                auth.signInWithEmailAndPassword(SecurityConfig.AUTH_EMAIL, SecurityConfig.AUTH_PASS)
+                    .addOnSuccessListener {
+                        onReady()
+                    }
+                    .addOnFailureListener { e ->
+                        e.printStackTrace()
+                    }
+            } else {
+                onReady()
+            }
         }
     }
 
