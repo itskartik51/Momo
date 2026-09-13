@@ -33,14 +33,18 @@ jobs:
         cache-disabled: true
         generate-job-summary: false
 
-    - name: Inject Hashed Device Whitelist
+    - name: Inject Security Configuration & Credentials
       env:
         RAW_IDS: ${{ secrets.ALLOWED_ANDROID_IDS }}
+        AUTH_EMAIL: ${{ secrets.FIREBASE_AUTH_EMAIL }}
+        AUTH_PASS: ${{ secrets.FIREBASE_AUTH_PASS }}
       run: |
         python3 -c '
         import os, hashlib
 
         raw_ids = os.environ.get("RAW_IDS", "").strip()
+        auth_email = os.environ.get("AUTH_EMAIL", "").strip()
+        auth_pass = os.environ.get("AUTH_PASS", "").strip()
         salt = "MomoSec_Salt_2026_"
         hashes = []
         if raw_ids:
@@ -58,6 +62,8 @@ jobs:
 
         object SecurityConfig {{
             const val SALT = "{salt}"
+            const val AUTH_EMAIL = "{auth_email}"
+            const val AUTH_PASS = "{auth_pass}"
             val ALLOWED_HASHES: Set<String> = setOf(
                 {hash_set_str}
             )
