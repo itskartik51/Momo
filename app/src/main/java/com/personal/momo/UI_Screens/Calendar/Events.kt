@@ -1,5 +1,8 @@
 package com.personal.momo.UI_Screens.Calendar
 
+import android.graphics.Path
+import android.graphics.drawable.ShapeDrawable
+import android.graphics.drawable.shapes.PathShape
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -42,10 +45,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.Gradient6
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
+import nl.dionsegijn.konfetti.compose.KonfettiView
+import nl.dionsegijn.konfetti.core.Party
+import nl.dionsegijn.konfetti.core.Position
+import nl.dionsegijn.konfetti.core.emitter.Emitter
+import nl.dionsegijn.konfetti.core.models.Shape
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 data class MomoEvent(
     val id: String,
@@ -73,8 +82,45 @@ data class MonthAgendaItem(
     val description: String,
     val formattedOriginalDate: String,
     val timeAgoText: String,
-    val isSpecial: Boolean
+    val isSpecial: Boolean,
+    val isTodayMilestone: Boolean = false
 )
+
+object MomoCelebrationShapes {
+    private fun createStarShape(): Shape {
+        val path = Path().apply {
+            val points = 5
+            val outerRadius = 12f
+            val innerRadius = 5.5f
+            val cx = 12f
+            val cy = 12f
+            var angle = -Math.PI / 2.0
+            val angleStep = Math.PI / points
+            moveTo((cx + outerRadius * Math.cos(angle)).toFloat(), (cy + outerRadius * Math.sin(angle)).toFloat())
+            for (i in 1 until points * 2) {
+                angle += angleStep
+                val r = if (i % 2 == 0) outerRadius else innerRadius
+                lineTo((cx + r * Math.cos(angle)).toFloat(), (cy + r * Math.sin(angle)).toFloat())
+            }
+            close()
+        }
+        val drawable = ShapeDrawable(PathShape(path, 24f, 24f))
+        return Shape.DrawableShape(drawable, tint = true)
+    }
+
+    val shapes: List<Shape> by lazy {
+        try {
+            listOf(
+                Shape.Square,
+                Shape.Circle,
+                Shape.Rectangle(0.25f),
+                createStarShape()
+            )
+        } catch (_: Throwable) {
+            listOf(Shape.Square, Shape.Circle, Shape.Rectangle(0.25f))
+        }
+    }
+}
 
 object MomoEventsCalculator {
 
@@ -100,6 +146,18 @@ object MomoEventsCalculator {
                 event = event,
                 yearsAgo = diffYears
             )
+        }
+    }
+
+    /**
+     * Checks whether any past milestone anniversary (isSpecial == true) falls on today's calendar date.
+     */
+    fun hasMilestoneAnniversaryToday(allEvents: List<MomoEvent>, today: LocalDate = LocalDate.now()): Boolean {
+        return allEvents.any { event ->
+            event.isSpecial &&
+                    event.date.month == today.month &&
+                    event.date.dayOfMonth == today.dayOfMonth &&
+                    event.date.year < today.year
         }
     }
 
@@ -169,6 +227,8 @@ object MomoEventsCalculator {
      */
     fun getMonthAgendaEvents(yearMonth: YearMonth, allEvents: List<MomoEvent>): List<MonthAgendaItem> {
         val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
+        val today = LocalDate.now()
+
         return allEvents.filter { event ->
             event.date.month == yearMonth.month && event.date.year <= yearMonth.year
         }.sortedWith(
@@ -181,6 +241,14 @@ object MomoEventsCalculator {
                 diffYears == 1 -> "1 Year"
                 else -> "$diffYears Years"
             }
+
+            val isTodayMilestone = event.isSpecial &&
+                    event.date.month == today.month &&
+                    event.date.dayOfMonth == today.dayOfMonth &&
+                    event.date.year < today.year &&
+                    yearMonth.month == today.month &&
+                    yearMonth.year == today.year
+
             MonthAgendaItem(
                 id = event.id,
                 dayNumber = event.date.dayOfMonth,
@@ -188,7 +256,8 @@ object MomoEventsCalculator {
                 description = event.description,
                 formattedOriginalDate = event.date.format(formatter),
                 timeAgoText = timeAgo,
-                isSpecial = event.isSpecial
+                isSpecial = event.isSpecial,
+                isTodayMilestone = isTodayMilestone
             )
         }
     }
@@ -245,128 +314,168 @@ private fun MonthAgendaRow(
     var isExpanded by remember(item.id) { mutableStateOf(false) }
     var canExpand by remember(item.id) { mutableStateOf(false) }
 
-    Row(
+    val snowParties = remember(item.id, item.isTodayMilestone) {
+        if (item.isTodayMilestone) {
+            listOf(
+                Party(
+                    speed = 0.6f,
+                    maxSpeed = 2.2f,
+                    damping = 0.95f,
+                    angle = 90,
+                    spread = 60,
+                    colors = listOf(
+                        0xFFC91D3B.toInt(),
+                        0xFFFF5E79.toInt(),
+                        0xFFFFB800.toInt(),
+                        0xFFFF3B30.toInt(),
+                        0xFFFF9500.toInt(),
+                        0xFFE040FB.toInt()
+                    ),
+                    shapes = MomoCelebrationShapes.shapes,
+                    timeToLive = 3200L,
+                    position = Position.Between(Position.Relative(0.0, 0.0), Position.Relative(1.0, 0.0)),
+                    emitter = Emitter(duration = 5, TimeUnit.SECONDS).perSecond(12)
+                )
+            )
+        } else {
+            emptyList()
+        }
+    }
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .then(
-                if (canExpand) {
-                    Modifier
-                        .animateContentSize(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            isExpanded = !isExpanded
-                        }
-                } else {
-                    Modifier
-                }
-            ),
-        verticalAlignment = Alignment.Top
+            .clip(RoundedCornerShape(12.dp))
     ) {
-        // 1. Date Circle Badge (Anchored at top)
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(
-                    brush = if (item.isSpecial) Gradient6 else MomoPrimaryGradient
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "${item.dayNumber}",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
+        if (snowParties.isNotEmpty()) {
+            KonfettiView(
+                modifier = Modifier.matchParentSize(),
+                parties = snowParties
             )
         }
 
-        Spacer(modifier = Modifier.width(14.dp))
-
-        // 2. Right Content Column
-        Column(
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .padding(top = 1.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .fillMaxWidth()
+                .then(
+                    if (canExpand) {
+                        Modifier
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                isExpanded = !isExpanded
+                            }
+                    } else {
+                        Modifier
+                    }
+                ),
+            verticalAlignment = Alignment.Top
         ) {
-            // Line 1: Title on left, Original Historic Date on right (always in place)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // 1. Date Circle Badge (Anchored at top)
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(
+                        brush = if (item.isSpecial) Gradient6 else MomoPrimaryGradient
+                    ),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = item.title,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                Text(
-                    text = item.formattedOriginalDate,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "${item.dayNumber}",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
 
-            // Line 2: Description (takes full width if time ago is absent or expanded) + Relative Time Ago
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = if (isExpanded) Alignment.Top else Alignment.CenterVertically
-            ) {
-                Text(
-                    text = item.description,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = if (isExpanded) Int.MAX_VALUE else 1,
-                    overflow = if (isExpanded) TextOverflow.Clip else TextOverflow.Ellipsis,
-                    onTextLayout = { textLayoutResult ->
-                        if (!isExpanded) {
-                            canExpand = textLayoutResult.hasVisualOverflow
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
+            Spacer(modifier = Modifier.width(14.dp))
 
-                AnimatedVisibility(
-                    visible = !isExpanded && item.timeAgoText.isNotBlank(),
-                    enter = fadeIn(animationSpec = tween(140)) + expandHorizontally(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        )
-                    ),
-                    exit = fadeOut(animationSpec = tween(120)) + shrinkHorizontally(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMedium
-                        )
-                    )
+            // 2. Right Content Column
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(top = 1.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                // Line 1: Title on left, Original Historic Date on right (always in place)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = item.timeAgoText,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                    Text(
+                        text = item.title,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = item.formattedOriginalDate,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // Line 2: Description (takes full width if time ago is absent or expanded) + Relative Time Ago
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = if (isExpanded) Alignment.Top else Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = item.description,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = if (isExpanded) Int.MAX_VALUE else 1,
+                        overflow = if (isExpanded) TextOverflow.Clip else TextOverflow.Ellipsis,
+                        onTextLayout = { textLayoutResult ->
+                            if (!isExpanded) {
+                                canExpand = textLayoutResult.hasVisualOverflow
+                            }
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    AnimatedVisibility(
+                        visible = !isExpanded && item.timeAgoText.isNotBlank(),
+                        enter = fadeIn(animationSpec = tween(140)) + expandHorizontally(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        ),
+                        exit = fadeOut(animationSpec = tween(120)) + shrinkHorizontally(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
                         )
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = item.timeAgoText,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
             }
