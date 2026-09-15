@@ -132,7 +132,7 @@ fun MomoBottomCannonCelebration(
         if (trigger && !hasCelebratedToday) {
             hasCelebratedToday = true
 
-            // Audio decode synchronization check
+            // 1. Audio decode synchronization check
             val resId = context.resources.getIdentifier("popper", "raw", context.packageName)
             if (resId != 0) {
                 var elapsed = 0L
@@ -142,7 +142,15 @@ fun MomoBottomCannonCelebration(
                 }
             }
 
-            // 1. Hardware micro-tap (feather-light click, no motor spin)
+            // 2. Start audio immediately so it runs through its 160ms leading flatline silence
+            if (isSoundLoaded && soundId != 0) {
+                soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
+            }
+
+            // 3. Micro-sync offset: exactly wait for the audio waveform to hit its audible pop peak
+            delay(160L)
+
+            // 4. Trigger subtle hardware micro-tap at the exact audible burst instant
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     vibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
@@ -155,12 +163,7 @@ fun MomoBottomCannonCelebration(
             } catch (_: Throwable) {
             }
 
-            // 2. Play zero-latency SoundPool audio
-            if (isSoundLoaded && soundId != 0) {
-                soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
-            }
-
-            // 3. Upward cannon party blast triggered simultaneously
+            // 5. Upward cannon party blast fires simultaneously with audio pop and micro-tap
             celebrationParties = listOf(
                 Party(
                     speed = 35f,
