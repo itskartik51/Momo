@@ -28,6 +28,7 @@ object CacheManager {
     private const val KEY_AVATAR_URL = "cached_avatar_url"
     private const val KEY_PERIOD_DATES = "cached_period_dates"
     private const val KEY_EVENTS = "cached_events"
+    private const val KEY_SECURITY_LOCK = "cached_security_lock"
 
     private var prefs: SharedPreferences? = null
 
@@ -39,6 +40,9 @@ object CacheManager {
 
     private val _eventsFlow = MutableStateFlow<List<MomoEvent>>(emptyList())
     val eventsFlow: StateFlow<List<MomoEvent>> = _eventsFlow.asStateFlow()
+
+    private val _securityLockFlow = MutableStateFlow(false)
+    val securityLockFlow: StateFlow<Boolean> = _securityLockFlow.asStateFlow()
 
     fun init(context: Context) {
         if (prefs == null) {
@@ -81,8 +85,27 @@ object CacheManager {
                     e.printStackTrace()
                 }
             }
+
+            // 4. Load cached security lock status
+            val cachedLock = prefs?.getBoolean(KEY_SECURITY_LOCK, false) ?: false
+            _securityLockFlow.value = cachedLock
         }
         syncFromFirestore()
+    }
+
+    fun isSecurityLockEnabled(context: Context): Boolean {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        return prefs?.getBoolean(KEY_SECURITY_LOCK, false) ?: false
+    }
+
+    fun setSecurityLockEnabled(context: Context, enabled: Boolean) {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        prefs?.edit()?.putBoolean(KEY_SECURITY_LOCK, enabled)?.apply()
+        _securityLockFlow.value = enabled
     }
 
     /**
