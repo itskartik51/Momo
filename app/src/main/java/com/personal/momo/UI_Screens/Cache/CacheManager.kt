@@ -47,50 +47,54 @@ object CacheManager {
     fun init(context: Context) {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-            // 1. Load cached avatar
-            val cachedUrl = prefs?.getString(KEY_AVATAR_URL, null)
-            _avatarUrlFlow.value = cachedUrl
-
-            // 2. Load cached period dates
-            val cachedDatesString = prefs?.getString(KEY_PERIOD_DATES, null)
-            if (!cachedDatesString.isNullOrBlank()) {
-                val parsedDates = cachedDatesString.split(",")
-                    .mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
-                    .sorted()
-                _periodDatesFlow.value = parsedDates
-            }
-
-            // 3. Load cached events
-            val cachedEventsString = prefs?.getString(KEY_EVENTS, null)
-            if (!cachedEventsString.isNullOrBlank()) {
-                try {
-                    val jsonArray = JSONArray(cachedEventsString)
-                    val list = ArrayList<MomoEvent>(jsonArray.length())
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        list.add(
-                            MomoEvent(
-                                id = obj.optString("id"),
-                                title = obj.optString("title"),
-                                description = obj.optString("description"),
-                                date = LocalDate.parse(obj.optString("date")),
-                                epochMillis = obj.optLong("epochMillis"),
-                                isSpecial = obj.optBoolean("isSpecial", false)
-                            )
-                        )
-                    }
-                    _eventsFlow.value = list.sortedBy { it.date }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            // 4. Load cached security lock status
-            val cachedLock = prefs?.getBoolean(KEY_SECURITY_LOCK, false) ?: false
-            _securityLockFlow.value = cachedLock
         }
+        loadLocalCache()
         syncFromFirestore()
+    }
+
+    private fun loadLocalCache() {
+        val p = prefs ?: return
+
+        // 1. Instant Synchronous Load: Avatar
+        val cachedUrl = p.getString(KEY_AVATAR_URL, null)
+        _avatarUrlFlow.value = cachedUrl
+
+        // 2. Instant Synchronous Load: Period Dates
+        val cachedDatesString = p.getString(KEY_PERIOD_DATES, null)
+        if (!cachedDatesString.isNullOrBlank()) {
+            val parsedDates = cachedDatesString.split(",")
+                .mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
+                .sorted()
+            _periodDatesFlow.value = parsedDates
+        }
+
+        // 3. Instant Synchronous Load: Events
+        val cachedEventsString = p.getString(KEY_EVENTS, null)
+        if (!cachedEventsString.isNullOrBlank()) {
+            try {
+                val jsonArray = JSONArray(cachedEventsString)
+                val list = ArrayList<MomoEvent>(jsonArray.length())
+                for (i in 0 until jsonArray.length()) {
+                    val obj = jsonArray.getJSONObject(i)
+                    list.add(
+                        MomoEvent(
+                            id = obj.optString("id"),
+                            title = obj.optString("title"),
+                            description = obj.optString("description"),
+                            date = LocalDate.parse(obj.optString("date")),
+                            epochMillis = obj.optLong("epochMillis"),
+                            isSpecial = obj.optBoolean("isSpecial", false)
+                        )
+                    )
+                }
+                _eventsFlow.value = list.sortedBy { it.date }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 4. Instant Synchronous Load: Security Lock
+        _securityLockFlow.value = p.getBoolean(KEY_SECURITY_LOCK, false)
     }
 
     fun isSecurityLockEnabled(context: Context): Boolean {
