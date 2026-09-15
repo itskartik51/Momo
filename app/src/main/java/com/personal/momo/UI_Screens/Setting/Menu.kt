@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,7 +47,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.personal.momo.UI_Screens.MomoPrimaryDark
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.WelcomeLayoutMode
 import com.personal.momo.UI_Screens.bounceClick
@@ -197,6 +197,7 @@ fun MenuScreen(
     var isWelcomeExpanded by remember { mutableStateOf(false) }
     var isThemeExpanded by remember { mutableStateOf(false) }
     var isUpdateExpanded by remember { mutableStateOf(false) }
+    var isSecurityExpanded by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
 
     Box(
@@ -300,6 +301,23 @@ fun MenuScreen(
                     }
                 ) {
                     AppUpdateContent(isExpanded = isUpdateExpanded)
+                }
+
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                )
+
+                // 4. Security Lock Row
+                ExpandableMenuTile(
+                    icon = Icons.Default.Fingerprint,
+                    title = "Security Lock",
+                    isExpanded = isSecurityExpanded,
+                    onToggle = { isSecurityExpanded = !isSecurityExpanded }
+                ) {
+                    SecurityLockSettingsContent(
+                        onShowToast = { toastMessage = it }
+                    )
                 }
 
                 HorizontalDivider(
