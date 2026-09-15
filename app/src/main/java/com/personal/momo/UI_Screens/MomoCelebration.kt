@@ -1,11 +1,15 @@
 package com.personal.momo.UI_Screens
 
+import android.content.Context
 import android.graphics.Path
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.PathShape
 import android.media.AudioAttributes
 import android.media.SoundPool
-import android.view.HapticFeedbackConstants
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -17,7 +21,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import kotlinx.coroutines.delay
 import nl.dionsegijn.konfetti.compose.KonfettiView
 import nl.dionsegijn.konfetti.core.Party
@@ -72,7 +75,7 @@ object MomoCelebrationShapes {
 }
 
 /**
- * Screen-wide realistic bottom-center cannon blast with zero-latency audio and subtle micro-haptics.
+ * Screen-wide realistic bottom-center cannon blast with zero-latency audio and hardware micro-haptics.
  */
 @Composable
 fun MomoBottomCannonCelebration(
@@ -80,13 +83,22 @@ fun MomoBottomCannonCelebration(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val view = LocalView.current
 
     var celebrationParties by remember { mutableStateOf<List<Party>>(emptyList()) }
     var hasCelebratedToday by rememberSaveable { mutableStateOf(false) }
 
     var soundId by remember { mutableStateOf(0) }
     var isSoundLoaded by remember { mutableStateOf(false) }
+
+    val vibrator = remember(context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+    }
 
     val soundPool = remember {
         val audioAttributes = AudioAttributes.Builder()
@@ -120,7 +132,7 @@ fun MomoBottomCannonCelebration(
         if (trigger && !hasCelebratedToday) {
             hasCelebratedToday = true
 
-            // Wait for audio memory decoding to complete so sound and blast occur on the exact same frame
+            // Audio decode synchronization check
             val resId = context.resources.getIdentifier("popper", "raw", context.packageName)
             if (resId != 0) {
                 var elapsed = 0L
@@ -130,11 +142,18 @@ fun MomoBottomCannonCelebration(
                 }
             }
 
-            // 1. Subtle tactile feedback with system-view bypass flag
-            view.performHapticFeedback(
-                HapticFeedbackConstants.KEYBOARD_TAP,
-                HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
-            )
+            // 1. Hardware micro-tap (feather-light click, no motor spin)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    vibrator?.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(VibrationEffect.createOneShot(12L, 35))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(12L)
+                }
+            } catch (_: Throwable) {
+            }
 
             // 2. Play zero-latency SoundPool audio
             if (isSoundLoaded && soundId != 0) {
