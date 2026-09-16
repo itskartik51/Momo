@@ -57,8 +57,12 @@ import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 import com.personal.momo.UI_Screens.Calendar.MomoEventsCalculator
 import com.personal.momo.UI_Screens.Calendar.MonthEventsAgendaCard
+import com.personal.momo.UI_Screens.Notifications.MomoNotificationEngine
+import com.personal.momo.UI_Screens.Notifications.NotificationsPreferences
+import com.personal.momo.UI_Screens.Notifications.NotificationsScreen
 import com.personal.momo.UI_Screens.Settings.MenuScreen
 import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
+import java.time.LocalDate
 import java.time.YearMonth
 
 private val BellIcon: ImageVector by lazy {
@@ -79,10 +83,17 @@ private val BellIcon: ImageVector by lazy {
 private val MomoScriptFont = FontFamily(Font(R.font.momo_script))
 private val MomoBoldFont = FontFamily(Font(R.font.momo_bold))
 
+private enum class HomeScreenDestination {
+    HOME,
+    MENU,
+    NOTIFICATIONS
+}
+
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
     var isMenuOpen by remember { mutableStateOf(false) }
+    var isNotificationsOpen by remember { mutableStateOf(false) }
     var isUpdateAvailable by remember { mutableStateOf(false) }
     var currentVisibleMonth by remember { mutableStateOf(YearMonth.now()) }
 
@@ -93,16 +104,35 @@ fun HomeScreen() {
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
     val allEvents by CacheManager.eventsFlow.collectAsState()
+    val loggedPeriodDates by CacheManager.periodDatesFlow.collectAsState()
+    val today = remember { LocalDate.now() }
+
+    val notifications = remember(allEvents, loggedPeriodDates, today) {
+        MomoNotificationEngine.computeNotifications(today, allEvents, loggedPeriodDates)
+    }
+
+    val activeSignature = remember(notifications) {
+        notifications.joinToString("|") { it.id }
+    }
+
+    var hasUnreadNotifications by remember(activeSignature) {
+        mutableStateOf(NotificationsPreferences.isUnread(context, activeSignature))
+    }
 
     val isMilestoneToday = remember(allEvents) {
         MomoEventsCalculator.hasMilestoneAnniversaryToday(allEvents)
     }
 
+    val currentDestination = when {
+        isNotificationsOpen -> HomeScreenDestination.NOTIFICATIONS
+        isMenuOpen -> HomeScreenDestination.MENU
+        else -> HomeScreenDestination.HOME
+    }
+
     AnimatedContent(
-        targetState = isMenuOpen,
+        targetState = currentDestination,
         transitionSpec = {
-            if (targetState) {
-                // Opening Menu: MenuScreen softly scales and fades in; HomeScreen stays completely stationary with just a subtle fade
+            if (targetState != HomeScreenDestination.HOME) {
                 (fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
                         scaleIn(
                             initialScale = 0.96f,
@@ -111,7 +141,6 @@ fun HomeScreen() {
                     fadeOut(animationSpec = tween(durationMillis = 150))
                 )
             } else {
-                // Returning Home: HomeScreen fades back in with ZERO scale/zoom; MenuScreen cleanly fades out
                 fadeIn(animationSpec = tween(durationMillis = 200)).togetherWith(
                     fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
                             scaleOut(
@@ -121,62 +150,78 @@ fun HomeScreen() {
                 )
             }
         },
-        label = "HomeScreenMaterialMotionTransition"
-    ) { openMenu ->
-        if (openMenu) {
-            MenuScreen(
-                onBack = { isMenuOpen = false },
-                isUpdateAvailable = isUpdateAvailable
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
+        label = "HomeScreenDestinationTransition"
+    ) { destination ->
+        when (destination) {
+            HomeScreenDestination.NOTIFICATIONS -> {
+                NotificationsScreen(
+                    onBack = { isNotificationsOpen = false }
+                )
+            }
+
+            HomeScreenDestination.MENU -> {
+                MenuScreen(
+                    onBack = { isMenuOpen = false },
+                    isUpdateAvailable = isUpdateAvailable
+                )
+            }
+
+            HomeScreenDestination.HOME -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
-                    HomeHeader(
-                        avatarUrl = avatarUrl,
-                        isUpdateAvailable = isUpdateAvailable,
-                        onMenuClick = {
-                            isMenuOpen = true
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .background(MaterialTheme.colorScheme.background)
+                    Column(
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        Column(
+                        HomeHeader(
+                            avatarUrl = avatarUrl,
+                            isUpdateAvailable = isUpdateAvailable,
+                            hasUnreadNotifications = hasUnreadNotifications,
+                            onNotificationsClick = {
+                                isNotificationsOpen = true
+                                NotificationsPreferences.markAsSeen(context, activeSignature)
+                                hasUnreadNotifications = false
+                            },
+                            onMenuClick = {
+                                isMenuOpen = true
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(bottom = 24.dp)
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .background(MaterialTheme.colorScheme.background)
                         ) {
-                            MomoCalendar(
-                                onMonthChanged = { month ->
-                                    currentVisibleMonth = month
-                                }
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(bottom = 24.dp)
+                            ) {
+                                MomoCalendar(
+                                    onMonthChanged = { month ->
+                                        currentVisibleMonth = month
+                                    }
+                                )
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
 
-                            MonthEventsAgendaCard(
-                                currentYearMonth = currentVisibleMonth,
-                                allEvents = allEvents
-                            )
+                                MonthEventsAgendaCard(
+                                    currentYearMonth = currentVisibleMonth,
+                                    allEvents = allEvents
+                                )
+                            }
                         }
                     }
-                }
 
-                // Milestone Celebration Cannon Blast (Bottom-Center, upward angle 270°)
-                MomoBottomCannonCelebration(trigger = isMilestoneToday)
+                    // Milestone Celebration Cannon Blast (Bottom-Center, upward angle 270°)
+                    MomoBottomCannonCelebration(trigger = isMilestoneToday)
+                }
             }
         }
     }
@@ -186,6 +231,8 @@ fun HomeScreen() {
 private fun HomeHeader(
     avatarUrl: String?,
     isUpdateAvailable: Boolean,
+    hasUnreadNotifications: Boolean,
+    onNotificationsClick: () -> Unit,
     onMenuClick: () -> Unit
 ) {
     Surface(
@@ -256,12 +303,13 @@ private fun HomeHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                // Bell Notification Icon with unread indicator dot
                 Box(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
                         .bounceClick(scaleDown = 0.88f) {
-                            // Notifications click
+                            onNotificationsClick()
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -271,6 +319,17 @@ private fun HomeHeader(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp)
                     )
+
+                    if (hasUnreadNotifications) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = (-4).dp, y = 4.dp)
+                                .clip(CircleShape)
+                                .background(brush = MomoPrimaryGradient)
+                        )
+                    }
                 }
 
                 // Veggie Burger Icon (2 Parallel Rounded Bars with Update Dot)
