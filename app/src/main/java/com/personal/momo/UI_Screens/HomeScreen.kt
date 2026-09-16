@@ -1,5 +1,11 @@
 package com.personal.momo.UI_Screens
 
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -51,6 +57,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
@@ -58,6 +65,7 @@ import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 import com.personal.momo.UI_Screens.Calendar.MomoEventsCalculator
 import com.personal.momo.UI_Screens.Calendar.MonthEventsAgendaCard
 import com.personal.momo.UI_Screens.Notifications.MomoNotificationEngine
+import com.personal.momo.UI_Screens.Notifications.NotificationAlarmReceiver
 import com.personal.momo.UI_Screens.Notifications.NotificationsPreferences
 import com.personal.momo.UI_Screens.Notifications.NotificationsScreen
 import com.personal.momo.UI_Screens.Settings.MenuScreen
@@ -97,9 +105,47 @@ fun HomeScreen() {
     var isUpdateAvailable by remember { mutableStateOf(false) }
     var currentVisibleMonth by remember { mutableStateOf(YearMonth.now()) }
 
+    // Repeated Notification Permission Handling: Prompts every launch if denied
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            NotificationAlarmReceiver.scheduleDaily7AmAlarm(context)
+        }
+    }
+
     LaunchedEffect(Unit) {
         CacheManager.init(context)
         isUpdateAvailable = checkIsUpdateAvailable(context)
+
+        // Schedule background 7:00 AM alarm
+        NotificationAlarmReceiver.scheduleDaily7AmAlarm(context)
+
+        // Prompt notification permission on every app open if not granted
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val isPermissionGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!isPermissionGranted) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    // Direct navigation to NotificationsScreen if opened via system push notification
+    val activity = context as? Activity
+    LaunchedEffect(activity?.intent) {
+        val shouldOpenNotifications = activity?.intent?.getBooleanExtra(
+            NotificationAlarmReceiver.EXTRA_OPEN_NOTIFICATIONS,
+            false
+        ) ?: false
+
+        if (shouldOpenNotifications) {
+            isNotificationsOpen = true
+            activity?.intent?.removeExtra(NotificationAlarmReceiver.EXTRA_OPEN_NOTIFICATIONS)
+        }
     }
 
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
