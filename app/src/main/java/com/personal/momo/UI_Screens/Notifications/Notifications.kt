@@ -122,6 +122,11 @@ object MomoNotificationEngine {
 
             val daysRemaining = ChronoUnit.DAYS.between(today, targetAnniversary)
             val yearsDiff = targetAnniversary.year - event.date.year
+            val yearsSuffix = when {
+                yearsDiff <= 0 -> ""
+                yearsDiff == 1 -> "1 Year"
+                else -> "$yearsDiff Years"
+            }
             val yearsAgoPrefix = when {
                 yearsDiff <= 0 -> ""
                 yearsDiff == 1 -> "1 Year ago"
@@ -129,13 +134,12 @@ object MomoNotificationEngine {
             }
 
             if (event.isSpecial) {
-                // Milestone discrete schedule: 7, 5, 2, 0 days
+                // Milestone schedule: 7, 5, 2, 0 days
+                // Left: "7 Days to go", "5 Days to go", "2 Days to go", or "Today"
+                // Right Tag: "{X} Years"
                 if (daysRemaining in listOf(7L, 5L, 2L, 0L)) {
-                    val (tag, headline) = if (daysRemaining == 0L) {
-                        "Today" to if (yearsAgoPrefix.isNotEmpty()) "$yearsAgoPrefix Today" else "Today"
-                    } else {
-                        "$daysRemaining Days" to if (yearsAgoPrefix.isNotEmpty()) "$yearsAgoPrefix that Day" else "That Day"
-                    }
+                    val headline = if (daysRemaining == 0L) "Today" else "$daysRemaining Days to go"
+                    val tag = yearsSuffix
 
                     list.add(
                         MomoNotificationItem.EventNotification(
@@ -151,6 +155,8 @@ object MomoNotificationEngine {
                 }
             } else {
                 // Non-milestone regular schedule: strictly same day (0 days)
+                // Left: "{X} Years ago Today"
+                // Right Tag: "Today"
                 if (daysRemaining == 0L) {
                     val headline = if (yearsAgoPrefix.isNotEmpty()) "$yearsAgoPrefix Today" else "Today"
                     list.add(
@@ -436,7 +442,7 @@ private fun EventNotificationCard(item: MomoNotificationItem.EventNotification) 
                         )
                     }
 
-                    // Line 2: Headline and Countdown Tag strictly on a single line
+                    // Line 2: Headline and Tag strictly on a single line
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -452,14 +458,16 @@ private fun EventNotificationCard(item: MomoNotificationItem.EventNotification) 
                             modifier = Modifier.weight(1f)
                         )
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        if (item.countdownTag.isNotBlank()) {
+                            Spacer(modifier = Modifier.width(8.dp))
 
-                        Text(
-                            text = item.countdownTag,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            style = TextStyle(brush = MomoPrimaryGradient)
-                        )
+                            Text(
+                                text = item.countdownTag,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                style = TextStyle(brush = MomoPrimaryGradient)
+                            )
+                        }
                     }
                 }
             }
