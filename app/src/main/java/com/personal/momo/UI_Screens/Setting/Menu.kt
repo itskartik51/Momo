@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -198,6 +199,7 @@ fun MenuScreen(
     var isThemeExpanded by remember { mutableStateOf(false) }
     var isUpdateExpanded by remember { mutableStateOf(false) }
     var isSecurityExpanded by remember { mutableStateOf(false) }
+    var isAppIdExpanded by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
 
     Box(
@@ -316,6 +318,23 @@ fun MenuScreen(
                     onToggle = { isSecurityExpanded = !isSecurityExpanded }
                 ) {
                     SecurityLockSettingsContent(
+                        onShowToast = { toastMessage = it }
+                    )
+                }
+
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                )
+
+                // 5. App ID Row
+                ExpandableMenuTile(
+                    icon = Icons.Default.Person,
+                    title = "App ID",
+                    isExpanded = isAppIdExpanded,
+                    onToggle = { isAppIdExpanded = !isAppIdExpanded }
+                ) {
+                    AppIdSettingsContent(
                         onShowToast = { toastMessage = it }
                     )
                 }
