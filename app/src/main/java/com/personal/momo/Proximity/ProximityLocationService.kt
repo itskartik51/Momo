@@ -432,7 +432,7 @@ class ProximityLocationService : Service() {
 
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        val locationRequest = LocationRequest.Builder(Priority.HIGH_ACCURACY, intervalMillis)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
             .setMinUpdateIntervalMillis(intervalMillis / 2)
             .setWaitForAccurateLocation(false)
             .build()
