@@ -1,5 +1,11 @@
 package com.personal.momo.UI_Screens.Tracking
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -29,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -163,22 +171,48 @@ fun TrackerScreen(
 
 @Composable
 private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier.fillMaxWidth()
     ) {
-        // Line 1: Name on Left, Time on Right
+        // Line 1: Name + Map Pin on Left, Time on Right
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = item.name.ifBlank { "--" },
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = item.name.ifBlank { "--" },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+
+                if (item.latitude != null && item.longitude != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .bounceClick(scaleDown = 0.90f) {
+                                openGoogleMaps(context, item.latitude, item.longitude, item.name)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.LocationOn,
+                            contentDescription = "Open in Maps",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
 
             Text(
                 text = formatTimestamp(item.timestamp),
@@ -190,18 +224,33 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Line 2: Coordinates on Left, Accuracy on Right
+        // Line 2: Coordinates (Click to Copy) on Left, Accuracy on Right
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = formatCoordinates(item.latitude, item.longitude),
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
+            val formattedCoords = formatCoordinates(item.latitude, item.longitude)
+            val isClickable = item.latitude != null && item.longitude != null
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .then(
+                        if (isClickable) {
+                            Modifier.bounceClick(scaleDown = 0.95f) {
+                                copyToClipboard(context, "${item.latitude}, ${item.longitude}")
+                            }
+                        } else Modifier
+                    )
+            ) {
+                Text(
+                    text = formattedCoords,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
 
             Text(
                 text = formatAccuracy(item.accuracy),
@@ -211,6 +260,28 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
             )
         }
     }
+}
+
+private fun openGoogleMaps(context: Context, lat: Double, lng: Double, label: String) {
+    val geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng(${Uri.encode(label)})")
+    val mapIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
+        setPackage("com.google.android.apps.maps")
+    }
+
+    try {
+        context.startActivity(mapIntent)
+    } catch (e: Exception) {
+        val webUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lng")
+        val fallbackIntent = Intent(Intent.ACTION_VIEW, webUri)
+        context.startActivity(fallbackIntent)
+    }
+}
+
+private fun copyToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val clip = ClipData.newPlainText("Coordinates", text)
+    clipboard.setPrimaryClip(clip)
+    Toast.makeText(context, "Coordinates copied", Toast.LENGTH_SHORT).show()
 }
 
 private fun formatCoordinates(lat: Double?, lng: Double?): String {
