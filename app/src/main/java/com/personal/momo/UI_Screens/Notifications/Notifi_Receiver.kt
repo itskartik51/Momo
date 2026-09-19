@@ -72,14 +72,8 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         val notificationManager = NotificationManagerCompat.from(context)
 
         activeNotifications.forEach { item ->
-            val largeIconBitmap = when (item) {
-                is MomoNotificationItem.EventNotification -> {
-                    createCircularDateBadge(item.dayNumber, item.isMilestone)
-                }
-                is MomoNotificationItem.PeriodNotification -> {
-                    createCircularDateBadge(item.dayNumber, isMilestone = false)
-                }
-            }
+            // Both event and period cards use consistent Momo Primary Gradient date badge
+            val largeIconBitmap = createCircularDateBadge(item.dayNumber)
 
             // Tap notification to open app directly into NotificationsScreen
             val tapIntent = Intent(context, MainActivity::class.java).apply {
@@ -103,7 +97,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
 
             when (item) {
                 is MomoNotificationItem.EventNotification -> {
-                    val titleText = "${item.headline} • MOMO"
+                    val titleText = item.headline
                     val contentLine = if (item.countdownTag.isNotBlank()) {
                         "${item.countdownTag} • ${item.event.title}"
                     } else {
@@ -122,7 +116,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                 }
 
                 is MomoNotificationItem.PeriodNotification -> {
-                    val titleText = "Hpy Bday • MOMO"
+                    val titleText = "Hpy Bday"
                     val contentLine = "${item.alertMessage} (${item.formattedDate})"
 
                     builder.setContentTitle(titleText)
@@ -136,34 +130,23 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun createCircularDateBadge(dayNumber: Int, isMilestone: Boolean): Bitmap {
+    private fun createCircularDateBadge(dayNumber: Int): Bitmap {
         val size = 128
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
+        // Signature Momo Primary Gradient (#FF3366 -> #FF6584)
         val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
-            shader = if (isMilestone) {
-                LinearGradient(
-                    0f, 0f, size.toFloat(), size.toFloat(),
-                    intArrayOf(
-                        AndroidColor.parseColor("#FF4365"),
-                        AndroidColor.parseColor("#9B51E0")
-                    ),
-                    null,
-                    Shader.TileMode.CLAMP
-                )
-            } else {
-                LinearGradient(
-                    0f, 0f, size.toFloat(), size.toFloat(),
-                    intArrayOf(
-                        AndroidColor.parseColor("#FF3366"),
-                        AndroidColor.parseColor("#FF6B8B")
-                    ),
-                    null,
-                    Shader.TileMode.CLAMP
-                )
-            }
+            shader = LinearGradient(
+                0f, 0f, size.toFloat(), size.toFloat(),
+                intArrayOf(
+                    AndroidColor.parseColor("#FF3366"),
+                    AndroidColor.parseColor("#FF6584")
+                ),
+                null,
+                Shader.TileMode.CLAMP
+            )
         }
 
         val radius = size / 2f
