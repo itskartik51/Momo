@@ -11,8 +11,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
+import android.media.SoundPool
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -57,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
@@ -72,6 +72,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.Proximity.ProximityLocationService
 import com.personal.momo.UI_Screens.bounceClick
+import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.text.SimpleDateFormat
@@ -351,14 +353,15 @@ private fun CompassRadarCard(
     var continuousAzimuth by remember { mutableFloatStateOf(0f) }
     var lastRawAzimuth by remember { mutableFloatStateOf(0f) }
 
-    // Pure Kotlin Mechanical Tick Sound Synthesizer (0 external assets, zero lag)
-    val soundSynthesizer = remember { CompassSoundSynthesizer() }
+    // Pure Kotlin SoundPool Synthesizer (Single-shot, zero endless loop)
+    val soundPlayer = remember { CompassSoundPlayer(context) }
 
     DisposableEffect(Unit) {
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
-        var lastTickAngle = Float.NaN
+        var lastSector = Int.MIN_VALUE
+        var lastTriggerAngle = Float.NaN
 
         val listener = object : SensorEventListener {
             val rotationMatrix = FloatArray(9)
@@ -377,26 +380,25 @@ private fun CompassRadarCard(
                     continuousAzimuth += diff
                     lastRawAzimuth = rawDeg
 
-                    // Audio Tick Detection: Check for 30° / 90° boundary crossing with hysteresis
-                    if (lastTickAngle.isNaN()) {
-                        lastTickAngle = continuousAzimuth
-                    } else {
-                        val diffFromLast = abs(continuousAzimuth - lastTickAngle)
-                        if (diffFromLast >= 2.5f) {
-                            val stepBefore = floor(lastTickAngle / 30.0).toInt()
-                            val stepNow = floor(continuousAzimuth / 30.0).toInt()
-                            if (stepNow != stepBefore) {
-                                val crossedBoundary = if (stepNow > stepBefore) stepNow * 30 else stepBefore * 30
-                                val normalizedDeg = ((crossedBoundary % 360) + 360) % 360
+                    // Strict Hysteresis Ratchet: Triggers ONLY on intentional 30°/90° sector shifts
+                    val currentAngle = continuousAzimuth
+                    val currentSector = floor(currentAngle / 30.0).toInt()
 
-                                if (normalizedDeg % 90 == 0) {
-                                    soundSynthesizer.playHeavyTick()
-                                } else {
-                                    soundSynthesizer.playLightTick()
-                                }
-                                lastTickAngle = crossedBoundary.toFloat()
-                            }
+                    if (lastSector == Int.MIN_VALUE) {
+                        lastSector = currentSector
+                        lastTriggerAngle = currentAngle
+                    } else if (currentSector != lastSector && abs(currentAngle - lastTriggerAngle) >= 8f) {
+                        val crossedStep = if (currentSector > lastSector) currentSector * 30 else (currentSector + 1) * 30
+                        val normalizedDeg = ((crossedStep % 360) + 360) % 360
+
+                        if (normalizedDeg % 90 == 0) {
+                            soundPlayer.playHeavy()
+                        } else {
+                            soundPlayer.playLight()
                         }
+
+                        lastSector = currentSector
+                        lastTriggerAngle = currentAngle
                     }
                 }
             }
@@ -410,7 +412,7 @@ private fun CompassRadarCard(
 
         onDispose {
             sensorManager.unregisterListener(listener)
-            soundSynthesizer.release()
+            soundPlayer.release()
         }
     }
 
@@ -496,9 +498,9 @@ private fun CompassRadarCard(
                         -animatedAzimuth
                     }
 
-                    // Shortest-Path calculation for gradient active arc
-                    val currentRelAngle = relativeAngle?.toFloat() ?: 0f
-                    val isClockwise = currentRelAngle <= 180f
+                    // Top Needle position on the dial plate coordinate space
+                    val needleAngleOnDial = ((-dialRotation % 360f) + 360f) % 360f
+                    val isShortestPathClockwise = needleAngleOnDial <= 180f
 
                     rotate(dialRotation, pivot = center) {
                         // 120 Ticks: Major every 30° (10 ticks), Minor in between
@@ -509,19 +511,19 @@ private fun CompassRadarCard(
                             val isMajor = (i % 10 == 0)
                             val isPartnerZero = (i == 0)
 
-                            // Check if this tick falls within the active shortest-path arc
-                            val isTickCovered = if (isClockwise) {
-                                angleDeg in 0.0f..currentRelAngle
+                            // Covered ticks: strictly connects 0° (Momo) to needleAngleOnDial (Top Needle)
+                            val isTickCovered = if (isShortestPathClockwise) {
+                                angleDeg in 0.0f..needleAngleOnDial
                             } else {
-                                angleDeg >= currentRelAngle || angleDeg == 0f
+                                angleDeg >= needleAngleOnDial || angleDeg == 0f
                             }
 
-                            // Dynamic Gradient coloring across the covered arc
+                            // Dynamic Gradient sweep along the arc connecting Momo and Needle
                             val tickColor = if (isTickCovered) {
-                                val fraction = if (isClockwise) {
-                                    if (currentRelAngle > 0f) (angleDeg / currentRelAngle).coerceIn(0f, 1f) else 0f
+                                val fraction = if (isShortestPathClockwise) {
+                                    if (needleAngleOnDial > 0f) (angleDeg / needleAngleOnDial).coerceIn(0f, 1f) else 0f
                                 } else {
-                                    val arcSpan = 360f - currentRelAngle
+                                    val arcSpan = 360f - needleAngleOnDial
                                     if (arcSpan > 0f) {
                                         val distFromZero = if (angleDeg == 0f) 0f else (360f - angleDeg)
                                         (distFromZero / arcSpan).coerceIn(0f, 1f)
@@ -711,104 +713,97 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
     }
 }
 
-private class CompassSoundSynthesizer {
-    private var lightTrack: AudioTrack? = null
-    private var heavyTrack: AudioTrack? = null
+private class CompassSoundPlayer(context: Context) {
+    private val soundPool: SoundPool = SoundPool.Builder()
+        .setMaxStreams(2)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+        )
+        .build()
+
+    private var lightSoundId: Int = 0
+    private var heavySoundId: Int = 0
 
     init {
         try {
-            lightTrack = buildStaticTrack(frequency = 2400.0, durationMs = 8, decayRate = 500.0, volume = 0.45f)
-            heavyTrack = buildStaticTrack(frequency = 920.0, durationMs = 18, decayRate = 220.0, volume = 0.85f)
+            val lightFile = File(context.cacheDir, "momo_tick_light.wav")
+            val heavyFile = File(context.cacheDir, "momo_tick_heavy.wav")
+
+            if (!lightFile.exists() || lightFile.length() == 0L) {
+                generateWav(lightFile, frequency = 2500.0, durationMs = 6, decay = 550.0, volume = 0.5f)
+            }
+            if (!heavyFile.exists() || heavyFile.length() == 0L) {
+                generateWav(heavyFile, frequency = 950.0, durationMs = 15, decay = 250.0, volume = 0.9f)
+            }
+
+            lightSoundId = soundPool.load(lightFile.absolutePath, 1)
+            heavySoundId = soundPool.load(heavyFile.absolutePath, 1)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    fun playLightTick() {
-        try {
-            lightTrack?.let {
-                it.stop()
-                it.reloadStaticData()
-                it.play()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+    fun playLight() {
+        if (lightSoundId != 0) {
+            soundPool.play(lightSoundId, 0.5f, 0.5f, 1, 0, 1.0f)
         }
     }
 
-    fun playHeavyTick() {
-        try {
-            heavyTrack?.let {
-                it.stop()
-                it.reloadStaticData()
-                it.play()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+    fun playHeavy() {
+        if (heavySoundId != 0) {
+            soundPool.play(heavySoundId, 0.85f, 0.85f, 1, 0, 1.0f)
         }
     }
 
     fun release() {
         try {
-            lightTrack?.stop()
-            lightTrack?.release()
-            lightTrack = null
-
-            heavyTrack?.stop()
-            heavyTrack?.release()
-            heavyTrack = null
+            soundPool.release()
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    private fun buildStaticTrack(
-        frequency: Double,
-        durationMs: Int,
-        decayRate: Double,
-        volume: Float
-    ): AudioTrack? {
+    private fun generateWav(file: File, frequency: Double, durationMs: Int, decay: Double, volume: Float) {
         val sampleRate = 44100
         val numSamples = (sampleRate * durationMs) / 1000
-        val minBufferSize = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        ).coerceAtLeast(1024)
-
-        val bufferSize = maxOf(numSamples * 2, minBufferSize)
-        val shortBuffer = ShortArray(bufferSize / 2)
+        val shortBuffer = ShortArray(numSamples)
 
         for (i in 0 until numSamples) {
             val t = i.toDouble() / sampleRate
-            val envelope = exp(-decayRate * t)
-            val sampleVal = (sin(2.0 * Math.PI * frequency * t) * envelope * Short.MAX_VALUE * volume).toInt()
-            shortBuffer[i] = sampleVal.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+            val env = exp(-decay * t)
+            val s = (sin(2.0 * Math.PI * frequency * t) * env * Short.MAX_VALUE * volume).toInt()
+            shortBuffer[i] = s.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
 
-        val byteBuffer = ByteArray(bufferSize)
-        ByteBuffer.wrap(byteBuffer).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(shortBuffer)
+        val dataSize = numSamples * 2
+        val totalSize = 36 + dataSize
+        val byteBuffer = ByteBuffer.allocate(44 + dataSize).order(ByteOrder.LITTLE_ENDIAN)
 
-        val audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build()
-            )
-            .setBufferSizeInBytes(byteBuffer.size)
-            .setTransferMode(AudioTrack.MODE_STATIC)
-            .build()
+        // Standard 44-byte WAV header
+        byteBuffer.put("RIFF".toByteArray(Charsets.US_ASCII))
+        byteBuffer.putInt(totalSize)
+        byteBuffer.put("WAVE".toByteArray(Charsets.US_ASCII))
+        byteBuffer.put("fmt ".toByteArray(Charsets.US_ASCII))
+        byteBuffer.putInt(16)
+        byteBuffer.putShort(1)
+        byteBuffer.putShort(1)
+        byteBuffer.putInt(sampleRate)
+        byteBuffer.putInt(sampleRate * 2)
+        byteBuffer.putShort(2)
+        byteBuffer.putShort(16)
+        byteBuffer.put("data".toByteArray(Charsets.US_ASCII))
+        byteBuffer.putInt(dataSize)
 
-        audioTrack.write(byteBuffer, 0, byteBuffer.size)
-        return audioTrack
+        for (sample in shortBuffer) {
+            byteBuffer.putShort(sample)
+        }
+
+        FileOutputStream(file).use { fos ->
+            fos.write(byteBuffer.array())
+        }
     }
 }
 
