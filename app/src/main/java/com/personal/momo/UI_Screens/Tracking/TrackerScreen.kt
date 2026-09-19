@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -176,15 +175,24 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
     Column(
         modifier = Modifier.fillMaxWidth()
     ) {
-        // Line 1: Name + Map Pin on Left, Time on Right
+        // Line 1: Name (Click to open Maps) on Left, Time on Right
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            val hasValidCoords = item.latitude != null && item.longitude != null
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .then(
+                        if (hasValidCoords) {
+                            Modifier.bounceClick(scaleDown = 0.94f) {
+                                openGoogleMaps(context, item.latitude!!, item.longitude!!, item.name)
+                            }
+                        } else Modifier
+                    )
             ) {
                 Text(
                     text = item.name.ifBlank { "--" },
@@ -193,25 +201,6 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1
                 )
-
-                if (item.latitude != null && item.longitude != null) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .bounceClick(scaleDown = 0.90f) {
-                                openGoogleMaps(context, item.latitude, item.longitude, item.name)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.LocationOn,
-                            contentDescription = "Open in Maps",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
             }
 
             Text(
