@@ -1,10 +1,14 @@
 package com.personal.momo
 
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
@@ -33,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.Proximity.ProximityLocationService
 import com.personal.momo.UI_Screens.MainScreen
 import com.personal.momo.UI_Screens.MomoTheme
 import com.personal.momo.UI_Screens.Settings.cleanOldUpdateApks
@@ -58,12 +63,54 @@ class MainActivity : FragmentActivity() {
                 val isLockConfigured = remember { CacheManager.isSecurityLockEnabled(this) }
                 var isUnlocked by remember { mutableStateOf(!isLockConfigured) }
 
+                // Runtime Permissions Bundle (Location, Notifications, Bluetooth)
+                val requiredPermissions = remember {
+                    buildList {
+                        add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                        add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            add(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            add(android.Manifest.permission.BLUETOOTH_SCAN)
+                            add(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+                            add(android.Manifest.permission.BLUETOOTH_CONNECT)
+                        }
+                    }
+                }
+
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestMultiplePermissions()
+                ) { permissions ->
+                    val fineLocGranted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
+                    val coarseLocGranted = permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+                    if (fineLocGranted || coarseLocGranted) {
+                        ProximityLocationService.startService(this@MainActivity)
+                    }
+                }
+
                 LaunchedEffect(isLockConfigured) {
                     if (isLockConfigured && !isUnlocked) {
                         promptBiometricUnlock(
                             onSuccess = { isUnlocked = true },
                             onExit = { finishAndRemoveTask() }
                         )
+                    }
+                }
+
+                // Launch Proximity Service once unlocked and permissions verified
+                LaunchedEffect(isUnlocked) {
+                    if (isUnlocked) {
+                        val hasLocationPermission = ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            android.Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED
+
+                        if (!hasLocationPermission) {
+                            permissionLauncher.launch(requiredPermissions.toTypedArray())
+                        } else {
+                            ProximityLocationService.startService(this@MainActivity)
+                        }
                     }
                 }
 
