@@ -82,6 +82,7 @@ class ProximityLocationService : Service() {
         super.onDestroy()
         fusedLocationClient.removeLocationUpdates(locationCallback)
         firestoreListener?.remove()
+        BleProximityManager.stopHandshake()
         serviceScope.cancel()
     }
 
@@ -110,10 +111,15 @@ class ProximityLocationService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val foregroundServiceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            }
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                foregroundServiceType
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -211,6 +217,7 @@ class ProximityLocationService : Service() {
 
             if (myDistanceToMyHome <= safeZoneRadiusMeters && partnerDistanceToPartnerHome <= safeZoneRadiusMeters) {
                 // Both are inside home safe zones -> Zero battery drain passive mode
+                BleProximityManager.stopHandshake()
                 requestLocationUpdates(Priority.PRIORITY_PASSIVE, 900_000L) // 15 mins
                 return
             }
@@ -223,26 +230,39 @@ class ProximityLocationService : Service() {
                 partnerGeo.latitude, partnerGeo.longitude
             )
 
+            val currentUserId = CacheManager.getAppUserId(this)
+            val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
+
+            // Trigger 200m Notification Alert (with debounce/hysteresis)
+            ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
+
             when {
                 relativeDistance <= 50.0 -> {
-                    // <= 50m: High accuracy GPS + BLE ready
+                    // <= 50m: High accuracy GPS + Start BLE Handshake
                     requestLocationUpdates(Priority.PRIORITY_HIGH_ACCURACY, 15_000L)
+                    BleProximityManager.startHandshake(this) { rssi ->
+                        // RSSI captured for radar phase
+                    }
                 }
                 relativeDistance <= 200.0 -> {
-                    // 50m -> 200m: High accuracy GPS for exact notification positioning
+                    // 50m -> 200m: High accuracy GPS for exact alert, BLE terminated
+                    BleProximityManager.stopHandshake()
                     requestLocationUpdates(Priority.PRIORITY_HIGH_ACCURACY, 15_000L)
                 }
                 relativeDistance <= 500.0 -> {
                     // 200m -> 500m: Transition phase to high accuracy
+                    BleProximityManager.stopHandshake()
                     requestLocationUpdates(Priority.PRIORITY_HIGH_ACCURACY, 20_000L)
                 }
                 else -> {
                     // > 500m: Low-power balanced network mode
+                    BleProximityManager.stopHandshake()
                     requestLocationUpdates(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 600_000L)
                 }
             }
         } else {
             // Fallback when partner coordinates not yet available
+            BleProximityManager.stopHandshake()
             requestLocationUpdates(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 600_000L)
         }
     }
