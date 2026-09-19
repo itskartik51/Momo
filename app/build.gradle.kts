@@ -82,6 +82,9 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
 
+    // Google Play Services Location for Proximity Tracking
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
     // Coil Image Loader for Jetpack Compose
     implementation("io.coil-kt:coil-compose:2.6.0")
 
