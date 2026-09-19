@@ -10,6 +10,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -54,9 +57,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -69,12 +72,16 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.Proximity.ProximityLocationService
 import com.personal.momo.UI_Screens.bounceClick
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -344,9 +351,14 @@ private fun CompassRadarCard(
     var continuousAzimuth by remember { mutableFloatStateOf(0f) }
     var lastRawAzimuth by remember { mutableFloatStateOf(0f) }
 
+    // Pure Kotlin Mechanical Tick Sound Synthesizer (0 external assets, zero lag)
+    val soundSynthesizer = remember { CompassSoundSynthesizer() }
+
     DisposableEffect(Unit) {
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+
+        var lastTickAngle = Float.NaN
 
         val listener = object : SensorEventListener {
             val rotationMatrix = FloatArray(9)
@@ -364,6 +376,28 @@ private fun CompassRadarCard(
 
                     continuousAzimuth += diff
                     lastRawAzimuth = rawDeg
+
+                    // Audio Tick Detection: Check for 30° / 90° boundary crossing with hysteresis
+                    if (lastTickAngle.isNaN()) {
+                        lastTickAngle = continuousAzimuth
+                    } else {
+                        val diffFromLast = abs(continuousAzimuth - lastTickAngle)
+                        if (diffFromLast >= 2.5f) {
+                            val stepBefore = floor(lastTickAngle / 30.0).toInt()
+                            val stepNow = floor(continuousAzimuth / 30.0).toInt()
+                            if (stepNow != stepBefore) {
+                                val crossedBoundary = if (stepNow > stepBefore) stepNow * 30 else stepBefore * 30
+                                val normalizedDeg = ((crossedBoundary % 360) + 360) % 360
+
+                                if (normalizedDeg % 90 == 0) {
+                                    soundSynthesizer.playHeavyTick()
+                                } else {
+                                    soundSynthesizer.playLightTick()
+                                }
+                                lastTickAngle = crossedBoundary.toFloat()
+                            }
+                        }
+                    }
                 }
             }
 
@@ -376,6 +410,7 @@ private fun CompassRadarCard(
 
         onDispose {
             sensorManager.unregisterListener(listener)
+            soundSynthesizer.release()
         }
     }
 
@@ -426,7 +461,8 @@ private fun CompassRadarCard(
 
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
-    val accentRedColor = Color(0xFFE53935)
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
 
     Card(
         modifier = Modifier
@@ -446,24 +482,12 @@ private fun CompassRadarCard(
         ) {
             // Dial Canvas
             Box(
-                modifier = Modifier.size(240.dp),
+                modifier = Modifier.size(260.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val center = this.center
-                    val radius = (size.minDimension / 2f) - 32.dp.toPx()
-
-                    // Top Fixed Red Pointer Triangle pointing down
-                    val pointerPath = Path().apply {
-                        val tipY = center.y - radius + 2.dp.toPx()
-                        val baseY = tipY - 10.dp.toPx()
-                        val halfWidth = 5.dp.toPx()
-                        moveTo(center.x, tipY)
-                        lineTo(center.x - halfWidth, baseY)
-                        lineTo(center.x + halfWidth, baseY)
-                        close()
-                    }
-                    drawPath(pointerPath, color = accentRedColor)
+                    val radius = (size.minDimension / 2f) - 38.dp.toPx()
 
                     // Dial rotation: Rotates so that partner angle aligns with the top needle
                     val dialRotation = if (partnerBearing != null) {
@@ -472,6 +496,10 @@ private fun CompassRadarCard(
                         -animatedAzimuth
                     }
 
+                    // Shortest-Path calculation for gradient active arc
+                    val currentRelAngle = relativeAngle?.toFloat() ?: 0f
+                    val isClockwise = currentRelAngle <= 180f
+
                     rotate(dialRotation, pivot = center) {
                         // 120 Ticks: Major every 30° (10 ticks), Minor in between
                         for (i in 0 until 120) {
@@ -479,14 +507,37 @@ private fun CompassRadarCard(
                             val angleRad = Math.toRadians(angleDeg.toDouble())
 
                             val isMajor = (i % 10 == 0)
-                            val isNorthOrTarget = (i == 0)
+                            val isPartnerZero = (i == 0)
 
-                            val tickLength = if (isMajor) 10.dp.toPx() else 5.dp.toPx()
-                            val strokeWidth = if (isMajor) 1.8.dp.toPx() else 0.8.dp.toPx()
-                            val tickColor = when {
-                                isNorthOrTarget -> accentRedColor
-                                isMajor -> onSurfaceColor.copy(alpha = 0.8f)
-                                else -> onSurfaceVariantColor.copy(alpha = 0.35f)
+                            // Check if this tick falls within the active shortest-path arc
+                            val isTickCovered = if (isClockwise) {
+                                angleDeg in 0.0f..currentRelAngle
+                            } else {
+                                angleDeg >= currentRelAngle || angleDeg == 0f
+                            }
+
+                            // Dynamic Gradient coloring across the covered arc
+                            val tickColor = if (isTickCovered) {
+                                val fraction = if (isClockwise) {
+                                    if (currentRelAngle > 0f) (angleDeg / currentRelAngle).coerceIn(0f, 1f) else 0f
+                                } else {
+                                    val arcSpan = 360f - currentRelAngle
+                                    if (arcSpan > 0f) {
+                                        val distFromZero = if (angleDeg == 0f) 0f else (360f - angleDeg)
+                                        (distFromZero / arcSpan).coerceIn(0f, 1f)
+                                    } else 0f
+                                }
+                                lerp(primaryColor, tertiaryColor, fraction)
+                            } else {
+                                if (isMajor) onSurfaceColor.copy(alpha = 0.75f)
+                                else onSurfaceVariantColor.copy(alpha = 0.35f)
+                            }
+
+                            val tickLength = if (isMajor) 9.dp.toPx() else 5.dp.toPx()
+                            val strokeWidth = if (isTickCovered) {
+                                if (isMajor) 2.2.dp.toPx() else 1.2.dp.toPx()
+                            } else {
+                                if (isMajor) 1.6.dp.toPx() else 0.8.dp.toPx()
                             }
 
                             val innerR = radius - tickLength
@@ -500,28 +551,31 @@ private fun CompassRadarCard(
                                 color = tickColor,
                                 start = Offset(startX, startY),
                                 end = Offset(endX, endY),
-                                strokeWidth = strokeWidth
+                                strokeWidth = strokeWidth,
+                                cap = StrokeCap.Round
                             )
 
-                            // Numbers: 0, 30, 60 ... 330
+                            // Radially aligned numbers (0, 30, 60 ... 330)
                             if (isMajor) {
                                 val numberText = angleDeg.toInt().toString()
-                                val numRadius = radius + 14.dp.toPx()
+                                val numRadius = radius + 22.dp.toPx()
                                 val numX = center.x + numRadius * sin(angleRad).toFloat()
                                 val numY = center.y - numRadius * cos(angleRad).toFloat()
 
-                                drawContext.canvas.nativeCanvas.drawText(
-                                    numberText,
-                                    numX,
-                                    numY + 4.dp.toPx(),
-                                    Paint().apply {
-                                        color = if (isNorthOrTarget) accentRedColor.toArgb() else onSurfaceVariantColor.toArgb()
-                                        textSize = 10.sp.toPx()
-                                        textAlign = Paint.Align.CENTER
-                                        typeface = Typeface.DEFAULT_BOLD
-                                        isAntiAlias = true
-                                    }
-                                )
+                                rotate(degrees = angleDeg, pivot = Offset(numX, numY)) {
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        numberText,
+                                        numX,
+                                        numY + 4.dp.toPx(),
+                                        Paint().apply {
+                                            color = if (isPartnerZero) primaryColor.toArgb() else onSurfaceVariantColor.toArgb()
+                                            textSize = 10.sp.toPx()
+                                            textAlign = Paint.Align.CENTER
+                                            typeface = Typeface.DEFAULT_BOLD
+                                            isAntiAlias = true
+                                        }
+                                    )
+                                }
                             }
                         }
 
@@ -533,7 +587,7 @@ private fun CompassRadarCard(
                             center.x,
                             center.y - labelRadius,
                             Paint().apply {
-                                color = accentRedColor.toArgb()
+                                color = primaryColor.toArgb()
                                 textSize = 11.sp.toPx()
                                 textAlign = Paint.Align.CENTER
                                 typeface = Typeface.DEFAULT_BOLD
@@ -541,6 +595,15 @@ private fun CompassRadarCard(
                             }
                         )
                     }
+
+                    // Top Fixed Indicator Notch at 12 o'clock (ColorOS clean bar)
+                    drawLine(
+                        color = tertiaryColor,
+                        start = Offset(center.x, center.y - radius - 2.dp.toPx()),
+                        end = Offset(center.x, center.y - radius + 12.dp.toPx()),
+                        strokeWidth = 2.4.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
                 }
 
                 // Center Big Angle Display
@@ -645,6 +708,107 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
                 maxLines = 1
             )
         }
+    }
+}
+
+private class CompassSoundSynthesizer {
+    private var lightTrack: AudioTrack? = null
+    private var heavyTrack: AudioTrack? = null
+
+    init {
+        try {
+            lightTrack = buildStaticTrack(frequency = 2400.0, durationMs = 8, decayRate = 500.0, volume = 0.45f)
+            heavyTrack = buildStaticTrack(frequency = 920.0, durationMs = 18, decayRate = 220.0, volume = 0.85f)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun playLightTick() {
+        try {
+            lightTrack?.let {
+                it.stop()
+                it.reloadStaticData()
+                it.play()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun playHeavyTick() {
+        try {
+            heavyTrack?.let {
+                it.stop()
+                it.reloadStaticData()
+                it.play()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun release() {
+        try {
+            lightTrack?.stop()
+            lightTrack?.release()
+            lightTrack = null
+
+            heavyTrack?.stop()
+            heavyTrack?.release()
+            heavyTrack = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun buildStaticTrack(
+        frequency: Double,
+        durationMs: Int,
+        decayRate: Double,
+        volume: Float
+    ): AudioTrack? {
+        val sampleRate = 44100
+        val numSamples = (sampleRate * durationMs) / 1000
+        val minBufferSize = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        ).coerceAtLeast(1024)
+
+        val bufferSize = maxOf(numSamples * 2, minBufferSize)
+        val shortBuffer = ShortArray(bufferSize / 2)
+
+        for (i in 0 until numSamples) {
+            val t = i.toDouble() / sampleRate
+            val envelope = exp(-decayRate * t)
+            val sampleVal = (sin(2.0 * Math.PI * frequency * t) * envelope * Short.MAX_VALUE * volume).toInt()
+            shortBuffer[i] = sampleVal.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+
+        val byteBuffer = ByteArray(bufferSize)
+        ByteBuffer.wrap(byteBuffer).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(shortBuffer)
+
+        val audioTrack = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setBufferSizeInBytes(byteBuffer.size)
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+
+        audioTrack.write(byteBuffer, 0, byteBuffer.size)
+        return audioTrack
     }
 }
 
