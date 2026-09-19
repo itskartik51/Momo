@@ -114,7 +114,15 @@ fun TrackerScreen(
                     // Row 1: Partner Info
                     TrackerRowItem(item = trackerState.partnerInfo)
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        thickness = 0.8.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // Row 2: Self Info
                     TrackerRowItem(item = trackerState.selfInfo)
@@ -123,8 +131,8 @@ fun TrackerScreen(
 
                     HorizontalDivider(
                         modifier = Modifier.fillMaxWidth(),
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        thickness = 0.8.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -155,43 +163,53 @@ fun TrackerScreen(
 
 @Composable
 private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+    Column(
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Text(
-            text = item.name.ifBlank { "--" },
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1.0f),
-            maxLines = 1
-        )
+        // Line 1: Name on Left, Time on Right
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = item.name.ifBlank { "--" },
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1
+            )
 
-        Text(
-            text = formatCoordinates(item.latitude, item.longitude),
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(3.6f),
-            maxLines = 1
-        )
+            Text(
+                text = formatTimestamp(item.timestamp),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+        }
 
-        Text(
-            text = formatAccuracy(item.accuracy),
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1.1f),
-            maxLines = 1
-        )
+        Spacer(modifier = Modifier.height(4.dp))
 
-        Text(
-            text = formatTimestamp(item.timestamp),
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1.3f),
-            maxLines = 1
-        )
+        // Line 2: Coordinates on Left, Accuracy on Right
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = formatCoordinates(item.latitude, item.longitude),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+
+            Text(
+                text = formatAccuracy(item.accuracy),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+        }
     }
 }
 
