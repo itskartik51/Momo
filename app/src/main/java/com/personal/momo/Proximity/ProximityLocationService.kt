@@ -59,6 +59,7 @@ class ProximityLocationService : Service() {
 
     private var partnerLastLocation: GeoPoint? = null
     private var partnerLastAccuracy: Float = 0.0f
+    private var partnerLastTimestamp: Timestamp? = null
 
     private var myLastLocation: Location? = null
     private var currentTrackingMode: TrackingMode? = null
@@ -202,18 +203,26 @@ class ProximityLocationService : Service() {
             if (locationMap != null) {
                 val partnerKey = if (isKanu) "momo" else "kanu"
                 val partnerData = locationMap[partnerKey] as? List<*>
-                if (partnerData != null && partnerData.size >= 2) {
+                if (partnerData != null && partnerData.size >= 3) {
                     val partnerGeo = partnerData[0] as? GeoPoint
                     val partnerAcc = (partnerData[1] as? Number)?.toFloat() ?: 0.0f
+                    val partnerTime = partnerData[2] as? Timestamp
 
-                    if (partnerGeo != null && partnerAcc <= 200.0f) {
+                    if (partnerGeo != null && partnerAcc <= 200.0f && partnerTime != null) {
                         partnerLastLocation = partnerGeo
                         partnerLastAccuracy = partnerAcc
+                        partnerLastTimestamp = partnerTime
                         evaluateProximityStateMachine()
                     }
                 }
             }
         }
+    }
+
+    private fun isPartnerDataFresh(): Boolean {
+        val timestamp = partnerLastTimestamp ?: return false
+        val ageMillis = System.currentTimeMillis() - timestamp.toDate().time
+        return ageMillis in 0..(30 * 60 * 1000L) // Valid within 30 minutes
     }
 
     private fun uploadMyLocationToFirestore(location: Location) {
@@ -243,7 +252,7 @@ class ProximityLocationService : Service() {
 
     private fun evaluateProximityStateMachine() {
         val myLoc = myLastLocation
-        val partnerGeo = partnerLastLocation
+        val partnerGeo = if (isPartnerDataFresh()) partnerLastLocation else null
         val myHome = mySafeZone
 
         if (myLoc == null) {
@@ -271,7 +280,7 @@ class ProximityLocationService : Service() {
             // Phone remains in Deep Sleep (Zero persistent GPS chip usage, zero status bar icon)
             setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
 
-            // Even if I am at home, evaluate partner's proximity if partner is approaching
+            // Even if I am at home, evaluate partner's proximity if partner is approaching with fresh data
             if (partnerGeo != null) {
                 val relativeDistance = ProximityMath.calculateDistanceMeters(
                     myLoc.latitude, myLoc.longitude,
@@ -335,7 +344,7 @@ class ProximityLocationService : Service() {
                 }
             }
         } else {
-            // Fallback when partner coordinates not yet loaded
+            // Fallback when partner coordinates not yet loaded or stale (> 30 min)
             BleProximityManager.stopHandshake()
             setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
         }
@@ -423,7 +432,7 @@ class ProximityLocationService : Service() {
 
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
+        val locationRequest = LocationRequest.Builder(Priority.HIGH_ACCURACY, intervalMillis)
             .setMinUpdateIntervalMillis(intervalMillis / 2)
             .setWaitForAccurateLocation(false)
             .build()
