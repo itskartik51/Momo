@@ -222,7 +222,7 @@ class ProximityLocationService : Service() {
     private fun isPartnerDataFresh(): Boolean {
         val timestamp = partnerLastTimestamp ?: return false
         val ageMillis = System.currentTimeMillis() - timestamp.toDate().time
-        return ageMillis in 0..(30 * 60 * 1000L) // Valid within 30 minutes
+        return ageMillis in -30_000L..(30 * 60 * 1000L) // Valid within -30s clock-drift to 30 minutes
     }
 
     private fun uploadMyLocationToFirestore(location: Location) {
