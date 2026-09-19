@@ -24,8 +24,8 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.ListenerRegistration
@@ -242,7 +242,7 @@ class ProximityLocationService : Service() {
                     val payload = listOf(
                         geoPoint,
                         location.accuracy.toInt(),
-                        FieldValue.serverTimestamp()
+                        Timestamp.now()
                     )
 
                     FirebaseFirestore.getInstance()
