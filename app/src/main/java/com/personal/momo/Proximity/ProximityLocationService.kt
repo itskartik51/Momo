@@ -11,8 +11,10 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -69,7 +71,7 @@ class ProximityLocationService : Service() {
         override fun onLocationResult(result: LocationResult) {
             val location = result.lastLocation ?: return
 
-            if (!ProximityMath.isValidAccuracy(location.accuracy)) {
+            if (location.accuracy > 200.0f) {
                 return
             }
 
@@ -107,6 +109,12 @@ class ProximityLocationService : Service() {
         serviceScope.cancel()
     }
 
+    private fun showToast(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun ensureAuth(onReady: () -> Unit) {
         val auth = FirebaseAuth.getInstance()
         if (auth.currentUser != null) {
@@ -115,13 +123,16 @@ class ProximityLocationService : Service() {
             if (SecurityConfig.AUTH_EMAIL.isNotBlank() && SecurityConfig.AUTH_PASS.isNotBlank()) {
                 auth.signInWithEmailAndPassword(SecurityConfig.AUTH_EMAIL, SecurityConfig.AUTH_PASS)
                     .addOnSuccessListener {
+                        showToast("Auth Connected: Internal")
                         onReady()
                     }
                     .addOnFailureListener { e ->
+                        showToast("Auth Failed: ${e.localizedMessage ?: e.message}")
                         e.printStackTrace()
                         onReady()
                     }
             } else {
+                showToast("Auth Error: Empty credentials")
                 onReady()
             }
         }
@@ -172,7 +183,12 @@ class ProximityLocationService : Service() {
         val docRef = db.collection("App").document("home_config")
 
         firestoreListener = docRef.addSnapshotListener { snapshot, error ->
-            if (error != null || snapshot == null || !snapshot.exists()) {
+            if (error != null) {
+                showToast("Firestore Listen Fail: ${error.localizedMessage ?: error.message}")
+                return@addSnapshotListener
+            }
+
+            if (snapshot == null || !snapshot.exists()) {
                 return@addSnapshotListener
             }
 
@@ -205,7 +221,7 @@ class ProximityLocationService : Service() {
                     val partnerGeo = partnerData[0] as? GeoPoint
                     val partnerAcc = (partnerData[1] as? Number)?.toFloat() ?: 0.0f
 
-                    if (partnerGeo != null && ProximityMath.isValidAccuracy(partnerAcc)) {
+                    if (partnerGeo != null && partnerAcc <= 200.0f) {
                         partnerLastLocation = partnerGeo
                         partnerLastAccuracy = partnerAcc
                         evaluateProximityStateMachine()
@@ -233,7 +249,15 @@ class ProximityLocationService : Service() {
                         .collection("App")
                         .document("home_config")
                         .update("location.$userKey", payload)
+                        .addOnSuccessListener {
+                            showToast("Firestore Write OK: $userKey")
+                        }
+                        .addOnFailureListener { e ->
+                            showToast("Firestore Write Denied: ${e.localizedMessage ?: e.message}")
+                            e.printStackTrace()
+                        }
                 } catch (e: Exception) {
+                    showToast("Upload Error: ${e.localizedMessage ?: e.message}")
                     e.printStackTrace()
                 }
             }
@@ -349,10 +373,18 @@ class ProximityLocationService : Service() {
     }
 
     private suspend fun fetchAndProcessSingleLocation(priority: Int) {
-        val location = fetchSingleLocation(priority) ?: return
-        if (!ProximityMath.isValidAccuracy(location.accuracy)) {
+        val location = fetchSingleLocation(priority)
+        if (location == null) {
+            showToast("GPS: Location is NULL")
             return
         }
+
+        if (location.accuracy > 200.0f) {
+            showToast("GPS Acc dropped: ±${location.accuracy.toInt()}m")
+            return
+        }
+
+        showToast("GPS Found: ±${location.accuracy.toInt()}m")
         myLastLocation = location
         uploadMyLocationToFirestore(location)
         evaluateProximityStateMachine()
@@ -361,7 +393,9 @@ class ProximityLocationService : Service() {
     @SuppressLint("MissingPermission")
     private suspend fun fetchSingleLocation(priority: Int): Location? {
         val fineLoc = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
-        if (fineLoc != PackageManager.PERMISSION_GRANTED) {
+        val coarseLoc = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (fineLoc != PackageManager.PERMISSION_GRANTED && coarseLoc != PackageManager.PERMISSION_GRANTED) {
+            showToast("Error: No Location Permission")
             return null
         }
 
@@ -369,10 +403,28 @@ class ProximityLocationService : Service() {
             val cancellationTokenSource = CancellationTokenSource()
             fusedLocationClient.getCurrentLocation(priority, cancellationTokenSource.token)
                 .addOnSuccessListener { loc ->
-                    if (continuation.isActive) continuation.resume(loc)
+                    if (loc != null) {
+                        if (continuation.isActive) continuation.resume(loc)
+                    } else {
+                        // Fallback to cached lastLocation for indoor scenarios
+                        fusedLocationClient.lastLocation
+                            .addOnSuccessListener { lastLoc ->
+                                if (continuation.isActive) continuation.resume(lastLoc)
+                            }
+                            .addOnFailureListener {
+                                if (continuation.isActive) continuation.resume(null)
+                            }
+                    }
                 }
                 .addOnFailureListener {
-                    if (continuation.isActive) continuation.resume(null)
+                    // Fallback to lastLocation if fresh location request fails
+                    fusedLocationClient.lastLocation
+                        .addOnSuccessListener { lastLoc ->
+                            if (continuation.isActive) continuation.resume(lastLoc)
+                        }
+                        .addOnFailureListener {
+                            if (continuation.isActive) continuation.resume(null)
+                        }
                 }
             continuation.invokeOnCancellation {
                 cancellationTokenSource.cancel()
