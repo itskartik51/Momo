@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.Proximity.ProximityLocationService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -64,6 +65,7 @@ fun AppIdSettingsContent(
 
                 selectedUserId = targetId
                 CacheManager.setAppUserId(context, targetId)
+                ProximityLocationService.startService(context)
                 coroutineScope.launch {
                     delay(260)
                     onShowToast?.invoke("App ID set to $targetId")
