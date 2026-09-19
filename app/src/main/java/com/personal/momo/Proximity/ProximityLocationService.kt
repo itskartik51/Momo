@@ -21,12 +21,14 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.ListenerRegistration
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
+import com.personal.momo.SecurityConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -68,8 +70,11 @@ class ProximityLocationService : Service() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         startForegroundServiceNotification()
-        startFirestoreSync()
-        requestLocationUpdates(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 600_000L) // 10 mins passive initial
+        
+        ensureAuth {
+            startFirestoreSync()
+            requestLocationUpdates(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 600_000L) // 10 mins passive initial
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -84,6 +89,26 @@ class ProximityLocationService : Service() {
         firestoreListener?.remove()
         BleProximityManager.stopHandshake()
         serviceScope.cancel()
+    }
+
+    private fun ensureAuth(onReady: () -> Unit) {
+        val auth = FirebaseAuth.getInstance()
+        if (auth.currentUser != null) {
+            onReady()
+        } else {
+            if (SecurityConfig.AUTH_EMAIL.isNotBlank() && SecurityConfig.AUTH_PASS.isNotBlank()) {
+                auth.signInWithEmailAndPassword(SecurityConfig.AUTH_EMAIL, SecurityConfig.AUTH_PASS)
+                    .addOnSuccessListener {
+                        onReady()
+                    }
+                    .addOnFailureListener { e ->
+                        e.printStackTrace()
+                        onReady()
+                    }
+            } else {
+                onReady()
+            }
+        }
     }
 
     private fun startForegroundServiceNotification() {
@@ -175,24 +200,26 @@ class ProximityLocationService : Service() {
     }
 
     private fun uploadMyLocationToFirestore(location: Location) {
-        serviceScope.launch {
-            try {
-                val currentUserId = CacheManager.getAppUserId(this@ProximityLocationService)
-                val userKey = if (currentUserId.equals("Kanu", ignoreCase = true)) "kanu" else "momo"
-                val geoPoint = GeoPoint(location.latitude, location.longitude)
+        ensureAuth {
+            serviceScope.launch {
+                try {
+                    val currentUserId = CacheManager.getAppUserId(this@ProximityLocationService)
+                    val userKey = if (currentUserId.equals("Kanu", ignoreCase = true)) "kanu" else "momo"
+                    val geoPoint = GeoPoint(location.latitude, location.longitude)
 
-                val payload = listOf(
-                    geoPoint,
-                    location.accuracy.toInt(),
-                    FieldValue.serverTimestamp()
-                )
+                    val payload = listOf(
+                        geoPoint,
+                        location.accuracy.toInt(),
+                        FieldValue.serverTimestamp()
+                    )
 
-                FirebaseFirestore.getInstance()
-                    .collection("App")
-                    .document("home_config")
-                    .update("location.$userKey", payload)
-            } catch (e: Exception) {
-                e.printStackTrace()
+                    FirebaseFirestore.getInstance()
+                        .collection("App")
+                        .document("home_config")
+                        .update("location.$userKey", payload)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }
