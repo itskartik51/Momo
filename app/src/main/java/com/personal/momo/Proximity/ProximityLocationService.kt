@@ -11,10 +11,8 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -64,6 +62,7 @@ class ProximityLocationService : Service() {
 
     private var myLastLocation: Location? = null
     private var currentTrackingMode: TrackingMode? = null
+    private var currentTrackingIntervalMillis: Long = 0L
     private var periodicLoopJob: Job? = null
     private var isContinuousUpdatesActive = false
 
@@ -109,12 +108,6 @@ class ProximityLocationService : Service() {
         serviceScope.cancel()
     }
 
-    private fun showToast(message: String) {
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
-        }
-    }
-
     private fun ensureAuth(onReady: () -> Unit) {
         val auth = FirebaseAuth.getInstance()
         if (auth.currentUser != null) {
@@ -123,16 +116,13 @@ class ProximityLocationService : Service() {
             if (SecurityConfig.AUTH_EMAIL.isNotBlank() && SecurityConfig.AUTH_PASS.isNotBlank()) {
                 auth.signInWithEmailAndPassword(SecurityConfig.AUTH_EMAIL, SecurityConfig.AUTH_PASS)
                     .addOnSuccessListener {
-                        showToast("Auth Connected: Internal")
                         onReady()
                     }
                     .addOnFailureListener { e ->
-                        showToast("Auth Failed: ${e.localizedMessage ?: e.message}")
                         e.printStackTrace()
                         onReady()
                     }
             } else {
-                showToast("Auth Error: Empty credentials")
                 onReady()
             }
         }
@@ -183,12 +173,7 @@ class ProximityLocationService : Service() {
         val docRef = db.collection("App").document("home_config")
 
         firestoreListener = docRef.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                showToast("Firestore Listen Fail: ${error.localizedMessage ?: error.message}")
-                return@addSnapshotListener
-            }
-
-            if (snapshot == null || !snapshot.exists()) {
+            if (error != null || snapshot == null || !snapshot.exists()) {
                 return@addSnapshotListener
             }
 
@@ -249,15 +234,7 @@ class ProximityLocationService : Service() {
                         .collection("App")
                         .document("home_config")
                         .update("location.$userKey", payload)
-                        .addOnSuccessListener {
-                            showToast("Firestore Write OK: $userKey")
-                        }
-                        .addOnFailureListener { e ->
-                            showToast("Firestore Write Denied: ${e.localizedMessage ?: e.message}")
-                            e.printStackTrace()
-                        }
                 } catch (e: Exception) {
-                    showToast("Upload Error: ${e.localizedMessage ?: e.message}")
                     e.printStackTrace()
                 }
             }
@@ -268,7 +245,6 @@ class ProximityLocationService : Service() {
         val myLoc = myLastLocation
         val partnerGeo = partnerLastLocation
         val myHome = mySafeZone
-        val partnerHome = partnerSafeZone
 
         if (myLoc == null) {
             serviceScope.launch {
@@ -277,31 +253,24 @@ class ProximityLocationService : Service() {
             return
         }
 
-        val myDistanceToMyHome = if (myHome != null) {
-            ProximityMath.calculateDistanceMeters(
+        // Rule 1: Independent Safe Zone Deep Sleep (<= 100m)
+        val isMeInHome = if (myHome != null) {
+            val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
                 myHome.latitude, myHome.longitude
             )
-        } else null
+            myDistanceToMyHome <= safeZoneRadiusMeters
+        } else {
+            false
+        }
 
-        val partnerDistanceToPartnerHome = if (partnerHome != null && partnerGeo != null) {
-            ProximityMath.calculateDistanceMeters(
-                partnerGeo.latitude, partnerGeo.longitude,
-                partnerHome.latitude, partnerHome.longitude
-            )
-        } else null
-
-        val isMeInHome = myDistanceToMyHome != null && myDistanceToMyHome <= safeZoneRadiusMeters
-        val isPartnerInHome = partnerDistanceToPartnerHome != null && partnerDistanceToPartnerHome <= safeZoneRadiusMeters
-
-        // Rule 1: Dual Safe Zone Sleep Mode (Zero GPS Drain, Zero Icon)
-        if (isMeInHome && isPartnerInHome) {
+        if (isMeInHome) {
             BleProximityManager.stopHandshake()
             setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L) // 10 minutes deep sleep
             return
         }
 
-        // Rule 2: Inter-User Distance Tracking
+        // Rule 2: Inter-User Distance Tracking (When Outside Safe Zone)
         if (partnerGeo != null) {
             val relativeDistance = ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
@@ -311,47 +280,49 @@ class ProximityLocationService : Service() {
             val currentUserId = CacheManager.getAppUserId(this)
             val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
 
-            // Trigger 200m Notification Alert (with debounce/hysteresis)
+            // 200m Proximity Notification Alert (with debounce/hysteresis)
             ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
 
             when {
                 relativeDistance <= 50.0 -> {
-                    // <= 50m: High accuracy continuous tracking + BLE Handshake
+                    // <= 50m: Continuous tracking + BLE Handshake
                     setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                     BleProximityManager.startHandshake(this) { rssi ->
                         // RSSI captured for radar phase
                     }
                 }
-                relativeDistance <= 200.0 -> {
-                    // 50m -> 200m: High accuracy continuous tracking, BLE stopped
+                relativeDistance < 150.0 -> {
+                    // 50m to < 150m: Continuous tracking, BLE stopped
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                 }
-                relativeDistance <= 500.0 -> {
-                    // 200m -> 500m: Transition phase to continuous tracking
+                relativeDistance <= 200.0 -> {
+                    // 150m to 200m: 1 minute periodic ping
                     BleProximityManager.stopHandshake()
-                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 20_000L)
+                    setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 1 * 60 * 1000L)
+                }
+                relativeDistance <= 500.0 -> {
+                    // 200m to 500m: 5 minute periodic ping
+                    BleProximityManager.stopHandshake()
+                    setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 5 * 60 * 1000L)
                 }
                 else -> {
-                    // > 500m: Far range periodic mode (Icon disappears between checks)
+                    // > 500m: 10 minute periodic ping
                     BleProximityManager.stopHandshake()
-                    val interval = if (isMeInHome) 10 * 60 * 1000L else 3 * 60 * 1000L
-                    val mode = if (isMeInHome) TrackingMode.SAFE_ZONE_SLEEP else TrackingMode.FAR_RANGE_PERIODIC
-                    setTrackingMode(mode, interval)
+                    setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
                 }
             }
         } else {
             // Fallback when partner coordinates not yet loaded
             BleProximityManager.stopHandshake()
-            val interval = if (isMeInHome) 10 * 60 * 1000L else 3 * 60 * 1000L
-            val mode = if (isMeInHome) TrackingMode.SAFE_ZONE_SLEEP else TrackingMode.FAR_RANGE_PERIODIC
-            setTrackingMode(mode, interval)
+            setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
         }
     }
 
     private fun setTrackingMode(mode: TrackingMode, intervalMillis: Long) {
-        if (currentTrackingMode == mode) return
+        if (currentTrackingMode == mode && currentTrackingIntervalMillis == intervalMillis) return
         currentTrackingMode = mode
+        currentTrackingIntervalMillis = intervalMillis
 
         when (mode) {
             TrackingMode.SAFE_ZONE_SLEEP, TrackingMode.FAR_RANGE_PERIODIC -> {
@@ -373,18 +344,12 @@ class ProximityLocationService : Service() {
     }
 
     private suspend fun fetchAndProcessSingleLocation(priority: Int) {
-        val location = fetchSingleLocation(priority)
-        if (location == null) {
-            showToast("GPS: Location is NULL")
-            return
-        }
+        val location = fetchSingleLocation(priority) ?: return
 
         if (location.accuracy > 200.0f) {
-            showToast("GPS Acc dropped: ±${location.accuracy.toInt()}m")
             return
         }
 
-        showToast("GPS Found: ±${location.accuracy.toInt()}m")
         myLastLocation = location
         uploadMyLocationToFirestore(location)
         evaluateProximityStateMachine()
@@ -395,7 +360,6 @@ class ProximityLocationService : Service() {
         val fineLoc = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
         val coarseLoc = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION)
         if (fineLoc != PackageManager.PERMISSION_GRANTED && coarseLoc != PackageManager.PERMISSION_GRANTED) {
-            showToast("Error: No Location Permission")
             return null
         }
 
