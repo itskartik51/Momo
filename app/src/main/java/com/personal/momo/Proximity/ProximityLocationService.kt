@@ -54,6 +54,9 @@ class ProximityLocationService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var firestoreListener: ListenerRegistration? = null
 
+    private var rawSafeZonesMap: Map<*, *>? = null
+    private var rawLocationMap: Map<*, *>? = null
+
     private var mySafeZone: GeoPoint? = null
     private var partnerSafeZone: GeoPoint? = null
     private var safeZoneRadiusMeters: Double = 100.0
@@ -82,6 +85,16 @@ class ProximityLocationService : Service() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         startForegroundServiceNotification()
 
+        CacheManager.init(this)
+
+        serviceScope.launch {
+            CacheManager.appUserIdFlow.collect { userId ->
+                updateUserIdentity(userId)
+                lastFirestoreUploadTime = 0L
+                fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+            }
+        }
+
         ensureAuth {
             startFirestoreSync()
             serviceScope.launch {
@@ -91,6 +104,12 @@ class ProximityLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val currentUserId = CacheManager.getAppUserId(this)
+        updateUserIdentity(currentUserId)
+        lastFirestoreUploadTime = 0L
+        serviceScope.launch {
+            fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+        }
         return START_STICKY
     }
 
@@ -103,6 +122,41 @@ class ProximityLocationService : Service() {
         firestoreListener?.remove()
         BleProximityManager.stopHandshake()
         serviceScope.cancel()
+    }
+
+    private fun updateUserIdentity(userId: String) {
+        val isKanu = userId.equals("Kanu", ignoreCase = true)
+
+        rawSafeZonesMap?.let { safeZonesMap ->
+            val kanuHomeGeo = safeZonesMap["kanu"] as? GeoPoint
+            val momoHomeGeo = safeZonesMap["momo"] as? GeoPoint
+            val radiusValue = (safeZonesMap["radius"] as? Number)?.toDouble() ?: 100.0
+
+            safeZoneRadiusMeters = radiusValue
+            if (isKanu) {
+                mySafeZone = kanuHomeGeo
+                partnerSafeZone = momoHomeGeo
+            } else {
+                mySafeZone = momoHomeGeo
+                partnerSafeZone = kanuHomeGeo
+            }
+        }
+
+        rawLocationMap?.let { locationMap ->
+            val partnerKey = if (isKanu) "momo" else "kanu"
+            val partnerData = locationMap[partnerKey] as? List<*>
+            if (partnerData != null && partnerData.size >= 3) {
+                val partnerGeo = partnerData[0] as? GeoPoint
+                val partnerAcc = (partnerData[1] as? Number)?.toFloat() ?: 0.0f
+                val partnerTime = partnerData[2] as? Timestamp
+
+                if (partnerGeo != null && partnerAcc <= 200.0f && partnerTime != null) {
+                    partnerLastLocation = partnerGeo
+                    partnerLastAccuracy = partnerAcc
+                    partnerLastTimestamp = partnerTime
+                }
+            }
+        }
     }
 
     private fun ensureAuth(onReady: () -> Unit) {
@@ -177,51 +231,19 @@ class ProximityLocationService : Service() {
                 return@addSnapshotListener
             }
 
+            rawSafeZonesMap = snapshot.get("safe_zones") as? Map<*, *>
+            rawLocationMap = snapshot.get("location") as? Map<*, *>
+
             val currentUserId = CacheManager.getAppUserId(this)
-            val isKanu = currentUserId.equals("Kanu", ignoreCase = true)
-
-            // 1. Sync Safe Zones
-            val safeZonesMap = snapshot.get("safe_zones") as? Map<*, *>
-            if (safeZonesMap != null) {
-                val kanuHomeGeo = safeZonesMap["kanu"] as? GeoPoint
-                val momoHomeGeo = safeZonesMap["momo"] as? GeoPoint
-                val radiusValue = (safeZonesMap["radius"] as? Number)?.toDouble() ?: 100.0
-
-                safeZoneRadiusMeters = radiusValue
-                if (isKanu) {
-                    mySafeZone = kanuHomeGeo
-                    partnerSafeZone = momoHomeGeo
-                } else {
-                    mySafeZone = momoHomeGeo
-                    partnerSafeZone = kanuHomeGeo
-                }
-            }
-
-            // 2. Sync Partner's Dynamic Location
-            val locationMap = snapshot.get("location") as? Map<*, *>
-            if (locationMap != null) {
-                val partnerKey = if (isKanu) "momo" else "kanu"
-                val partnerData = locationMap[partnerKey] as? List<*>
-                if (partnerData != null && partnerData.size >= 3) {
-                    val partnerGeo = partnerData[0] as? GeoPoint
-                    val partnerAcc = (partnerData[1] as? Number)?.toFloat() ?: 0.0f
-                    val partnerTime = partnerData[2] as? Timestamp
-
-                    if (partnerGeo != null && partnerAcc <= 200.0f && partnerTime != null) {
-                        partnerLastLocation = partnerGeo
-                        partnerLastAccuracy = partnerAcc
-                        partnerLastTimestamp = partnerTime
-                        evaluateProximityStateMachine()
-                    }
-                }
-            }
+            updateUserIdentity(currentUserId)
+            evaluateProximityStateMachine()
         }
     }
 
     private fun isPartnerDataFresh(): Boolean {
         val timestamp = partnerLastTimestamp ?: return false
         val ageMillis = System.currentTimeMillis() - timestamp.toDate().time
-        return ageMillis in -30_000L..(45 * 60 * 1000L) // Valid within -30s clock-drift to 45 minutes
+        return ageMillis in -30_000L..(45 * 60 * 1000L)
     }
 
     private fun handleLocationUpdate(location: Location) {
@@ -245,15 +267,11 @@ class ProximityLocationService : Service() {
 
         val currentTime = System.currentTimeMillis()
         if (isMeInHome) {
-            // In Safe Zone: throttle database writes to a 30-minute window
             if (currentTime - lastFirestoreUploadTime >= 30 * 60 * 1000L) {
                 uploadMyLocationToFirestore(location)
-                lastFirestoreUploadTime = currentTime
             }
         } else {
-            // Outside Safe Zone: upload dynamically per interval
             uploadMyLocationToFirestore(location)
-            lastFirestoreUploadTime = currentTime
         }
 
         evaluateProximityStateMachine()
@@ -276,7 +294,6 @@ class ProximityLocationService : Service() {
         }
 
         if (isLikelyInHome && myHome != null) {
-            // Indoor Safe Zone Fallback: use home coordinate to emit heartbeat
             val fallbackLocation = Location("SafeZoneFallback").apply {
                 latitude = myHome.latitude
                 longitude = myHome.longitude
@@ -287,11 +304,9 @@ class ProximityLocationService : Service() {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastFirestoreUploadTime >= 30 * 60 * 1000L) {
                 uploadMyLocationToFirestore(fallbackLocation)
-                lastFirestoreUploadTime = currentTime
             }
             evaluateProximityStateMachine()
         } else {
-            // Outside Safe Zone with no GPS fix: skip write to avoid fake coordinates and keep state machine alive
             evaluateProximityStateMachine()
         }
     }
@@ -314,6 +329,12 @@ class ProximityLocationService : Service() {
                         .collection("App")
                         .document("home_config")
                         .update("location.$userKey", payload)
+                        .addOnSuccessListener {
+                            lastFirestoreUploadTime = System.currentTimeMillis()
+                        }
+                        .addOnFailureListener { e ->
+                            e.printStackTrace()
+                        }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -333,7 +354,6 @@ class ProximityLocationService : Service() {
             return
         }
 
-        // Rule 1: Independent Safe Zone Check (<= 100m)
         val isMeInHome = if (myHome != null) {
             val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
@@ -348,23 +368,18 @@ class ProximityLocationService : Service() {
         val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
 
         if (isMeInHome) {
-            // Phone remains in Deep Sleep (Zero continuous GPS drain)
             setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
 
-            // Evaluate partner's proximity if partner is approaching
             if (partnerGeo != null) {
                 val relativeDistance = ProximityMath.calculateDistanceMeters(
                     myLoc.latitude, myLoc.longitude,
                     partnerGeo.latitude, partnerGeo.longitude
                 )
 
-                // 200m Proximity Alert Trigger
                 ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
 
-                // <= 50m Close Encounter BLE Trigger
                 if (relativeDistance <= 50.0) {
                     BleProximityManager.startHandshake(this) { rssi ->
-                        // RSSI captured for radar phase
                     }
                 } else {
                     BleProximityManager.stopHandshake()
@@ -375,47 +390,38 @@ class ProximityLocationService : Service() {
             return
         }
 
-        // Rule 2: Inter-User Distance Tracking (When I am Outside Safe Zone)
         if (partnerGeo != null) {
             val relativeDistance = ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
                 partnerGeo.latitude, partnerGeo.longitude
             )
 
-            // 200m Proximity Notification Alert (with debounce/hysteresis)
             ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
 
             when {
                 relativeDistance <= 50.0 -> {
-                    // <= 50m: Continuous tracking + BLE Handshake
                     setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                     BleProximityManager.startHandshake(this) { rssi ->
-                        // RSSI captured for radar phase
                     }
                 }
                 relativeDistance < 150.0 -> {
-                    // 50m to < 150m: Continuous tracking, BLE stopped
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                 }
                 relativeDistance <= 200.0 -> {
-                    // 150m to 200m: 1 minute periodic ping
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 1 * 60 * 1000L)
                 }
                 relativeDistance <= 500.0 -> {
-                    // 200m to 500m: 5 minute periodic ping
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 5 * 60 * 1000L)
                 }
                 else -> {
-                    // > 500m: 10 minute periodic ping
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
                 }
             }
         } else {
-            // Fallback when partner coordinates not yet loaded or stale (> 45 min)
             BleProximityManager.stopHandshake()
             setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
         }
