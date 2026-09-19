@@ -24,6 +24,20 @@ import java.util.Locale
 
 object CacheManager {
 
+    data class UserLocationInfo(
+        val name: String = "",
+        val latitude: Double? = null,
+        val longitude: Double? = null,
+        val accuracy: Float? = null,
+        val timestamp: Long? = null
+    )
+
+    data class TrackerState(
+        val partnerInfo: UserLocationInfo = UserLocationInfo(),
+        val selfInfo: UserLocationInfo = UserLocationInfo(),
+        val distanceMeters: Int? = null
+    )
+
     private const val PREFS_NAME = "momo_local_cache"
     private const val KEY_AVATAR_URL = "cached_avatar_url"
     private const val KEY_PERIOD_DATES = "cached_period_dates"
@@ -51,6 +65,13 @@ object CacheManager {
 
     private val _appUserIdFlow = MutableStateFlow("Kanu")
     val appUserIdFlow: StateFlow<String> = _appUserIdFlow.asStateFlow()
+
+    private val _trackerStateFlow = MutableStateFlow(TrackerState())
+    val trackerStateFlow: StateFlow<TrackerState> = _trackerStateFlow.asStateFlow()
+
+    fun updateTrackerState(state: TrackerState) {
+        _trackerStateFlow.value = state
+    }
 
     fun init(context: Context) {
         if (prefs == null) {
