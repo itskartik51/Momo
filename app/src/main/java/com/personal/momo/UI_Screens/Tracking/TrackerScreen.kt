@@ -57,7 +57,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
@@ -428,6 +427,10 @@ private fun CompassRadarCard(
         label = "compassSmoothSpring"
     )
 
+    val normalizedAzimuth = remember(animatedAzimuth) {
+        ((animatedAzimuth % 360f) + 360f) % 360f
+    }
+
     val partnerBearing = remember(selfInfo.latitude, selfInfo.longitude, partnerInfo.latitude, partnerInfo.longitude) {
         if (selfInfo.latitude != null && selfInfo.longitude != null &&
             partnerInfo.latitude != null && partnerInfo.longitude != null
@@ -438,29 +441,18 @@ private fun CompassRadarCard(
         }
     }
 
-    // Relative angle between phone orientation and partner
-    val relativeAngle = remember(animatedAzimuth, partnerBearing) {
-        if (partnerBearing != null) {
-            val normalizedAzimuth = ((animatedAzimuth % 360f) + 360f) % 360f
-            ((partnerBearing - normalizedAzimuth + 360f) % 360f).roundToInt()
-        } else {
-            null
-        }
-    }
-
-    // Perfectly Synced Audio Tick: Directly bound to animated relative angle crossing 30° / 90°
+    // Perfectly Synced Audio Tick: Directly bound to animated heading crossing 30° / 90°
     var lastStep by remember { mutableStateOf<Int?>(null) }
     var lastPlayedBoundary by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(animatedAzimuth, isScreenActive) {
         if (!isScreenActive) return@LaunchedEffect
 
-        val continuousRelative = (partnerBearing ?: 0f) - animatedAzimuth
-        val currentStep = floor(continuousRelative / 30.0).toInt()
+        val currentStep = floor(animatedAzimuth / 30.0).toInt()
 
         // Clear debounce lock when moved at least 4 degrees away from boundary
         lastPlayedBoundary?.let { boundary ->
-            val dist = abs(continuousRelative - boundary)
+            val dist = abs(animatedAzimuth - boundary)
             if (dist >= 4.0f) {
                 lastPlayedBoundary = null
             }
@@ -487,20 +479,19 @@ private fun CompassRadarCard(
         }
     }
 
-    val cardinalDirection = remember(partnerBearing) {
-        if (partnerBearing != null) getCardinalDirection(partnerBearing.toDouble()) else "--"
+    // Real dynamic 8-cardinal direction based on current phone heading
+    val liveHeadingDirection = remember(normalizedAzimuth) {
+        getCardinalDirection(normalizedAzimuth.toDouble())
     }
 
     val formattedDistance = remember(distanceMeters) {
         formatDistanceLabel(distanceMeters)
     }
 
-    val directionDistanceTitle = if (partnerBearing != null && distanceMeters != null) {
-        "$cardinalDirection ($formattedDistance)"
-    } else if (partnerBearing != null) {
-        cardinalDirection
+    val directionDistanceTitle = if (distanceMeters != null) {
+        "$liveHeadingDirection ($formattedDistance)"
     } else {
-        "--"
+        liveHeadingDirection
     }
 
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
@@ -533,16 +524,16 @@ private fun CompassRadarCard(
                     val center = this.center
                     val radius = (size.minDimension / 2f) - 38.dp.toPx()
 
-                    // Dial rotation: Rotates so that partner angle aligns with the top needle
-                    val dialRotation = if (partnerBearing != null) {
-                        partnerBearing - animatedAzimuth
-                    } else {
-                        -animatedAzimuth
-                    }
+                    // Dial rotates based on phone's true geographic azimuth
+                    val dialRotation = -animatedAzimuth
 
-                    // Top Needle position on the dial plate coordinate space
-                    val needleAngleOnDial = ((-dialRotation % 360f) + 360f) % 360f
-                    val isShortestPathClockwise = needleAngleOnDial <= 180f
+                    // Momo-Centric Shortest Path Arc Calculation
+                    val diffCW = if (partnerBearing != null) {
+                        ((normalizedAzimuth - partnerBearing + 360f) % 360f)
+                    } else 0f
+
+                    val isClockwiseShortest = diffCW <= 180f
+                    val shortestSpan = if (isClockwiseShortest) diffCW else (360f - diffCW)
 
                     rotate(dialRotation, pivot = center) {
                         // 120 Ticks: Major every 30° (10 ticks), Minor in between
@@ -551,25 +542,27 @@ private fun CompassRadarCard(
                             val angleRad = Math.toRadians(angleDeg.toDouble())
 
                             val isMajor = (i % 10 == 0)
-                            val isPartnerZero = (i == 0)
+                            val isNorthZero = (i == 0)
 
-                            // Covered ticks: strictly connects 0° (Momo) to needleAngleOnDial (Top Needle)
-                            val isTickCovered = if (isShortestPathClockwise) {
-                                angleDeg in 0.0f..needleAngleOnDial
-                            } else {
-                                angleDeg >= needleAngleOnDial || angleDeg == 0f
-                            }
-
-                            // Dynamic Gradient sweep along the arc connecting Momo and Needle
-                            val tickColor = if (isTickCovered) {
-                                val fraction = if (isShortestPathClockwise) {
-                                    if (needleAngleOnDial > 0f) (angleDeg / needleAngleOnDial).coerceIn(0f, 1f) else 0f
+                            // Ticks covered strictly between Momo's direction and phone heading
+                            val isTickCovered = if (partnerBearing != null && shortestSpan > 1.5f) {
+                                if (isClockwiseShortest) {
+                                    val distFromMomo = ((angleDeg - partnerBearing + 360f) % 360f)
+                                    distFromMomo <= diffCW
                                 } else {
-                                    val arcSpan = 360f - needleAngleOnDial
-                                    if (arcSpan > 0f) {
-                                        val distFromZero = if (angleDeg == 0f) 0f else (360f - angleDeg)
-                                        (distFromZero / arcSpan).coerceIn(0f, 1f)
-                                    } else 0f
+                                    val distFromNeedle = ((angleDeg - normalizedAzimuth + 360f) % 360f)
+                                    distFromNeedle <= shortestSpan
+                                }
+                            } else false
+
+                            // Dynamic Gradient sweep along the arc connecting Momo and Heading Notch
+                            val tickColor = if (isTickCovered && partnerBearing != null && shortestSpan > 0f) {
+                                val fraction = if (isClockwiseShortest) {
+                                    val distFromMomo = ((angleDeg - partnerBearing + 360f) % 360f)
+                                    (distFromMomo / shortestSpan).coerceIn(0f, 1f)
+                                } else {
+                                    val distFromNeedle = ((angleDeg - normalizedAzimuth + 360f) % 360f)
+                                    (1f - (distFromNeedle / shortestSpan)).coerceIn(0f, 1f)
                                 }
                                 lerp(primaryColor, tertiaryColor, fraction)
                             } else {
@@ -612,7 +605,7 @@ private fun CompassRadarCard(
                                         numX,
                                         numY + 4.dp.toPx(),
                                         Paint().apply {
-                                            color = if (isPartnerZero) primaryColor.toArgb() else onSurfaceVariantColor.toArgb()
+                                            color = if (isNorthZero) primaryColor.toArgb() else onSurfaceVariantColor.toArgb()
                                             textSize = 10.sp.toPx()
                                             textAlign = Paint.Align.CENTER
                                             typeface = Typeface.DEFAULT_BOLD
@@ -623,21 +616,45 @@ private fun CompassRadarCard(
                             }
                         }
 
-                        // Partner Name Tag at 0° Marker (Lowered inwards with 32dp clearance to prevent touching tick lines)
-                        val partnerNameTag = partnerInfo.name.ifBlank { "Partner" }
-                        val labelRadius = radius - 32.dp.toPx()
-                        drawContext.canvas.nativeCanvas.drawText(
-                            partnerNameTag,
-                            center.x,
-                            center.y - labelRadius,
-                            Paint().apply {
-                                color = primaryColor.toArgb()
-                                textSize = 11.sp.toPx()
-                                textAlign = Paint.Align.CENTER
-                                typeface = Typeface.DEFAULT_BOLD
-                                isAntiAlias = true
+                        // Partner Dedicated Marker & Name Tag at partnerBearing (Lowered with 30dp clearance)
+                        if (partnerBearing != null) {
+                            val partnerNameTag = partnerInfo.name.ifBlank { "Partner" }
+                            val momoRad = Math.toRadians(partnerBearing.toDouble())
+
+                            // Distinct prominent partner pointer line
+                            val momoTickInner = radius - 11.dp.toPx()
+                            val momoStartX = center.x + momoTickInner * sin(momoRad).toFloat()
+                            val momoStartY = center.y - momoTickInner * cos(momoRad).toFloat()
+                            val momoEndX = center.x + radius * sin(momoRad).toFloat()
+                            val momoEndY = center.y - radius * cos(momoRad).toFloat()
+
+                            drawLine(
+                                color = primaryColor,
+                                start = Offset(momoStartX, momoStartY),
+                                end = Offset(momoEndX, momoEndY),
+                                strokeWidth = 2.4.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+
+                            val momoLabelRadius = radius - 30.dp.toPx()
+                            val momoX = center.x + momoLabelRadius * sin(momoRad).toFloat()
+                            val momoY = center.y - momoLabelRadius * cos(momoRad).toFloat()
+
+                            rotate(degrees = partnerBearing, pivot = Offset(momoX, momoY)) {
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    partnerNameTag,
+                                    momoX,
+                                    momoY + 4.dp.toPx(),
+                                    Paint().apply {
+                                        color = primaryColor.toArgb()
+                                        textSize = 11.sp.toPx()
+                                        textAlign = Paint.Align.CENTER
+                                        typeface = Typeface.DEFAULT_BOLD
+                                        isAntiAlias = true
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
 
                     // Top Fixed Indicator Notch at 12 o'clock (ColorOS clean bar)
@@ -650,9 +667,9 @@ private fun CompassRadarCard(
                     )
                 }
 
-                // Center Big Angle Display
+                // Center Big Angle Display (True Heading Degree)
                 Text(
-                    text = if (relativeAngle != null) "$relativeAngle°" else "--°",
+                    text = "${normalizedAzimuth.roundToInt()}°",
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -661,7 +678,7 @@ private fun CompassRadarCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Direction & Distance Label: e.g. North-East (510 m) / North-East (1.4 km)
+            // Dynamic Direction & Distance Label: e.g. Northwest (403 m) / East (1.4 km)
             Text(
                 text = directionDistanceTitle,
                 fontSize = 17.sp,
@@ -855,17 +872,18 @@ private fun calculateBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Dou
     val deltaLambda = Math.toRadians(lon2 - lon1)
 
     val y = sin(deltaLambda) * cos(phi2)
-    val x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(deltaLambda)
+    val x = cos(phi1) * sin(phi2) - sin(phi1) * cos(deltaLambda)
     val theta = atan2(y, x)
     return (Math.toDegrees(theta) + 360.0) % 360.0
 }
 
 private fun getCardinalDirection(bearing: Double): String {
     val directions = arrayOf(
-        "North", "North-East", "East", "South-East",
-        "South", "South-West", "West", "North-West"
+        "North", "Northeast", "East", "Southeast",
+        "South", "Southwest", "West", "Northwest"
     )
-    val index = ((bearing + 22.5) / 45.0).toInt() % 8
+    val normalized = ((bearing % 360.0) + 360.0) % 360.0
+    val index = (((normalized + 22.5) / 45.0).toInt()) % 8
     return directions[index]
 }
 
