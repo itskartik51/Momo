@@ -1,6 +1,6 @@
 {
-  "latest_version_code": 9,
-  "latest_version_name": "v1.2405.009",
+  "latest_version_code": 10,
+  "latest_version_name": "v1.2405.010",
   "release_notes": "Momo automated update deployment via GitHub Actions.",
   "apk_url": "https://raw.githubusercontent.com/itskartik51/Momo/main/Updates/Momo_Update.apk"
 }
