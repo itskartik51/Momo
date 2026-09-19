@@ -46,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -349,19 +350,43 @@ private fun CompassRadarCard(
     distanceMeters: Int?
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
+    var isScreenActive by remember { mutableStateOf(true) }
     var continuousAzimuth by remember { mutableFloatStateOf(0f) }
     var lastRawAzimuth by remember { mutableFloatStateOf(0f) }
 
-    // Pure Kotlin SoundPool Synthesizer (Single-shot, zero endless loop)
     val soundPlayer = remember { CompassSoundPlayer(context) }
 
-    DisposableEffect(Unit) {
+    // Scoped Lifecycle Observer: Turn off sensor & sounds when app is minimized or paused
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    isScreenActive = true
+                }
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> {
+                    isScreenActive = false
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            isScreenActive = false
+            soundPlayer.release()
+        }
+    }
+
+    // Hardware Sensor Registration (Only active while screen is in foreground)
+    DisposableEffect(isScreenActive) {
+        if (!isScreenActive) {
+            return@DisposableEffect onDispose {}
+        }
+
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-
-        var lastSector = Int.MIN_VALUE
-        var lastTriggerAngle = Float.NaN
 
         val listener = object : SensorEventListener {
             val rotationMatrix = FloatArray(9)
@@ -379,27 +404,6 @@ private fun CompassRadarCard(
 
                     continuousAzimuth += diff
                     lastRawAzimuth = rawDeg
-
-                    // Strict Hysteresis Ratchet: Triggers ONLY on intentional 30°/90° sector shifts
-                    val currentAngle = continuousAzimuth
-                    val currentSector = floor(currentAngle / 30.0).toInt()
-
-                    if (lastSector == Int.MIN_VALUE) {
-                        lastSector = currentSector
-                        lastTriggerAngle = currentAngle
-                    } else if (currentSector != lastSector && abs(currentAngle - lastTriggerAngle) >= 8f) {
-                        val crossedStep = if (currentSector > lastSector) currentSector * 30 else (currentSector + 1) * 30
-                        val normalizedDeg = ((crossedStep % 360) + 360) % 360
-
-                        if (normalizedDeg % 90 == 0) {
-                            soundPlayer.playHeavy()
-                        } else {
-                            soundPlayer.playLight()
-                        }
-
-                        lastSector = currentSector
-                        lastTriggerAngle = currentAngle
-                    }
                 }
             }
 
@@ -412,7 +416,6 @@ private fun CompassRadarCard(
 
         onDispose {
             sensorManager.unregisterListener(listener)
-            soundPlayer.release()
         }
     }
 
@@ -442,6 +445,45 @@ private fun CompassRadarCard(
             ((partnerBearing - normalizedAzimuth + 360f) % 360f).roundToInt()
         } else {
             null
+        }
+    }
+
+    // Perfectly Synced Audio Tick: Directly bound to animated relative angle crossing 30° / 90°
+    var lastStep by remember { mutableStateOf<Int?>(null) }
+    var lastPlayedBoundary by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(animatedAzimuth, isScreenActive) {
+        if (!isScreenActive) return@LaunchedEffect
+
+        val continuousRelative = (partnerBearing ?: 0f) - animatedAzimuth
+        val currentStep = floor(continuousRelative / 30.0).toInt()
+
+        // Clear debounce lock when moved at least 4 degrees away from boundary
+        lastPlayedBoundary?.let { boundary ->
+            val dist = abs(continuousRelative - boundary)
+            if (dist >= 4.0f) {
+                lastPlayedBoundary = null
+            }
+        }
+
+        if (lastStep == null) {
+            lastStep = currentStep
+        } else if (currentStep != lastStep) {
+            val stepDiff = abs(currentStep - lastStep!!)
+            if (stepDiff <= 3) {
+                val boundary = if (currentStep > lastStep!!) currentStep * 30 else (currentStep + 1) * 30
+
+                if (boundary != lastPlayedBoundary) {
+                    val normalizedBoundary = ((boundary % 360) + 360) % 360
+                    if (normalizedBoundary % 90 == 0) {
+                        soundPlayer.playHeavy()
+                    } else {
+                        soundPlayer.playLight()
+                    }
+                    lastPlayedBoundary = boundary
+                }
+            }
+            lastStep = currentStep
         }
     }
 
@@ -581,9 +623,9 @@ private fun CompassRadarCard(
                             }
                         }
 
-                        // Partner Name Tag at 0° Marker
+                        // Partner Name Tag at 0° Marker (Lowered inwards with 32dp clearance to prevent touching tick lines)
                         val partnerNameTag = partnerInfo.name.ifBlank { "Partner" }
-                        val labelRadius = radius - 20.dp.toPx()
+                        val labelRadius = radius - 32.dp.toPx()
                         drawContext.canvas.nativeCanvas.drawText(
                             partnerNameTag,
                             center.x,
