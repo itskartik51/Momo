@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 
 class ProximityLocationService : Service() {
 
@@ -342,10 +343,55 @@ class ProximityLocationService : Service() {
         }
     }
 
+    private fun pushTrackerStateToCache(relativeDistance: Double?) {
+        val currentUserId = CacheManager.getAppUserId(this)
+        val isKanu = currentUserId.equals("Kanu", ignoreCase = true)
+        val partnerName = if (isKanu) "Momo" else "Kanu"
+        val selfName = if (isKanu) "Kanu" else "Momo"
+
+        val partnerInfo = CacheManager.UserLocationInfo(
+            name = partnerName,
+            latitude = partnerLastLocation?.latitude,
+            longitude = partnerLastLocation?.longitude,
+            accuracy = partnerLastAccuracy.takeIf { it > 0f },
+            timestamp = partnerLastTimestamp?.toDate()?.time
+        )
+
+        val myLoc = myLastLocation
+        val selfInfo = CacheManager.UserLocationInfo(
+            name = selfName,
+            latitude = myLoc?.latitude,
+            longitude = myLoc?.longitude,
+            accuracy = myLoc?.accuracy?.takeIf { it > 0f },
+            timestamp = myLoc?.time ?: System.currentTimeMillis()
+        )
+
+        val distanceInt = relativeDistance?.roundToInt()
+
+        CacheManager.updateTrackerState(
+            CacheManager.TrackerState(
+                partnerInfo = partnerInfo,
+                selfInfo = selfInfo,
+                distanceMeters = distanceInt
+            )
+        )
+    }
+
     private fun evaluateProximityStateMachine() {
         val myLoc = myLastLocation
         val partnerGeo = if (isPartnerDataFresh()) partnerLastLocation else null
         val myHome = mySafeZone
+
+        val currentRelativeDistance = if (myLoc != null && partnerLastLocation != null) {
+            ProximityMath.calculateDistanceMeters(
+                myLoc.latitude, myLoc.longitude,
+                partnerLastLocation!!.latitude, partnerLastLocation!!.longitude
+            )
+        } else {
+            null
+        }
+
+        pushTrackerStateToCache(currentRelativeDistance)
 
         if (myLoc == null) {
             serviceScope.launch {
@@ -370,15 +416,10 @@ class ProximityLocationService : Service() {
         if (isMeInHome) {
             setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
 
-            if (partnerGeo != null) {
-                val relativeDistance = ProximityMath.calculateDistanceMeters(
-                    myLoc.latitude, myLoc.longitude,
-                    partnerGeo.latitude, partnerGeo.longitude
-                )
+            if (partnerGeo != null && currentRelativeDistance != null) {
+                ProximityNotificationHelper.evaluateAlert(this, partnerName, currentRelativeDistance)
 
-                ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
-
-                if (relativeDistance <= 50.0) {
+                if (currentRelativeDistance <= 50.0) {
                     BleProximityManager.startHandshake(this) { rssi ->
                     }
                 } else {
@@ -390,29 +431,24 @@ class ProximityLocationService : Service() {
             return
         }
 
-        if (partnerGeo != null) {
-            val relativeDistance = ProximityMath.calculateDistanceMeters(
-                myLoc.latitude, myLoc.longitude,
-                partnerGeo.latitude, partnerGeo.longitude
-            )
-
-            ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
+        if (partnerGeo != null && currentRelativeDistance != null) {
+            ProximityNotificationHelper.evaluateAlert(this, partnerName, currentRelativeDistance)
 
             when {
-                relativeDistance <= 50.0 -> {
+                currentRelativeDistance <= 50.0 -> {
                     setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                     BleProximityManager.startHandshake(this) { rssi ->
                     }
                 }
-                relativeDistance < 150.0 -> {
+                currentRelativeDistance < 150.0 -> {
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                 }
-                relativeDistance <= 200.0 -> {
+                currentRelativeDistance <= 200.0 -> {
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 1 * 60 * 1000L)
                 }
-                relativeDistance <= 500.0 -> {
+                currentRelativeDistance <= 500.0 -> {
                     BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 5 * 60 * 1000L)
                 }
