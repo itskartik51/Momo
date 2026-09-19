@@ -67,17 +67,12 @@ class ProximityLocationService : Service() {
     private var periodicLoopJob: Job? = null
     private var isContinuousUpdatesActive = false
 
+    private var lastFirestoreUploadTime: Long = 0L
+
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             val location = result.lastLocation ?: return
-
-            if (location.accuracy > 200.0f) {
-                return
-            }
-
-            myLastLocation = location
-            uploadMyLocationToFirestore(location)
-            evaluateProximityStateMachine()
+            handleLocationUpdate(location)
         }
     }
 
@@ -141,6 +136,8 @@ class ProximityLocationService : Service() {
             ).apply {
                 description = "Monitors partner proximity in background with minimal battery impact"
                 setShowBadge(false)
+                enableLights(false)
+                enableVibration(false)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -150,6 +147,7 @@ class ProximityLocationService : Service() {
             .setContentText("Safe zone and relative distance tracking is running")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
+            .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
 
@@ -222,7 +220,41 @@ class ProximityLocationService : Service() {
     private fun isPartnerDataFresh(): Boolean {
         val timestamp = partnerLastTimestamp ?: return false
         val ageMillis = System.currentTimeMillis() - timestamp.toDate().time
-        return ageMillis in -30_000L..(30 * 60 * 1000L) // Valid within -30s clock-drift to 30 minutes
+        return ageMillis in -30_000L..(45 * 60 * 1000L) // Valid within -30s clock-drift to 45 minutes
+    }
+
+    private fun handleLocationUpdate(location: Location) {
+        if (location.accuracy > 200.0f) {
+            return
+        }
+
+        myLastLocation = location
+
+        val myHome = mySafeZone
+        val isMeInHome = if (myHome != null) {
+            val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
+                location.latitude, location.longitude,
+                myHome.latitude, myHome.longitude
+            )
+            myDistanceToMyHome <= safeZoneRadiusMeters
+        } else {
+            false
+        }
+
+        val currentTime = System.currentTimeMillis()
+        if (isMeInHome) {
+            // In Safe Zone: throttle database writes to a 30-minute window
+            if (currentTime - lastFirestoreUploadTime >= 30 * 60 * 1000L) {
+                uploadMyLocationToFirestore(location)
+                lastFirestoreUploadTime = currentTime
+            }
+        } else {
+            // Outside Safe Zone: upload dynamically per interval
+            uploadMyLocationToFirestore(location)
+            lastFirestoreUploadTime = currentTime
+        }
+
+        evaluateProximityStateMachine()
     }
 
     private fun uploadMyLocationToFirestore(location: Location) {
@@ -277,10 +309,10 @@ class ProximityLocationService : Service() {
         val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
 
         if (isMeInHome) {
-            // Phone remains in Deep Sleep (Zero persistent GPS chip usage, zero status bar icon)
+            // Phone stays in Deep Sleep (Zero continuous GPS drain)
             setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
 
-            // Even if I am at home, evaluate partner's proximity if partner is approaching with fresh data
+            // Evaluate partner's proximity if partner is approaching
             if (partnerGeo != null) {
                 val relativeDistance = ProximityMath.calculateDistanceMeters(
                     myLoc.latitude, myLoc.longitude,
@@ -344,7 +376,7 @@ class ProximityLocationService : Service() {
                 }
             }
         } else {
-            // Fallback when partner coordinates not yet loaded or stale (> 30 min)
+            // Fallback when partner coordinates not yet loaded or stale (> 45 min)
             BleProximityManager.stopHandshake()
             setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
         }
@@ -376,14 +408,7 @@ class ProximityLocationService : Service() {
 
     private suspend fun fetchAndProcessSingleLocation(priority: Int) {
         val location = fetchSingleLocation(priority) ?: return
-
-        if (location.accuracy > 200.0f) {
-            return
-        }
-
-        myLastLocation = location
-        uploadMyLocationToFirestore(location)
-        evaluateProximityStateMachine()
+        handleLocationUpdate(location)
     }
 
     @SuppressLint("MissingPermission")
