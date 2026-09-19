@@ -253,7 +253,7 @@ class ProximityLocationService : Service() {
             return
         }
 
-        // Rule 1: Independent Safe Zone Deep Sleep (<= 100m)
+        // Rule 1: Independent Safe Zone Check (<= 100m)
         val isMeInHome = if (myHome != null) {
             val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
@@ -264,21 +264,43 @@ class ProximityLocationService : Service() {
             false
         }
 
+        val currentUserId = CacheManager.getAppUserId(this)
+        val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
+
         if (isMeInHome) {
-            BleProximityManager.stopHandshake()
-            setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L) // 10 minutes deep sleep
+            // Phone remains in Deep Sleep (Zero persistent GPS chip usage, zero status bar icon)
+            setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
+
+            // Even if I am at home, evaluate partner's proximity if partner is approaching
+            if (partnerGeo != null) {
+                val relativeDistance = ProximityMath.calculateDistanceMeters(
+                    myLoc.latitude, myLoc.longitude,
+                    partnerGeo.latitude, partnerGeo.longitude
+                )
+
+                // 200m Proximity Alert Trigger
+                ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
+
+                // <= 50m Close Encounter BLE Trigger
+                if (relativeDistance <= 50.0) {
+                    BleProximityManager.startHandshake(this) { rssi ->
+                        // RSSI captured for radar phase
+                    }
+                } else {
+                    BleProximityManager.stopHandshake()
+                }
+            } else {
+                BleProximityManager.stopHandshake()
+            }
             return
         }
 
-        // Rule 2: Inter-User Distance Tracking (When Outside Safe Zone)
+        // Rule 2: Inter-User Distance Tracking (When I am Outside Safe Zone)
         if (partnerGeo != null) {
             val relativeDistance = ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
                 partnerGeo.latitude, partnerGeo.longitude
             )
-
-            val currentUserId = CacheManager.getAppUserId(this)
-            val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
 
             // 200m Proximity Notification Alert (with debounce/hysteresis)
             ProximityNotificationHelper.evaluateAlert(this, partnerName, relativeDistance)
@@ -370,7 +392,6 @@ class ProximityLocationService : Service() {
                     if (loc != null) {
                         if (continuation.isActive) continuation.resume(loc)
                     } else {
-                        // Fallback to cached lastLocation for indoor scenarios
                         fusedLocationClient.lastLocation
                             .addOnSuccessListener { lastLoc ->
                                 if (continuation.isActive) continuation.resume(lastLoc)
@@ -381,7 +402,6 @@ class ProximityLocationService : Service() {
                     }
                 }
                 .addOnFailureListener {
-                    // Fallback to lastLocation if fresh location request fails
                     fusedLocationClient.lastLocation
                         .addOnSuccessListener { lastLoc ->
                             if (continuation.isActive) continuation.resume(lastLoc)
