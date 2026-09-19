@@ -29,6 +29,7 @@ object CacheManager {
     private const val KEY_PERIOD_DATES = "cached_period_dates"
     private const val KEY_EVENTS = "cached_events"
     private const val KEY_SECURITY_LOCK = "cached_security_lock"
+    private const val KEY_TYM = "cached_tym"
 
     private var prefs: SharedPreferences? = null
 
@@ -43,6 +44,9 @@ object CacheManager {
 
     private val _securityLockFlow = MutableStateFlow(false)
     val securityLockFlow: StateFlow<Boolean> = _securityLockFlow.asStateFlow()
+
+    private val _tymFlow = MutableStateFlow<Long?>(null)
+    val tymFlow: StateFlow<Long?> = _tymFlow.asStateFlow()
 
     fun init(context: Context) {
         if (prefs == null) {
@@ -95,6 +99,11 @@ object CacheManager {
 
         // 4. Instant Synchronous Load: Security Lock
         _securityLockFlow.value = p.getBoolean(KEY_SECURITY_LOCK, false)
+
+        // 5. Instant Synchronous Load: Dynamic Tym
+        if (p.contains(KEY_TYM)) {
+            _tymFlow.value = p.getLong(KEY_TYM, 0L)
+        }
     }
 
     fun isSecurityLockEnabled(context: Context): Boolean {
@@ -110,6 +119,35 @@ object CacheManager {
         }
         prefs?.edit()?.putBoolean(KEY_SECURITY_LOCK, enabled)?.apply()
         _securityLockFlow.value = enabled
+    }
+
+    /**
+     * Updates dynamic tym value optimistically and syncs to Firestore under App/home_config
+     */
+    fun updateTym(newTym: Long) {
+        // Step 1: Instant Local Write (Optimistic UI Update)
+        saveTym(newTym)
+
+        // Step 2 & 3: Background Firestore Push & Server Reconciliation
+        ensureAuth {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = FirebaseFirestore.getInstance()
+                    val docRef = db.collection("App").document("home_config")
+
+                    docRef.set(
+                        mapOf("tym" to newTym),
+                        SetOptions.merge()
+                    ).addOnSuccessListener {
+                        syncFromFirestore()
+                    }.addOnFailureListener { e ->
+                        e.printStackTrace()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
     }
 
     /**
@@ -235,7 +273,7 @@ object CacheManager {
             CoroutineScope(Dispatchers.IO).launch {
                 val db = FirebaseFirestore.getInstance()
 
-                // 1. Sync Avatar Configuration
+                // 1. Sync Avatar & Dynamic Tym Configuration
                 try {
                     db.collection("App")
                         .document("home_config")
@@ -248,6 +286,11 @@ object CacheManager {
                                     if (directUrl != _avatarUrlFlow.value) {
                                         saveAvatarUrl(directUrl)
                                     }
+                                }
+
+                                val remoteTym = document.getLong("tym")
+                                if (remoteTym != null && remoteTym != _tymFlow.value) {
+                                    saveTym(remoteTym)
                                 }
                             }
                         }
@@ -379,6 +422,11 @@ object CacheManager {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun saveTym(tym: Long) {
+        prefs?.edit()?.putLong(KEY_TYM, tym)?.apply()
+        _tymFlow.value = tym
     }
 
     private fun resolveDriveUrl(url: String): String {
