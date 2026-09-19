@@ -51,7 +51,7 @@
             android:name=".Proximity.ProximityLocationService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location|connectedDevice" />
 
         <receiver
             android:name=".UI_Screens.Notifications.NotificationAlarmReceiver"
