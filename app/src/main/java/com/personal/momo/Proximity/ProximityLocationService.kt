@@ -39,6 +39,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.resume
 
 class ProximityLocationService : Service() {
@@ -225,6 +226,7 @@ class ProximityLocationService : Service() {
 
     private fun handleLocationUpdate(location: Location) {
         if (location.accuracy > 200.0f) {
+            handleLocationFetchFailure()
             return
         }
 
@@ -255,6 +257,43 @@ class ProximityLocationService : Service() {
         }
 
         evaluateProximityStateMachine()
+    }
+
+    private fun handleLocationFetchFailure() {
+        val myHome = mySafeZone
+        val lastLoc = myLastLocation
+
+        val isLikelyInHome = if (myHome != null && lastLoc != null) {
+            val distance = ProximityMath.calculateDistanceMeters(
+                lastLoc.latitude, lastLoc.longitude,
+                myHome.latitude, myHome.longitude
+            )
+            distance <= safeZoneRadiusMeters
+        } else if (myHome != null && (currentTrackingMode == TrackingMode.SAFE_ZONE_SLEEP || currentTrackingMode == null)) {
+            true
+        } else {
+            false
+        }
+
+        if (isLikelyInHome && myHome != null) {
+            // Indoor Safe Zone Fallback: use home coordinate to emit heartbeat
+            val fallbackLocation = Location("SafeZoneFallback").apply {
+                latitude = myHome.latitude
+                longitude = myHome.longitude
+                accuracy = 50.0f
+            }
+            myLastLocation = fallbackLocation
+
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastFirestoreUploadTime >= 30 * 60 * 1000L) {
+                uploadMyLocationToFirestore(fallbackLocation)
+                lastFirestoreUploadTime = currentTime
+            }
+            evaluateProximityStateMachine()
+        } else {
+            // Outside Safe Zone with no GPS fix: skip write to avoid fake coordinates and keep state machine alive
+            evaluateProximityStateMachine()
+        }
     }
 
     private fun uploadMyLocationToFirestore(location: Location) {
@@ -309,7 +348,7 @@ class ProximityLocationService : Service() {
         val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
 
         if (isMeInHome) {
-            // Phone stays in Deep Sleep (Zero continuous GPS drain)
+            // Phone remains in Deep Sleep (Zero continuous GPS drain)
             setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
 
             // Evaluate partner's proximity if partner is approaching
@@ -407,8 +446,15 @@ class ProximityLocationService : Service() {
     }
 
     private suspend fun fetchAndProcessSingleLocation(priority: Int) {
-        val location = fetchSingleLocation(priority) ?: return
-        handleLocationUpdate(location)
+        val location = withTimeoutOrNull(15_000L) {
+            fetchSingleLocation(priority)
+        }
+
+        if (location != null && location.accuracy <= 200.0f) {
+            handleLocationUpdate(location)
+        } else {
+            handleLocationFetchFailure()
+        }
     }
 
     @SuppressLint("MissingPermission")
