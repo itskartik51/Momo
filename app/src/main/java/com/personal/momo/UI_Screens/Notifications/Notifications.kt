@@ -330,11 +330,11 @@ fun NotificationsScreen(
                                 ) {
                                     Surface(
                                         shape = RoundedCornerShape(50),
-                                        color = MaterialTheme.colorScheme.surface,
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                         shadowElevation = 8.dp,
                                         border = BorderStroke(
-                                            width = 1.dp,
-                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                            width = 1.5.dp,
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
                                         )
                                     ) {
                                         Row(
