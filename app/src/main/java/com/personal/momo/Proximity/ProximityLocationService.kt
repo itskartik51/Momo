@@ -21,6 +21,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -31,11 +32,22 @@ import com.personal.momo.R
 import com.personal.momo.SecurityConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 class ProximityLocationService : Service() {
+
+    private enum class TrackingMode {
+        SAFE_ZONE_SLEEP,
+        FAR_RANGE_PERIODIC,
+        APPROACH_CONTINUOUS
+    }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -49,13 +61,14 @@ class ProximityLocationService : Service() {
     private var partnerLastAccuracy: Float = 0.0f
 
     private var myLastLocation: Location? = null
-    private var currentActivePriority: Int? = null
+    private var currentTrackingMode: TrackingMode? = null
+    private var periodicLoopJob: Job? = null
+    private var isContinuousUpdatesActive = false
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             val location = result.lastLocation ?: return
 
-            // Step 1: Ghost Exit Filter check
             if (!ProximityMath.isValidAccuracy(location.accuracy)) {
                 return
             }
@@ -70,10 +83,12 @@ class ProximityLocationService : Service() {
         super.onCreate()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         startForegroundServiceNotification()
-        
+
         ensureAuth {
             startFirestoreSync()
-            requestLocationUpdates(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 600_000L) // 10 mins passive initial
+            serviceScope.launch {
+                fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+            }
         }
     }
 
@@ -85,7 +100,8 @@ class ProximityLocationService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(locationCallback)
+        stopContinuousLocationUpdates()
+        periodicLoopJob?.cancel()
         firestoreListener?.remove()
         BleProximityManager.stopHandshake()
         serviceScope.cancel()
@@ -225,29 +241,40 @@ class ProximityLocationService : Service() {
     }
 
     private fun evaluateProximityStateMachine() {
-        val myLoc = myLastLocation ?: return
+        val myLoc = myLastLocation
         val partnerGeo = partnerLastLocation
-
-        // Rule 1: Dual Safe Zone Check (Sleep Mode)
         val myHome = mySafeZone
         val partnerHome = partnerSafeZone
 
-        if (myHome != null && partnerHome != null && partnerGeo != null) {
-            val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
+        if (myLoc == null) {
+            serviceScope.launch {
+                fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+            }
+            return
+        }
+
+        val myDistanceToMyHome = if (myHome != null) {
+            ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
                 myHome.latitude, myHome.longitude
             )
-            val partnerDistanceToPartnerHome = ProximityMath.calculateDistanceMeters(
+        } else null
+
+        val partnerDistanceToPartnerHome = if (partnerHome != null && partnerGeo != null) {
+            ProximityMath.calculateDistanceMeters(
                 partnerGeo.latitude, partnerGeo.longitude,
                 partnerHome.latitude, partnerHome.longitude
             )
+        } else null
 
-            if (myDistanceToMyHome <= safeZoneRadiusMeters && partnerDistanceToPartnerHome <= safeZoneRadiusMeters) {
-                // Both are inside home safe zones -> Zero battery drain passive mode
-                BleProximityManager.stopHandshake()
-                requestLocationUpdates(Priority.PRIORITY_PASSIVE, 900_000L) // 15 mins
-                return
-            }
+        val isMeInHome = myDistanceToMyHome != null && myDistanceToMyHome <= safeZoneRadiusMeters
+        val isPartnerInHome = partnerDistanceToPartnerHome != null && partnerDistanceToPartnerHome <= safeZoneRadiusMeters
+
+        // Rule 1: Dual Safe Zone Sleep Mode (Zero GPS Drain, Zero Icon)
+        if (isMeInHome && isPartnerInHome) {
+            BleProximityManager.stopHandshake()
+            setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L) // 10 minutes deep sleep
+            return
         }
 
         // Rule 2: Inter-User Distance Tracking
@@ -265,48 +292,102 @@ class ProximityLocationService : Service() {
 
             when {
                 relativeDistance <= 50.0 -> {
-                    // <= 50m: High accuracy GPS + Start BLE Handshake
-                    requestLocationUpdates(Priority.PRIORITY_HIGH_ACCURACY, 15_000L)
+                    // <= 50m: High accuracy continuous tracking + BLE Handshake
+                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                     BleProximityManager.startHandshake(this) { rssi ->
                         // RSSI captured for radar phase
                     }
                 }
                 relativeDistance <= 200.0 -> {
-                    // 50m -> 200m: High accuracy GPS for exact alert, BLE terminated
+                    // 50m -> 200m: High accuracy continuous tracking, BLE stopped
                     BleProximityManager.stopHandshake()
-                    requestLocationUpdates(Priority.PRIORITY_HIGH_ACCURACY, 15_000L)
+                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
                 }
                 relativeDistance <= 500.0 -> {
-                    // 200m -> 500m: Transition phase to high accuracy
+                    // 200m -> 500m: Transition phase to continuous tracking
                     BleProximityManager.stopHandshake()
-                    requestLocationUpdates(Priority.PRIORITY_HIGH_ACCURACY, 20_000L)
+                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 20_000L)
                 }
                 else -> {
-                    // > 500m: Low-power balanced network mode
+                    // > 500m: Far range periodic mode (Icon disappears between checks)
                     BleProximityManager.stopHandshake()
-                    requestLocationUpdates(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 600_000L)
+                    val interval = if (isMeInHome) 10 * 60 * 1000L else 3 * 60 * 1000L
+                    val mode = if (isMeInHome) TrackingMode.SAFE_ZONE_SLEEP else TrackingMode.FAR_RANGE_PERIODIC
+                    setTrackingMode(mode, interval)
                 }
             }
         } else {
-            // Fallback when partner coordinates not yet available
+            // Fallback when partner coordinates not yet loaded
             BleProximityManager.stopHandshake()
-            requestLocationUpdates(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 600_000L)
+            val interval = if (isMeInHome) 10 * 60 * 1000L else 3 * 60 * 1000L
+            val mode = if (isMeInHome) TrackingMode.SAFE_ZONE_SLEEP else TrackingMode.FAR_RANGE_PERIODIC
+            setTrackingMode(mode, interval)
+        }
+    }
+
+    private fun setTrackingMode(mode: TrackingMode, intervalMillis: Long) {
+        if (currentTrackingMode == mode) return
+        currentTrackingMode = mode
+
+        when (mode) {
+            TrackingMode.SAFE_ZONE_SLEEP, TrackingMode.FAR_RANGE_PERIODIC -> {
+                stopContinuousLocationUpdates()
+                periodicLoopJob?.cancel()
+                periodicLoopJob = serviceScope.launch {
+                    while (isActive) {
+                        delay(intervalMillis)
+                        fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+                    }
+                }
+            }
+            TrackingMode.APPROACH_CONTINUOUS -> {
+                periodicLoopJob?.cancel()
+                periodicLoopJob = null
+                startContinuousLocationUpdates(intervalMillis)
+            }
+        }
+    }
+
+    private suspend fun fetchAndProcessSingleLocation(priority: Int) {
+        val location = fetchSingleLocation(priority) ?: return
+        if (!ProximityMath.isValidAccuracy(location.accuracy)) {
+            return
+        }
+        myLastLocation = location
+        uploadMyLocationToFirestore(location)
+        evaluateProximityStateMachine()
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun fetchSingleLocation(priority: Int): Location? {
+        val fineLoc = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
+        if (fineLoc != PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+
+        return suspendCancellableCoroutine { continuation ->
+            val cancellationTokenSource = CancellationTokenSource()
+            fusedLocationClient.getCurrentLocation(priority, cancellationTokenSource.token)
+                .addOnSuccessListener { loc ->
+                    if (continuation.isActive) continuation.resume(loc)
+                }
+                .addOnFailureListener {
+                    if (continuation.isActive) continuation.resume(null)
+                }
+            continuation.invokeOnCancellation {
+                cancellationTokenSource.cancel()
+            }
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun requestLocationUpdates(priority: Int, intervalMillis: Long) {
-        if (currentActivePriority == priority) return
-
+    private fun startContinuousLocationUpdates(intervalMillis: Long) {
         val fineLoc = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
-        if (fineLoc != PackageManager.PERMISSION_GRANTED) {
-            return
-        }
+        if (fineLoc != PackageManager.PERMISSION_GRANTED) return
 
-        currentActivePriority = priority
         fusedLocationClient.removeLocationUpdates(locationCallback)
 
-        val locationRequest = LocationRequest.Builder(priority, intervalMillis)
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
             .setMinUpdateIntervalMillis(intervalMillis / 2)
             .setWaitForAccurateLocation(false)
             .build()
@@ -316,6 +397,14 @@ class ProximityLocationService : Service() {
             locationCallback,
             Looper.getMainLooper()
         )
+        isContinuousUpdatesActive = true
+    }
+
+    private fun stopContinuousLocationUpdates() {
+        if (isContinuousUpdatesActive) {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+            isContinuousUpdatesActive = false
+        }
     }
 
     companion object {
