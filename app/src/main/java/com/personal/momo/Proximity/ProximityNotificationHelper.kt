@@ -2,7 +2,9 @@ package com.personal.momo.Proximity
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -14,32 +16,35 @@ object ProximityNotificationHelper {
 
     private const val CHANNEL_ID = "momo_proximity_alerts_channel"
     private const val NOTIFICATION_ID = 8002
-    private const val COOLDOWN_MILLIS = 15 * 60 * 1000L // 15 Minutes debounce
-    private const val RESET_DISTANCE_METERS = 350.0
+    private const val DISMISS_DISTANCE_METERS = 250.0
 
-    private var lastAlertTimestamp: Long = 0L
-    private var isCooldownActive: Boolean = false
+    private var isAlertActive: Boolean = false
 
     fun evaluateAlert(context: Context, partnerName: String, distanceMeters: Double) {
-        val currentTime = System.currentTimeMillis()
-
-        // Hysteresis Reset: Reset cooldown if distance exceeds 350m AND 15 mins have passed
-        if (distanceMeters > RESET_DISTANCE_METERS && (currentTime - lastAlertTimestamp > COOLDOWN_MILLIS)) {
-            isCooldownActive = false
-        }
-
-        // 200m Notification Alert Boundary
+        // Under 200m: Trigger initial alert or silent live-meter update
         if (distanceMeters <= 200.0) {
-            if (!isCooldownActive && (currentTime - lastAlertTimestamp > COOLDOWN_MILLIS)) {
-                val roundedDistance = distanceMeters.roundToInt()
-                triggerNotification(context, "$partnerName is nearby (~$roundedDistance m)")
-                lastAlertTimestamp = currentTime
-                isCooldownActive = true
+            val roundedDistance = distanceMeters.roundToInt()
+            val titleText: String
+            val messageText: String
+
+            if (distanceMeters <= 50.0) {
+                titleText = "$partnerName is very close (~$roundedDistance m)"
+                messageText = "Radar Available • Tap to track with precision"
+            } else {
+                titleText = "$partnerName is nearby (~$roundedDistance m)"
+                messageText = "Moving closer • Live distance tracking"
             }
+
+            triggerNotification(context, titleText, messageText)
+            isAlertActive = true
+        } else if (distanceMeters > DISMISS_DISTANCE_METERS && isAlertActive) {
+            // Exit Range (> 250m): Auto-dismiss notification from drawer
+            dismissNotification(context)
+            isAlertActive = false
         }
     }
 
-    private fun triggerNotification(context: Context, titleText: String) {
+    private fun triggerNotification(context: Context, titleText: String, messageText: String) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -48,7 +53,7 @@ object ProximityNotificationHelper {
                 "Proximity Alerts",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Heads-up alert when partner is nearby"
+                description = "Heads-up alert and live distance tracking when partner is nearby"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 300)
                 setShowBadge(true)
@@ -64,15 +69,33 @@ object ProximityNotificationHelper {
             }
         }
 
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val contentPendingIntent = if (launchIntent != null) {
+            PendingIntent.getActivity(
+                context,
+                0,
+                launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else null
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(titleText)
-            .setContentText("")
+            .setContentText(messageText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(contentPendingIntent)
             .setAutoCancel(true)
             .build()
 
         notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun dismissNotification(context: Context) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(NOTIFICATION_ID)
     }
 }
