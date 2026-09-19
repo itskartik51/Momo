@@ -8,7 +8,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -46,11 +48,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Calendar.ApyBdayCalculator
 import com.personal.momo.UI_Screens.Calendar.MomoEvent
@@ -135,8 +140,6 @@ object MomoNotificationEngine {
 
             if (event.isSpecial) {
                 // Milestone schedule: 7, 5, 2, 0 days
-                // Left: "7 Days to go", "5 Days to go", "2 Days to go", or "Today"
-                // Right Tag: "{X} Years"
                 if (daysRemaining in listOf(7L, 5L, 2L, 0L)) {
                     val headline = if (daysRemaining == 0L) "Today" else "$daysRemaining Days to go"
                     val tag = yearsSuffix
@@ -155,8 +158,6 @@ object MomoNotificationEngine {
                 }
             } else {
                 // Non-milestone regular schedule: strictly same day (0 days)
-                // Left: "{X} Years ago Today"
-                // Right Tag: "Today"
                 if (daysRemaining == 0L) {
                     val headline = if (yearsAgoPrefix.isNotEmpty()) "$yearsAgoPrefix Today" else "Today"
                     list.add(
@@ -223,9 +224,13 @@ fun NotificationsScreen(
     }
 
     val context = LocalContext.current
+    val density = LocalDensity.current
     val allEvents by CacheManager.eventsFlow.collectAsState()
     val loggedPeriodDates by CacheManager.periodDatesFlow.collectAsState()
+    val currentTym by CacheManager.tymFlow.collectAsState()
     val today = remember { LocalDate.now() }
+
+    var isCapsuleVisible by remember { mutableStateOf(false) }
 
     val notifications = remember(allEvents, loggedPeriodDates, today) {
         MomoNotificationEngine.computeNotifications(today, allEvents, loggedPeriodDates)
@@ -254,34 +259,166 @@ fun NotificationsScreen(
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 3.dp
             ) {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Left Section: Back Button + "Notifications" Title + Dynamic Number Circle
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .bounceClick(scaleDown = 0.88f) { onBack() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "Notifications",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        // Dynamic Number Circle Badge with anchored Capsule Popup
+                        Box(contentAlignment = Alignment.Center) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                                        shape = CircleShape
+                                    )
+                                    .bounceClick(scaleDown = 0.92f) {
+                                        if (currentTym != null) {
+                                            isCapsuleVisible = !isCapsuleVisible
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = currentTym?.toString() ?: "",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            // Floating Capsule / Pill (+ / - Controls)
+                            if (isCapsuleVisible && currentTym != null) {
+                                val yOffsetPx = with(density) { 42.dp.roundToPx() }
+                                Popup(
+                                    alignment = Alignment.TopCenter,
+                                    offset = IntOffset(0, yOffsetPx),
+                                    onDismissRequest = { isCapsuleVisible = false }
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        shadowElevation = 8.dp,
+                                        border = BorderStroke(
+                                            width = 1.dp,
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Minus Button (-)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(brush = MomoPrimaryGradient)
+                                                    .bounceClick(scaleDown = 0.88f) {
+                                                        val updated = (currentTym ?: 0L) - 1
+                                                        CacheManager.updateTym(updated)
+                                                        isCapsuleVisible = false
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "−",
+                                                    color = Color.White,
+                                                    fontSize = 18.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+
+                                            // Plus Button (+)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(brush = MomoPrimaryGradient)
+                                                    .bounceClick(scaleDown = 0.88f) {
+                                                        val updated = (currentTym ?: 0L) + 1
+                                                        CacheManager.updateTym(updated)
+                                                        isCapsuleVisible = false
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = "+",
+                                                    color = Color.White,
+                                                    fontSize = 18.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Right Section: 2 Parallel Lines (Veggie Burger Style, inactive placeholder)
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .align(Alignment.CenterStart)
-                            .clip(CircleShape)
-                            .bounceClick(scaleDown = 0.88f) { onBack() },
+                            .bounceClick(scaleDown = 0.90f) {
+                                // Placeholder for future menu action
+                            },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.5.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(18.dp)
+                                    .height(2.5.dp)
+                                    .clip(RoundedCornerShape(1.5.dp))
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(18.dp)
+                                    .height(2.5.dp)
+                                    .clip(RoundedCornerShape(1.5.dp))
+                                    .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                        }
                     }
-
-                    Text(
-                        text = "Notifications",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
                 }
             }
 
