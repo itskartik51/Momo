@@ -73,6 +73,7 @@ class ProximityLocationService : Service() {
     private var isContinuousUpdatesActive = false
 
     private var lastFirestoreUploadTime: Long = 0L
+    private var isManualLiveActive: Boolean = false
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -105,11 +106,31 @@ class ProximityLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val currentUserId = CacheManager.getAppUserId(this)
-        updateUserIdentity(currentUserId)
-        lastFirestoreUploadTime = 0L
-        serviceScope.launch {
-            fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+        when (intent?.action) {
+            ACTION_START_LIVE -> {
+                isManualLiveActive = true
+                setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 10_000L)
+                serviceScope.launch {
+                    fetchAndProcessSingleLocation(Priority.PRIORITY_HIGH_ACCURACY)
+                }
+            }
+            ACTION_STOP_LIVE -> {
+                isManualLiveActive = false
+                evaluateProximityStateMachine()
+            }
+            ACTION_FORCE_SYNC -> {
+                serviceScope.launch {
+                    fetchAndProcessSingleLocation(Priority.PRIORITY_HIGH_ACCURACY)
+                }
+            }
+            else -> {
+                val currentUserId = CacheManager.getAppUserId(this)
+                updateUserIdentity(currentUserId)
+                lastFirestoreUploadTime = 0L
+                serviceScope.launch {
+                    fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+                }
+            }
         }
         return START_STICKY
     }
@@ -267,7 +288,7 @@ class ProximityLocationService : Service() {
         }
 
         val currentTime = System.currentTimeMillis()
-        if (isMeInHome) {
+        if (isMeInHome && !isManualLiveActive) {
             if (currentTime - lastFirestoreUploadTime >= 30 * 60 * 1000L) {
                 uploadMyLocationToFirestore(location)
             }
@@ -400,6 +421,28 @@ class ProximityLocationService : Service() {
             return
         }
 
+        val currentUserId = CacheManager.getAppUserId(this)
+        val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
+
+        // Proximity notifications & BLE handshake evaluation
+        if (partnerGeo != null && currentRelativeDistance != null) {
+            ProximityNotificationHelper.evaluateAlert(this, partnerName, currentRelativeDistance)
+
+            if (currentRelativeDistance <= 50.0) {
+                BleProximityManager.startHandshake(this) { rssi -> }
+            } else {
+                BleProximityManager.stopHandshake()
+            }
+        } else {
+            BleProximityManager.stopHandshake()
+        }
+
+        // Live Mode Override: Stays 10s Continuous only while Tracker Screen is active
+        if (isManualLiveActive) {
+            setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 10_000L)
+            return
+        }
+
         val isMeInHome = if (myHome != null) {
             val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
                 myLoc.latitude, myLoc.longitude,
@@ -410,55 +453,30 @@ class ProximityLocationService : Service() {
             false
         }
 
-        val currentUserId = CacheManager.getAppUserId(this)
-        val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
-
         if (isMeInHome) {
             setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
-
-            if (partnerGeo != null && currentRelativeDistance != null) {
-                ProximityNotificationHelper.evaluateAlert(this, partnerName, currentRelativeDistance)
-
-                if (currentRelativeDistance <= 50.0) {
-                    BleProximityManager.startHandshake(this) { rssi ->
-                    }
-                } else {
-                    BleProximityManager.stopHandshake()
-                }
-            } else {
-                BleProximityManager.stopHandshake()
-            }
             return
         }
 
         if (partnerGeo != null && currentRelativeDistance != null) {
-            ProximityNotificationHelper.evaluateAlert(this, partnerName, currentRelativeDistance)
-
             when {
                 currentRelativeDistance <= 50.0 -> {
-                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
-                    BleProximityManager.startHandshake(this) { rssi ->
-                    }
+                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 10_000L)
                 }
                 currentRelativeDistance < 150.0 -> {
-                    BleProximityManager.stopHandshake()
-                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 15_000L)
+                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 10_000L)
                 }
                 currentRelativeDistance <= 200.0 -> {
-                    BleProximityManager.stopHandshake()
-                    setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 1 * 60 * 1000L)
+                    setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 30_000L)
                 }
                 currentRelativeDistance <= 500.0 -> {
-                    BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 5 * 60 * 1000L)
                 }
                 else -> {
-                    BleProximityManager.stopHandshake()
                     setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
                 }
             }
         } else {
-            BleProximityManager.stopHandshake()
             setTrackingMode(TrackingMode.FAR_RANGE_PERIODIC, 10 * 60 * 1000L)
         }
     }
@@ -567,6 +585,9 @@ class ProximityLocationService : Service() {
 
     companion object {
         private const val NOTIFICATION_ID = 8001
+        const val ACTION_START_LIVE = "com.personal.momo.action.START_LIVE"
+        const val ACTION_STOP_LIVE = "com.personal.momo.action.STOP_LIVE"
+        const val ACTION_FORCE_SYNC = "com.personal.momo.action.FORCE_SYNC"
 
         fun startService(context: Context) {
             val intent = Intent(context, ProximityLocationService::class.java)
@@ -580,6 +601,39 @@ class ProximityLocationService : Service() {
         fun stopService(context: Context) {
             val intent = Intent(context, ProximityLocationService::class.java)
             context.stopService(intent)
+        }
+
+        fun startLive(context: Context) {
+            val intent = Intent(context, ProximityLocationService::class.java).apply {
+                action = ACTION_START_LIVE
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun stopLive(context: Context) {
+            val intent = Intent(context, ProximityLocationService::class.java).apply {
+                action = ACTION_STOP_LIVE
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun forceSync(context: Context) {
+            val intent = Intent(context, ProximityLocationService::class.java).apply {
+                action = ACTION_FORCE_SYNC
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
         }
     }
 }
