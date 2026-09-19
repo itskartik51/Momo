@@ -30,6 +30,7 @@ object CacheManager {
     private const val KEY_EVENTS = "cached_events"
     private const val KEY_SECURITY_LOCK = "cached_security_lock"
     private const val KEY_TYM = "cached_tym"
+    private const val KEY_APP_USER_ID = "cached_app_user_id"
 
     private var prefs: SharedPreferences? = null
 
@@ -47,6 +48,9 @@ object CacheManager {
 
     private val _tymFlow = MutableStateFlow<Long?>(null)
     val tymFlow: StateFlow<Long?> = _tymFlow.asStateFlow()
+
+    private val _appUserIdFlow = MutableStateFlow("Kanu")
+    val appUserIdFlow: StateFlow<String> = _appUserIdFlow.asStateFlow()
 
     fun init(context: Context) {
         if (prefs == null) {
@@ -104,6 +108,9 @@ object CacheManager {
         if (p.contains(KEY_TYM)) {
             _tymFlow.value = p.getLong(KEY_TYM, 0L)
         }
+
+        // 6. Instant Synchronous Load: App User ID
+        _appUserIdFlow.value = p.getString(KEY_APP_USER_ID, "Kanu") ?: "Kanu"
     }
 
     fun isSecurityLockEnabled(context: Context): Boolean {
@@ -119,6 +126,21 @@ object CacheManager {
         }
         prefs?.edit()?.putBoolean(KEY_SECURITY_LOCK, enabled)?.apply()
         _securityLockFlow.value = enabled
+    }
+
+    fun getAppUserId(context: Context): String {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        return prefs?.getString(KEY_APP_USER_ID, "Kanu") ?: "Kanu"
+    }
+
+    fun setAppUserId(context: Context, userId: String) {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        prefs?.edit()?.putString(KEY_APP_USER_ID, userId)?.apply()
+        _appUserIdFlow.value = userId
     }
 
     /**
