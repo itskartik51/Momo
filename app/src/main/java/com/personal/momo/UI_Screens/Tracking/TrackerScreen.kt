@@ -4,9 +4,19 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -19,8 +29,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
@@ -34,12 +46,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -54,7 +73,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 @Composable
 fun TrackerScreen(
@@ -99,7 +121,11 @@ fun TrackerScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
             // Header Top Bar
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -230,7 +256,7 @@ fun TrackerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Main Tabular Tracking Card
+            // Card 1: Tabular Tracking Details Card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -292,6 +318,249 @@ fun TrackerScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Card 2: Partner Compass & Radar Dial Card (ColorOS Minimal Style)
+            CompassRadarCard(
+                partnerInfo = trackerState.partnerInfo,
+                selfInfo = trackerState.selfInfo,
+                distanceMeters = trackerState.distanceMeters
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun CompassRadarCard(
+    partnerInfo: CacheManager.UserLocationInfo,
+    selfInfo: CacheManager.UserLocationInfo,
+    distanceMeters: Int?
+) {
+    val context = LocalContext.current
+
+    var continuousAzimuth by remember { mutableFloatStateOf(0f) }
+    var lastRawAzimuth by remember { mutableFloatStateOf(0f) }
+
+    DisposableEffect(Unit) {
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+
+        val listener = object : SensorEventListener {
+            val rotationMatrix = FloatArray(9)
+            val orientationAngles = FloatArray(3)
+
+            override fun onSensorChanged(event: SensorEvent) {
+                if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
+                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                    SensorManager.getOrientation(rotationMatrix, orientationAngles)
+                    val rawDeg = ((Math.toDegrees(orientationAngles[0].toDouble()) + 360.0) % 360.0).toFloat()
+
+                    var diff = rawDeg - lastRawAzimuth
+                    if (diff > 180f) diff -= 360f
+                    if (diff < -180f) diff += 360f
+
+                    continuousAzimuth += diff
+                    lastRawAzimuth = rawDeg
+                }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+
+        if (rotationSensor != null) {
+            sensorManager.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
+        }
+
+        onDispose {
+            sensorManager.unregisterListener(listener)
+        }
+    }
+
+    val animatedAzimuth by animateFloatAsState(
+        targetValue = continuousAzimuth,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "compassSmoothSpring"
+    )
+
+    val partnerBearing = remember(selfInfo.latitude, selfInfo.longitude, partnerInfo.latitude, partnerInfo.longitude) {
+        if (selfInfo.latitude != null && selfInfo.longitude != null &&
+            partnerInfo.latitude != null && partnerInfo.longitude != null
+        ) {
+            calculateBearing(selfInfo.latitude, selfInfo.longitude, partnerInfo.latitude, partnerInfo.longitude).toFloat()
+        } else {
+            null
+        }
+    }
+
+    // Relative angle between phone orientation and partner
+    val relativeAngle = remember(animatedAzimuth, partnerBearing) {
+        if (partnerBearing != null) {
+            val normalizedAzimuth = ((animatedAzimuth % 360f) + 360f) % 360f
+            ((partnerBearing - normalizedAzimuth + 360f) % 360f).roundToInt()
+        } else {
+            null
+        }
+    }
+
+    val cardinalDirection = remember(partnerBearing) {
+        if (partnerBearing != null) getCardinalDirection(partnerBearing.toDouble()) else "--"
+    }
+
+    val formattedDistance = remember(distanceMeters) {
+        formatDistanceLabel(distanceMeters)
+    }
+
+    val directionDistanceTitle = if (partnerBearing != null && distanceMeters != null) {
+        "$cardinalDirection ($formattedDistance)"
+    } else if (partnerBearing != null) {
+        cardinalDirection
+    } else {
+        "--"
+    }
+
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+    val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val accentRedColor = Color(0xFFE53935)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Dial Canvas
+            Box(
+                modifier = Modifier.size(240.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val center = this.center
+                    val radius = (size.minDimension / 2f) - 32.dp.toPx()
+
+                    // Top Fixed Red Pointer Triangle pointing down
+                    val pointerPath = Path().apply {
+                        val tipY = center.y - radius + 2.dp.toPx()
+                        val baseY = tipY - 10.dp.toPx()
+                        val halfWidth = 5.dp.toPx()
+                        moveTo(center.x, tipY)
+                        lineTo(center.x - halfWidth, baseY)
+                        lineTo(center.x + halfWidth, baseY)
+                        close()
+                    }
+                    drawPath(pointerPath, color = accentRedColor)
+
+                    // Dial rotation: Rotates so that partner angle aligns with the top needle
+                    val dialRotation = if (partnerBearing != null) {
+                        partnerBearing - animatedAzimuth
+                    } else {
+                        -animatedAzimuth
+                    }
+
+                    rotate(dialRotation, pivot = center) {
+                        // 120 Ticks: Major every 30° (10 ticks), Minor in between
+                        for (i in 0 until 120) {
+                            val angleDeg = i * 3f
+                            val angleRad = Math.toRadians(angleDeg.toDouble())
+
+                            val isMajor = (i % 10 == 0)
+                            val isNorthOrTarget = (i == 0)
+
+                            val tickLength = if (isMajor) 10.dp.toPx() else 5.dp.toPx()
+                            val strokeWidth = if (isMajor) 1.8.dp.toPx() else 0.8.dp.toPx()
+                            val tickColor = when {
+                                isNorthOrTarget -> accentRedColor
+                                isMajor -> onSurfaceColor.copy(alpha = 0.8f)
+                                else -> onSurfaceVariantColor.copy(alpha = 0.35f)
+                            }
+
+                            val innerR = radius - tickLength
+                            val startX = center.x + innerR * sin(angleRad).toFloat()
+                            val startY = center.y - innerR * cos(angleRad).toFloat()
+
+                            val endX = center.x + radius * sin(angleRad).toFloat()
+                            val endY = center.y - radius * cos(angleRad).toFloat()
+
+                            drawLine(
+                                color = tickColor,
+                                start = Offset(startX, startY),
+                                end = Offset(endX, endY),
+                                strokeWidth = strokeWidth
+                            )
+
+                            // Numbers: 0, 30, 60 ... 330
+                            if (isMajor) {
+                                val numberText = angleDeg.toInt().toString()
+                                val numRadius = radius + 14.dp.toPx()
+                                val numX = center.x + numRadius * sin(angleRad).toFloat()
+                                val numY = center.y - numRadius * cos(angleRad).toFloat()
+
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    numberText,
+                                    numX,
+                                    numY + 4.dp.toPx(),
+                                    Paint().apply {
+                                        color = if (isNorthOrTarget) accentRedColor.toArgb() else onSurfaceVariantColor.toArgb()
+                                        textSize = 10.sp.toPx()
+                                        textAlign = Paint.Align.CENTER
+                                        typeface = Typeface.DEFAULT_BOLD
+                                        isAntiAlias = true
+                                    }
+                                )
+                            }
+                        }
+
+                        // Partner Name Tag at 0° Marker
+                        val partnerNameTag = partnerInfo.name.ifBlank { "Partner" }
+                        val labelRadius = radius - 20.dp.toPx()
+                        drawContext.canvas.nativeCanvas.drawText(
+                            partnerNameTag,
+                            center.x,
+                            center.y - labelRadius,
+                            Paint().apply {
+                                color = accentRedColor.toArgb()
+                                textSize = 11.sp.toPx()
+                                textAlign = Paint.Align.CENTER
+                                typeface = Typeface.DEFAULT_BOLD
+                                isAntiAlias = true
+                            }
+                        )
+                    }
+                }
+
+                // Center Big Angle Display
+                Text(
+                    text = if (relativeAngle != null) "$relativeAngle°" else "--°",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Direction & Distance Label: e.g. North-East (510 m) / North-East (1.4 km)
+            Text(
+                text = directionDistanceTitle,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 }
@@ -376,6 +645,35 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
                 maxLines = 1
             )
         }
+    }
+}
+
+private fun calculateBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val phi1 = Math.toRadians(lat1)
+    val phi2 = Math.toRadians(lat2)
+    val deltaLambda = Math.toRadians(lon2 - lon1)
+
+    val y = sin(deltaLambda) * cos(phi2)
+    val x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(deltaLambda)
+    val theta = atan2(y, x)
+    return (Math.toDegrees(theta) + 360.0) % 360.0
+}
+
+private fun getCardinalDirection(bearing: Double): String {
+    val directions = arrayOf(
+        "North", "North-East", "East", "South-East",
+        "South", "South-West", "West", "North-West"
+    )
+    val index = ((bearing + 22.5) / 45.0).toInt() % 8
+    return directions[index]
+}
+
+private fun formatDistanceLabel(meters: Int?): String {
+    if (meters == null) return "--"
+    return if (meters < 1000) {
+        "$meters m"
+    } else {
+        String.format(Locale.ENGLISH, "%.1f km", meters / 1000.0)
     }
 }
 
