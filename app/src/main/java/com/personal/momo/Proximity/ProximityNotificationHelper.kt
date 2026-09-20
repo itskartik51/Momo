@@ -16,12 +16,9 @@ object ProximityNotificationHelper {
 
     private const val CHANNEL_ID = "momo_proximity_alerts_channel"
     private const val NOTIFICATION_ID = 8002
-    private const val DISMISS_DISTANCE_METERS = 250.0
-
-    private var isAlertActive: Boolean = false
 
     fun evaluateAlert(context: Context, partnerName: String, distanceMeters: Double) {
-        // Under 200m: Trigger initial alert or silent live-meter update
+        // Strict 200m boundary: Live continuous updates under 200m, immediate dismiss beyond 200m
         if (distanceMeters <= 200.0) {
             val roundedDistance = distanceMeters.roundToInt()
             val titleText: String
@@ -36,12 +33,13 @@ object ProximityNotificationHelper {
             }
 
             triggerNotification(context, titleText, messageText)
-            isAlertActive = true
-        } else if (distanceMeters > DISMISS_DISTANCE_METERS && isAlertActive) {
-            // Exit Range (> 250m): Auto-dismiss notification from drawer
+        } else {
             dismissNotification(context)
-            isAlertActive = false
         }
+    }
+
+    fun dismiss(context: Context) {
+        dismissNotification(context)
     }
 
     private fun triggerNotification(context: Context, titleText: String, messageText: String) {
