@@ -66,13 +66,13 @@ import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 import com.personal.momo.UI_Screens.Calendar.MomoEventsCalculator
 import com.personal.momo.UI_Screens.Calendar.MonthEventsAgendaCard
+import com.personal.momo.UI_Screens.Finder.FinderScreen
 import com.personal.momo.UI_Screens.Notifications.MomoNotificationEngine
 import com.personal.momo.UI_Screens.Notifications.NotificationAlarmReceiver
 import com.personal.momo.UI_Screens.Notifications.NotificationsPreferences
 import com.personal.momo.UI_Screens.Notifications.NotificationsScreen
 import com.personal.momo.UI_Screens.Settings.MenuScreen
 import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
-import com.personal.momo.UI_Screens.Tracking.TrackerScreen
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -206,7 +206,7 @@ fun HomeScreen() {
     ) { destination ->
         when (destination) {
             HomeScreenDestination.FINDER -> {
-                TrackerScreen(
+                FinderScreen(
                     onBack = { isFinderOpen = false }
                 )
             }
