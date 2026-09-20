@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -265,7 +266,7 @@ fun TrackerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Card 1: Tabular Tracking Details Card
+            // Card 1: Sleek 3-Column Compact Location Card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -279,12 +280,12 @@ fun TrackerScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp)
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     // Row 1: Partner Info
                     TrackerRowItem(item = trackerState.partnerInfo)
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     HorizontalDivider(
                         modifier = Modifier.fillMaxWidth(),
@@ -292,39 +293,10 @@ fun TrackerScreen(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Row 2: Self Info
                     TrackerRowItem(item = trackerState.selfInfo)
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    HorizontalDivider(
-                        modifier = Modifier.fillMaxWidth(),
-                        thickness = 0.8.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Row 3: Inter-Device Distance
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val distanceText = if (trackerState.distanceMeters != null) {
-                            "Distance : ${trackerState.distanceMeters} m"
-                        } else {
-                            "Distance : -- m"
-                        }
-
-                        Text(
-                            text = distanceText,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
                 }
             }
 
@@ -733,76 +705,85 @@ private fun CompassRadarCard(
 @Composable
 private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
     val context = LocalContext.current
+    val hasValidCoords = item.latitude != null && item.longitude != null
 
-    Column(
-        modifier = Modifier.fillMaxWidth()
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Line 1: Name (Click opens Google Maps) on Left, Time on Right
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        // Column 1 (Left): Name (Big & Bold, Click opens Google Maps)
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(6.dp))
+                .then(
+                    if (hasValidCoords) {
+                        Modifier.bounceClick(scaleDown = 0.94f) {
+                            openGoogleMaps(context, item.latitude!!, item.longitude!!, item.name)
+                        }
+                    } else Modifier
+                ),
+            contentAlignment = Alignment.CenterStart
         ) {
-            val hasValidCoords = item.latitude != null && item.longitude != null
+            Text(
+                text = item.name.ifBlank { "--" },
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .then(
-                        if (hasValidCoords) {
-                            Modifier.bounceClick(scaleDown = 0.94f) {
-                                openGoogleMaps(context, item.latitude!!, item.longitude!!, item.name)
-                            }
-                        } else Modifier
-                    )
+        // Column 2 (Center): Coordinates in Option A Format (NL / EL)
+        // Click copies standard coordinates format to clipboard
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .then(
+                    if (hasValidCoords) {
+                        Modifier.bounceClick(scaleDown = 0.95f) {
+                            val textToCopy = formatCopyCoordinates(item.latitude, item.longitude)
+                            copyToClipboard(context, textToCopy)
+                        }
+                    } else Modifier
+                )
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.Start
             ) {
                 Text(
-                    text = item.name.ifBlank { "--" },
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = formatDms(item.latitude, isLatitude = true),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = formatDms(item.longitude, isLatitude = false),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
             }
+        }
 
+        // Column 3 (Right): Meta Info (Time & Accuracy)
+        Column(
+            horizontalAlignment = Alignment.End
+        ) {
             Text(
                 text = formatTimestamp(item.timestamp),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1
             )
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Line 2: Coordinates (Click copies to clipboard) on Left, Accuracy on Right
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val formattedCoords = formatCoordinates(item.latitude, item.longitude)
-            val isClickable = item.latitude != null && item.longitude != null
-
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .then(
-                        if (isClickable) {
-                            Modifier.bounceClick(scaleDown = 0.95f) {
-                                copyToClipboard(context, "${item.latitude}, ${item.longitude}")
-                            }
-                        } else Modifier
-                    )
-            ) {
-                Text(
-                    text = formattedCoords,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
-                )
-            }
-
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = formatAccuracy(item.accuracy),
                 fontSize = 11.sp,
@@ -939,6 +920,35 @@ private fun formatDistanceLabel(meters: Int?): String {
     }
 }
 
+private fun formatDms(value: Double?, isLatitude: Boolean): String {
+    if (value == null) return "--"
+    val absVal = abs(value)
+    val degrees = absVal.toInt()
+    val minutesDecimal = (absVal - degrees) * 60.0
+    val minutes = minutesDecimal.toInt()
+    val seconds = ((minutesDecimal - minutes) * 60.0).roundToInt()
+    val prefix = if (isLatitude) {
+        if (value >= 0.0) "NL" else "SL"
+    } else {
+        if (value >= 0.0) "EL" else "WL"
+    }
+    return "$prefix  $degrees°$minutes'$seconds\""
+}
+
+private fun formatCopyCoordinates(lat: Double?, lng: Double?): String {
+    if (lat == null || lng == null) return "--"
+    val latDir = if (lat >= 0.0) "N" else "S"
+    val lngDir = if (lng >= 0.0) "E" else "W"
+    return String.format(
+        Locale.ENGLISH,
+        "%.6f° %s, %.6f° %s",
+        abs(lat),
+        latDir,
+        abs(lng),
+        lngDir
+    )
+}
+
 private fun openGoogleMaps(context: Context, lat: Double, lng: Double, label: String) {
     val geoUri = Uri.parse("geo:$lat,$lng?q=$lat,$lng(${Uri.encode(label)})")
     val mapIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
@@ -959,20 +969,6 @@ private fun copyToClipboard(context: Context, text: String) {
     val clip = ClipData.newPlainText("Coordinates", text)
     clipboard.setPrimaryClip(clip)
     Toast.makeText(context, "Coordinates copied", Toast.LENGTH_SHORT).show()
-}
-
-private fun formatCoordinates(lat: Double?, lng: Double?): String {
-    if (lat == null || lng == null) return "--"
-    val latDir = if (lat >= 0.0) "N" else "S"
-    val lngDir = if (lng >= 0.0) "E" else "W"
-    return String.format(
-        Locale.ENGLISH,
-        "%.6f° %s, %.6f° %s",
-        abs(lat),
-        latDir,
-        abs(lng),
-        lngDir
-    )
 }
 
 private fun formatAccuracy(accuracy: Float?): String {
