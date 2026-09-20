@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,6 +50,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.Proximity.ProximityMath
+import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
@@ -426,12 +428,21 @@ fun CompassRadarCard(
                 "$partnerDisplayName: -- ($formattedDistance)"
             }
 
-            Text(
-                text = radarTitleText,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (isTargetLocked) primaryColor else MaterialTheme.colorScheme.onSurface
-            )
+            if (isTargetLocked) {
+                Text(
+                    text = radarTitleText,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    style = TextStyle(brush = MomoPrimaryGradient)
+                )
+            } else {
+                Text(
+                    text = radarTitleText,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
 }
