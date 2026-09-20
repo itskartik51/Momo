@@ -32,6 +32,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -70,6 +72,7 @@ import com.personal.momo.UI_Screens.Notifications.NotificationsPreferences
 import com.personal.momo.UI_Screens.Notifications.NotificationsScreen
 import com.personal.momo.UI_Screens.Settings.MenuScreen
 import com.personal.momo.UI_Screens.Settings.checkIsUpdateAvailable
+import com.personal.momo.UI_Screens.Tracking.TrackerScreen
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -94,7 +97,8 @@ private val MomoBoldFont = FontFamily(Font(R.font.momo_bold))
 private enum class HomeScreenDestination {
     HOME,
     MENU,
-    NOTIFICATIONS
+    NOTIFICATIONS,
+    FINDER
 }
 
 @Composable
@@ -102,6 +106,7 @@ fun HomeScreen() {
     val context = LocalContext.current
     var isMenuOpen by remember { mutableStateOf(false) }
     var isNotificationsOpen by remember { mutableStateOf(false) }
+    var isFinderOpen by remember { mutableStateOf(false) }
     var isUpdateAvailable by remember { mutableStateOf(false) }
     var currentVisibleMonth by remember { mutableStateOf(YearMonth.now()) }
 
@@ -170,6 +175,7 @@ fun HomeScreen() {
     }
 
     val currentDestination = when {
+        isFinderOpen -> HomeScreenDestination.FINDER
         isNotificationsOpen -> HomeScreenDestination.NOTIFICATIONS
         isMenuOpen -> HomeScreenDestination.MENU
         else -> HomeScreenDestination.HOME
@@ -199,6 +205,12 @@ fun HomeScreen() {
         label = "HomeScreenDestinationTransition"
     ) { destination ->
         when (destination) {
+            HomeScreenDestination.FINDER -> {
+                TrackerScreen(
+                    onBack = { isFinderOpen = false }
+                )
+            }
+
             HomeScreenDestination.NOTIFICATIONS -> {
                 NotificationsScreen(
                     onBack = { isNotificationsOpen = false }
@@ -225,6 +237,9 @@ fun HomeScreen() {
                             avatarUrl = avatarUrl,
                             isUpdateAvailable = isUpdateAvailable,
                             hasUnreadNotifications = hasUnreadNotifications,
+                            onFinderClick = {
+                                isFinderOpen = true
+                            },
                             onNotificationsClick = {
                                 isNotificationsOpen = true
                                 NotificationsPreferences.markAsSeen(context, activeSignature)
@@ -278,6 +293,7 @@ private fun HomeHeader(
     avatarUrl: String?,
     isUpdateAvailable: Boolean,
     hasUnreadNotifications: Boolean,
+    onFinderClick: () -> Unit,
     onNotificationsClick: () -> Unit,
     onMenuClick: () -> Unit
 ) {
@@ -344,11 +360,29 @@ private fun HomeHeader(
                 }
             }
 
-            // Right Action Buttons
+            // Right Action Buttons (Finder -> Bell -> Menu)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                // Finder Action Button
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .bounceClick(scaleDown = 0.88f) {
+                            onFinderClick()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.MyLocation,
+                        contentDescription = "Finder",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
                 // Bell Notification Icon with unread indicator dot
                 Box(
                     modifier = Modifier
