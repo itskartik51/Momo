@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,7 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -26,9 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.Cache.CacheManager
-import com.personal.momo.UI_Screens.Tracking.TrackerScreen
 import com.personal.momo.UI_Screens.bounceClick
 import java.time.LocalDate
 
@@ -45,15 +40,6 @@ import java.time.LocalDate
 fun NotificationsScreen(
     onBack: () -> Unit
 ) {
-    var showTrackerScreen by remember { mutableStateOf(false) }
-
-    if (showTrackerScreen) {
-        TrackerScreen(
-            onBack = { showTrackerScreen = false }
-        )
-        return
-    }
-
     BackHandler {
         onBack()
     }
@@ -129,32 +115,12 @@ fun NotificationsScreen(
                         NotifyCounter(currentTym = currentTym)
                     }
 
-                    // Right Section: Tracker Icon Button + Veggie Burger Menu Button
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .bounceClick(scaleDown = 0.94f) { showTrackerScreen = true },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.MyLocation,
-                                contentDescription = "Live Tracker",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(22.dp)
-                            )
+                    // Right Section: Veggie Burger Menu Button
+                    NotifyMenuButton(
+                        onClick = {
+                            // Placeholder for future notifications menu actions
                         }
-
-                        NotifyMenuButton(
-                            onClick = {
-                                // Placeholder for future notifications menu actions
-                            }
-                        )
-                    }
+                    )
                 }
             }
 
