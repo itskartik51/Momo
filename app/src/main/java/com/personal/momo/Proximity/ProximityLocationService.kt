@@ -136,7 +136,6 @@ class ProximityLocationService : Service() {
         stopContinuousLocationUpdates()
         periodicLoopJob?.cancel()
         firestoreListener?.remove()
-        BleProximityManager.stopHandshake()
         serviceScope.cancel()
     }
 
@@ -208,15 +207,10 @@ class ProximityLocationService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val foregroundServiceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            } else {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            }
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                foregroundServiceType
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -351,17 +345,10 @@ class ProximityLocationService : Service() {
         val currentUserId = CacheManager.getAppUserId(this)
         val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
 
-        // Proximity notifications & BLE handshake evaluation
+        // Proximity notifications evaluation (Strict <= 200m)
         if (partnerGeo != null && currentRelativeDistance != null) {
             ProximityNotificationHelper.evaluateAlert(this, partnerName, currentRelativeDistance)
-
-            if (currentRelativeDistance <= 50.0) {
-                BleProximityManager.startHandshake(this) { rssi -> }
-            } else {
-                BleProximityManager.stopHandshake()
-            }
         } else {
-            BleProximityManager.stopHandshake()
             ProximityNotificationHelper.dismiss(this)
         }
 
