@@ -1,17 +1,12 @@
 package com.personal.momo.Proximity
 
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
+import android.location.Location
 
 object ProximityMath {
 
-    private const val EARTH_RADIUS_METERS = 6371000.0
-
     /**
-     * Calculates great-circle distance between two geographic coordinates using Haversine formula.
-     * Returns distance in meters.
+     * Calculates geodesic distance between two geographic coordinates using the Android OS WGS84 model.
+     * Returns distance in meters with sub-meter precision.
      */
     fun calculateDistanceMeters(
         lat1: Double,
@@ -19,15 +14,45 @@ object ProximityMath {
         lat2: Double,
         lon2: Double
     ): Double {
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
+        val results = FloatArray(1)
+        Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+        return results[0].toDouble()
+    }
 
-        val a = sin(dLat / 2) * sin(dLat / 2) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-                sin(dLon / 2) * sin(dLon / 2)
+    /**
+     * Calculates initial bearing (forward azimuth) from coordinate 1 to coordinate 2
+     * using the WGS84 geodesic model.
+     * Returns bearing in degrees normalized to [0, 360).
+     */
+    fun calculateBearing(
+        lat1: Double,
+        lon1: Double,
+        lat2: Double,
+        lon2: Double
+    ): Float {
+        val locA = Location("source").apply {
+            latitude = lat1
+            longitude = lon1
+        }
+        val locB = Location("target").apply {
+            latitude = lat2
+            longitude = lon2
+        }
+        val initialBearing = locA.bearingTo(locB)
+        return ((initialBearing % 360f) + 360f) % 360f
+    }
 
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        return EARTH_RADIUS_METERS * c
+    /**
+     * Returns standard 8-point cardinal compass direction for a given bearing degree.
+     */
+    fun getCardinalDirection(bearing: Double): String {
+        val directions = arrayOf(
+            "North", "Northeast", "East", "Southeast",
+            "South", "Southwest", "West", "Northwest"
+        )
+        val normalized = ((bearing % 360.0) + 360.0) % 360.0
+        val index = (((normalized + 22.5) / 45.0).toInt()) % 8
+        return directions[index]
     }
 
     /**
