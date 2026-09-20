@@ -46,7 +46,6 @@ import kotlin.math.roundToInt
 class ProximityLocationService : Service() {
 
     private enum class TrackingMode {
-        SAFE_ZONE_SLEEP,
         FAR_RANGE_PERIODIC,
         APPROACH_CONTINUOUS
     }
@@ -55,12 +54,7 @@ class ProximityLocationService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var firestoreListener: ListenerRegistration? = null
 
-    private var rawSafeZonesMap: Map<*, *>? = null
     private var rawLocationMap: Map<*, *>? = null
-
-    private var mySafeZone: GeoPoint? = null
-    private var partnerSafeZone: GeoPoint? = null
-    private var safeZoneRadiusMeters: Double = 100.0
 
     private var partnerLastLocation: GeoPoint? = null
     private var partnerLastAccuracy: Float = 0.0f
@@ -149,21 +143,6 @@ class ProximityLocationService : Service() {
     private fun updateUserIdentity(userId: String) {
         val isKanu = userId.equals("Kanu", ignoreCase = true)
 
-        rawSafeZonesMap?.let { safeZonesMap ->
-            val kanuHomeGeo = safeZonesMap["kanu"] as? GeoPoint
-            val momoHomeGeo = safeZonesMap["momo"] as? GeoPoint
-            val radiusValue = (safeZonesMap["radius"] as? Number)?.toDouble() ?: 100.0
-
-            safeZoneRadiusMeters = radiusValue
-            if (isKanu) {
-                mySafeZone = kanuHomeGeo
-                partnerSafeZone = momoHomeGeo
-            } else {
-                mySafeZone = momoHomeGeo
-                partnerSafeZone = kanuHomeGeo
-            }
-        }
-
         rawLocationMap?.let { locationMap ->
             val partnerKey = if (isKanu) "momo" else "kanu"
             val partnerData = locationMap[partnerKey] as? List<*>
@@ -221,7 +200,7 @@ class ProximityLocationService : Service() {
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Momo Proximity Active")
-            .setContentText("Safe zone and relative distance tracking is running")
+            .setContentText("Relative distance tracking is running")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setSilent(true)
@@ -253,7 +232,6 @@ class ProximityLocationService : Service() {
                 return@addSnapshotListener
             }
 
-            rawSafeZonesMap = snapshot.get("safe_zones") as? Map<*, *>
             rawLocationMap = snapshot.get("location") as? Map<*, *>
 
             val currentUserId = CacheManager.getAppUserId(this)
@@ -275,62 +253,12 @@ class ProximityLocationService : Service() {
         }
 
         myLastLocation = location
-
-        val myHome = mySafeZone
-        val isMeInHome = if (myHome != null) {
-            val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
-                location.latitude, location.longitude,
-                myHome.latitude, myHome.longitude
-            )
-            myDistanceToMyHome <= safeZoneRadiusMeters
-        } else {
-            false
-        }
-
-        val currentTime = System.currentTimeMillis()
-        if (isMeInHome && !isManualLiveActive) {
-            if (currentTime - lastFirestoreUploadTime >= 30 * 60 * 1000L) {
-                uploadMyLocationToFirestore(location)
-            }
-        } else {
-            uploadMyLocationToFirestore(location)
-        }
-
+        uploadMyLocationToFirestore(location)
         evaluateProximityStateMachine()
     }
 
     private fun handleLocationFetchFailure() {
-        val myHome = mySafeZone
-        val lastLoc = myLastLocation
-
-        val isLikelyInHome = if (myHome != null && lastLoc != null) {
-            val distance = ProximityMath.calculateDistanceMeters(
-                lastLoc.latitude, lastLoc.longitude,
-                myHome.latitude, myHome.longitude
-            )
-            distance <= safeZoneRadiusMeters
-        } else if (myHome != null && (currentTrackingMode == TrackingMode.SAFE_ZONE_SLEEP || currentTrackingMode == null)) {
-            true
-        } else {
-            false
-        }
-
-        if (isLikelyInHome && myHome != null) {
-            val fallbackLocation = Location("SafeZoneFallback").apply {
-                latitude = myHome.latitude
-                longitude = myHome.longitude
-                accuracy = 50.0f
-            }
-            myLastLocation = fallbackLocation
-
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastFirestoreUploadTime >= 30 * 60 * 1000L) {
-                uploadMyLocationToFirestore(fallbackLocation)
-            }
-            evaluateProximityStateMachine()
-        } else {
-            evaluateProximityStateMachine()
-        }
+        evaluateProximityStateMachine()
     }
 
     private fun uploadMyLocationToFirestore(location: Location) {
@@ -401,7 +329,6 @@ class ProximityLocationService : Service() {
     private fun evaluateProximityStateMachine() {
         val myLoc = myLastLocation
         val partnerGeo = if (isPartnerDataFresh()) partnerLastLocation else null
-        val myHome = mySafeZone
 
         val currentRelativeDistance = if (myLoc != null && partnerLastLocation != null) {
             ProximityMath.calculateDistanceMeters(
@@ -435,35 +362,19 @@ class ProximityLocationService : Service() {
             }
         } else {
             BleProximityManager.stopHandshake()
+            ProximityNotificationHelper.dismiss(this)
         }
 
-        // Live Mode Override: Stays 10s Continuous only while Tracker Screen is active
+        // Live Mode Override: Stays 10s Continuous while Tracker / Finder Screen is active
         if (isManualLiveActive) {
             setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 10_000L)
             return
         }
 
-        val isMeInHome = if (myHome != null) {
-            val myDistanceToMyHome = ProximityMath.calculateDistanceMeters(
-                myLoc.latitude, myLoc.longitude,
-                myHome.latitude, myHome.longitude
-            )
-            myDistanceToMyHome <= safeZoneRadiusMeters
-        } else {
-            false
-        }
-
-        if (isMeInHome) {
-            setTrackingMode(TrackingMode.SAFE_ZONE_SLEEP, 10 * 60 * 1000L)
-            return
-        }
-
+        // Pure Relative Distance Engine
         if (partnerGeo != null && currentRelativeDistance != null) {
             when {
-                currentRelativeDistance <= 50.0 -> {
-                    setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 10_000L)
-                }
-                currentRelativeDistance < 150.0 -> {
+                currentRelativeDistance <= 150.0 -> {
                     setTrackingMode(TrackingMode.APPROACH_CONTINUOUS, 10_000L)
                 }
                 currentRelativeDistance <= 200.0 -> {
@@ -487,7 +398,7 @@ class ProximityLocationService : Service() {
         currentTrackingIntervalMillis = intervalMillis
 
         when (mode) {
-            TrackingMode.SAFE_ZONE_SLEEP, TrackingMode.FAR_RANGE_PERIODIC -> {
+            TrackingMode.FAR_RANGE_PERIODIC -> {
                 stopContinuousLocationUpdates()
                 periodicLoopJob?.cancel()
                 periodicLoopJob = serviceScope.launch {
