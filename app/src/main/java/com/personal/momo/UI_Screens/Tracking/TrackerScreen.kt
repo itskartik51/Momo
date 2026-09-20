@@ -266,7 +266,7 @@ fun TrackerScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Card 1: Sleek 3-Column Compact Location Card
+            // Card 1: Sleek 3-Column Balanced Location Card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -709,7 +709,6 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Column 1 (Left): Name (Big & Bold, Click opens Google Maps)
@@ -737,9 +736,10 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
         }
 
         // Column 2 (Center): Coordinates in Option A Format (NL / EL)
-        // Click copies standard coordinates format to clipboard
+        // Perfectly centered horizontally via equal weight balance
         Box(
             modifier = Modifier
+                .weight(1.2f)
                 .clip(RoundedCornerShape(6.dp))
                 .then(
                     if (hasValidCoords) {
@@ -749,7 +749,7 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
                         }
                     } else Modifier
                 )
-                .padding(horizontal = 8.dp, vertical = 2.dp),
+                .padding(vertical = 2.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -775,6 +775,7 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
 
         // Column 3 (Right): Meta Info (Time & Accuracy)
         Column(
+            modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.End
         ) {
             Text(
