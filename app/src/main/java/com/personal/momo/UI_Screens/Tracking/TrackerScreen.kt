@@ -58,7 +58,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
@@ -149,7 +148,7 @@ fun TrackerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left Section: Back Button + "Tracker" Title
+                    // Left Section: Back Button + "Finder" Title
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -176,7 +175,7 @@ fun TrackerScreen(
                         }
 
                         Text(
-                            text = "Tracker",
+                            text = "Finder",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -400,7 +399,7 @@ private fun CompassRadarCard(
 
                     var diff = rawDeg - lastRawAzimuth
                     if (diff > 180f) diff -= 360f
-                    if (diff < -180f) diff -= 360f
+                    if (diff < -180f) diff += 360f
 
                     continuousAzimuth += diff
                     lastRawAzimuth = rawDeg
@@ -639,11 +638,10 @@ private fun CompassRadarCard(
                             }
                         }
 
-                        // Prominent Partner Radar Marker & Label at partnerBearing
+                        // Prominent Partner Radar Pointer Line & Label at partnerBearing (Dot removed, clearance 24dp)
                         if (partnerBearing != null) {
                             val momoRad = Math.toRadians(partnerBearing.toDouble())
 
-                            // Distinct prominent partner pointer line
                             val momoTickInner = radius - 12.dp.toPx()
                             val momoStartX = center.x + momoTickInner * sin(momoRad).toFloat()
                             val momoStartY = center.y - momoTickInner * cos(momoRad).toFloat()
@@ -658,18 +656,8 @@ private fun CompassRadarCard(
                                 cap = StrokeCap.Round
                             )
 
-                            // Target Pin Dot on the dial ring
-                            val pinDotRadius = radius - 16.dp.toPx()
-                            val dotX = center.x + pinDotRadius * sin(momoRad).toFloat()
-                            val dotY = center.y - pinDotRadius * cos(momoRad).toFloat()
-                            drawCircle(
-                                color = primaryColor,
-                                radius = 3.dp.toPx(),
-                                center = Offset(dotX, dotY)
-                            )
-
-                            // Clean Name Tag lowered with 32dp clearance
-                            val momoLabelRadius = radius - 32.dp.toPx()
+                            // Clean Name Tag at 24dp clearance
+                            val momoLabelRadius = radius - 24.dp.toPx()
                             val momoX = center.x + momoLabelRadius * sin(momoRad).toFloat()
                             val momoY = center.y - momoLabelRadius * cos(momoRad).toFloat()
 
@@ -700,16 +688,26 @@ private fun CompassRadarCard(
                     )
                 }
 
-                // Center Big Angle Display (True Phone Heading Degree)
-                Text(
-                    text = "${normalizedAzimuth.roundToInt()}°",
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                // Center Display: True Heading Degree + Live Direction
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "${normalizedAzimuth.roundToInt()}°",
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = liveHeadingDirection,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Primary Radar Title: Highlights Partner Direction & Distance
             val radarTitleText = if (partnerBearing != null) {
@@ -727,16 +725,6 @@ private fun CompassRadarCard(
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (isTargetLocked) primaryColor else MaterialTheme.colorScheme.onSurface
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Secondary Subtitle Badge: Shows Live Phone Compass Heading
-            Text(
-                text = "Heading: ${normalizedAzimuth.roundToInt()}° $liveHeadingDirection",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
