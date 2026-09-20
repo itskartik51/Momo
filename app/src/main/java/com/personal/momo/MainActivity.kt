@@ -63,18 +63,13 @@ class MainActivity : FragmentActivity() {
                 val isLockConfigured = remember { CacheManager.isSecurityLockEnabled(this) }
                 var isUnlocked by remember { mutableStateOf(!isLockConfigured) }
 
-                // Runtime Permissions Bundle (Location, Notifications, Bluetooth)
+                // Runtime Permissions Bundle (Location, Notifications)
                 val requiredPermissions = remember {
                     buildList {
                         add(android.Manifest.permission.ACCESS_FINE_LOCATION)
                         add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             add(android.Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            add(android.Manifest.permission.BLUETOOTH_SCAN)
-                            add(android.Manifest.permission.BLUETOOTH_ADVERTISE)
-                            add(android.Manifest.permission.BLUETOOTH_CONNECT)
                         }
                     }
                 }
