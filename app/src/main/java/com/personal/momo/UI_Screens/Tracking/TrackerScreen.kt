@@ -10,7 +10,6 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.location.Location
 import android.media.AudioAttributes
 import android.media.SoundPool
 import android.net.Uri
@@ -73,6 +72,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.Proximity.ProximityLocationService
+import com.personal.momo.Proximity.ProximityMath
 import com.personal.momo.UI_Screens.bounceClick
 import java.io.File
 import java.io.FileOutputStream
@@ -403,7 +403,7 @@ private fun CompassRadarCard(
         ((animatedAzimuth % 360f) + 360f) % 360f
     }
 
-    // Exact Geodesic Bearing using standard Android Location API
+    // Unified Geodesic Bearing from centralized ProximityMath
     val partnerBearing = remember(
         selfInfo.latitude,
         selfInfo.longitude,
@@ -418,13 +418,13 @@ private fun CompassRadarCard(
         if (sLat != null && sLng != null && pLat != null && pLng != null &&
             (sLat != 0.0 || sLng != 0.0)
         ) {
-            calculateAccurateBearing(sLat, sLng, pLat, pLng)
+            ProximityMath.calculateBearing(sLat, sLng, pLat, pLng)
         } else {
             null
         }
     }
 
-    // Perfectly Synced Audio Tick: Directly bound to animated heading crossing 30° / 90°
+    // Audio Tick bound to animated heading crossing 30° / 90°
     var lastStep by remember { mutableStateOf<Int?>(null) }
     var lastPlayedBoundary by remember { mutableStateOf<Int?>(null) }
 
@@ -433,7 +433,6 @@ private fun CompassRadarCard(
 
         val currentStep = floor(animatedAzimuth / 30.0).toInt()
 
-        // Clear debounce lock when moved at least 4 degrees away from boundary
         lastPlayedBoundary?.let { boundary ->
             val dist = abs(animatedAzimuth - boundary)
             if (dist >= 4.0f) {
@@ -462,21 +461,20 @@ private fun CompassRadarCard(
         }
     }
 
-    // Current Phone Live Heading Direction
+    // Current Phone Live Heading Direction via Centralized ProximityMath
     val liveHeadingDirection = remember(normalizedAzimuth) {
-        getCardinalDirection(normalizedAzimuth.toDouble())
+        ProximityMath.getCardinalDirection(normalizedAzimuth.toDouble())
     }
 
-    // Partner's Real World Direction from User
+    // Partner's Real World Direction via Centralized ProximityMath
     val partnerCardinalDirection = remember(partnerBearing) {
-        if (partnerBearing != null) getCardinalDirection(partnerBearing.toDouble()) else "--"
+        if (partnerBearing != null) ProximityMath.getCardinalDirection(partnerBearing.toDouble()) else "--"
     }
 
     val formattedDistance = remember(distanceMeters) {
         formatDistanceLabel(distanceMeters)
     }
 
-    // Angular deviation between Phone Heading and Partner
     val deviationAngle = remember(normalizedAzimuth, partnerBearing) {
         if (partnerBearing != null) {
             val diff = abs(normalizedAzimuth - partnerBearing)
@@ -518,10 +516,8 @@ private fun CompassRadarCard(
                     val center = this.center
                     val radius = (size.minDimension / 2f) - 38.dp.toPx()
 
-                    // Dial rotates based on phone's true geographic azimuth
                     val dialRotation = -animatedAzimuth
 
-                    // Momo-Centric Shortest Path Arc Calculation
                     val diffCW = if (partnerBearing != null) {
                         ((normalizedAzimuth - partnerBearing + 360f) % 360f)
                     } else 0f
@@ -530,7 +526,6 @@ private fun CompassRadarCard(
                     val shortestSpan = if (isClockwiseShortest) diffCW else (360f - diffCW)
 
                     rotate(dialRotation, pivot = center) {
-                        // 120 Ticks: Major every 30° (10 ticks), Minor in between
                         for (i in 0 until 120) {
                             val angleDeg = i * 3f
                             val angleRad = Math.toRadians(angleDeg.toDouble())
@@ -538,7 +533,6 @@ private fun CompassRadarCard(
                             val isMajor = (i % 10 == 0)
                             val isNorthZero = (i == 0)
 
-                            // Ticks covered strictly between Momo's position and phone heading
                             val isTickCovered = if (partnerBearing != null && shortestSpan > 1.5f) {
                                 if (isClockwiseShortest) {
                                     val distFromMomo = ((angleDeg - partnerBearing + 360f) % 360f)
@@ -549,7 +543,6 @@ private fun CompassRadarCard(
                                 }
                             } else false
 
-                            // Dynamic Gradient sweep along the arc connecting Momo and Heading Notch
                             val tickColor = if (isTickCovered && partnerBearing != null && shortestSpan > 0f) {
                                 val fraction = if (isClockwiseShortest) {
                                     val distFromMomo = ((angleDeg - partnerBearing + 360f) % 360f)
@@ -586,7 +579,6 @@ private fun CompassRadarCard(
                                 cap = StrokeCap.Round
                             )
 
-                            // Radially aligned numbers (0, 30, 60 ... 330)
                             if (isMajor) {
                                 val numberText = angleDeg.toInt().toString()
                                 val numRadius = radius + 22.dp.toPx()
@@ -610,7 +602,7 @@ private fun CompassRadarCard(
                             }
                         }
 
-                        // Prominent Partner Radar Pointer Line & Label at partnerBearing (Dot removed, clearance 24dp)
+                        // Prominent Partner Radar Pointer Line & Label at partnerBearing
                         if (partnerBearing != null) {
                             val momoRad = Math.toRadians(partnerBearing.toDouble())
 
@@ -628,7 +620,6 @@ private fun CompassRadarCard(
                                 cap = StrokeCap.Round
                             )
 
-                            // Clean Name Tag at 24dp clearance
                             val momoLabelRadius = radius - 24.dp.toPx()
                             val momoX = center.x + momoLabelRadius * sin(momoRad).toFloat()
                             val momoY = center.y - momoLabelRadius * cos(momoRad).toFloat()
@@ -650,7 +641,7 @@ private fun CompassRadarCard(
                         }
                     }
 
-                    // Top Fixed Indicator Notch at 12 o'clock (ColorOS clean bar)
+                    // Top Fixed Indicator Notch at 12 o'clock
                     drawLine(
                         color = tertiaryColor,
                         start = Offset(center.x, center.y - radius - 2.dp.toPx()),
@@ -736,7 +727,6 @@ private fun TrackerRowItem(item: CacheManager.UserLocationInfo) {
         }
 
         // Column 2 (Center): Coordinates in Option A Format (NL / EL)
-        // Perfectly centered horizontally via equal weight balance
         Box(
             modifier = Modifier
                 .weight(1.2f)
@@ -864,7 +854,6 @@ private class CompassSoundPlayer(context: Context) {
         val totalSize = 36 + dataSize
         val byteBuffer = ByteBuffer.allocate(44 + dataSize).order(ByteOrder.LITTLE_ENDIAN)
 
-        // Standard 44-byte WAV header
         byteBuffer.put("RIFF".toByteArray(Charsets.US_ASCII))
         byteBuffer.putInt(totalSize)
         byteBuffer.put("WAVE".toByteArray(Charsets.US_ASCII))
@@ -887,29 +876,6 @@ private class CompassSoundPlayer(context: Context) {
             fos.write(byteBuffer.array())
         }
     }
-}
-
-private fun calculateAccurateBearing(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
-    val locA = Location("self").apply {
-        latitude = lat1
-        longitude = lon1
-    }
-    val locB = Location("partner").apply {
-        latitude = lat2
-        longitude = lon2
-    }
-    val initialBearing = locA.bearingTo(locB)
-    return ((initialBearing % 360f) + 360f) % 360f
-}
-
-private fun getCardinalDirection(bearing: Double): String {
-    val directions = arrayOf(
-        "North", "Northeast", "East", "Southeast",
-        "South", "Southwest", "West", "Northwest"
-    )
-    val normalized = ((bearing % 360.0) + 360.0) % 360.0
-    val index = (((normalized + 22.5) / 45.0).toInt()) % 8
-    return directions[index]
 }
 
 private fun formatDistanceLabel(meters: Int?): String {
