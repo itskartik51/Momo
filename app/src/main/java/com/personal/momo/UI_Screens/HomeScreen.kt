@@ -99,7 +99,8 @@ private enum class HomeScreenDestination {
     HOME,
     MENU,
     NOTIFICATIONS,
-    FINDER
+    FINDER,
+    CALL
 }
 
 @Composable
@@ -108,6 +109,7 @@ fun HomeScreen() {
     var isMenuOpen by remember { mutableStateOf(false) }
     var isNotificationsOpen by remember { mutableStateOf(false) }
     var isFinderOpen by remember { mutableStateOf(false) }
+    var isCallOpen by remember { mutableStateOf(false) }
     var isUpdateAvailable by remember { mutableStateOf(false) }
     var currentVisibleMonth by remember { mutableStateOf(YearMonth.now()) }
 
@@ -188,6 +190,7 @@ fun HomeScreen() {
     }
 
     val currentDestination = when {
+        isCallOpen -> HomeScreenDestination.CALL
         isFinderOpen && isFinderEnabled -> HomeScreenDestination.FINDER
         isNotificationsOpen -> HomeScreenDestination.NOTIFICATIONS
         isMenuOpen -> HomeScreenDestination.MENU
@@ -218,6 +221,41 @@ fun HomeScreen() {
         label = "HomeScreenDestinationTransition"
     ) { destination ->
         when (destination) {
+            HomeScreenDestination.CALL -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = "Momo Call",
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .bounceClick(scaleDown = 0.94f) {
+                                    isCallOpen = false
+                                }
+                                .padding(horizontal = 24.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                text = "Back",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             HomeScreenDestination.FINDER -> {
                 FinderScreen(
                     onBack = { isFinderOpen = false }
@@ -251,6 +289,9 @@ fun HomeScreen() {
                             isUpdateAvailable = isUpdateAvailable,
                             hasUnreadNotifications = hasUnreadNotifications,
                             isFinderEnabled = isFinderEnabled,
+                            onMomoClick = {
+                                isCallOpen = true
+                            },
                             onFinderClick = {
                                 isFinderOpen = true
                             },
@@ -308,6 +349,7 @@ private fun HomeHeader(
     isUpdateAvailable: Boolean,
     hasUnreadNotifications: Boolean,
     isFinderEnabled: Boolean,
+    onMomoClick: () -> Unit,
     onFinderClick: () -> Unit,
     onNotificationsClick: () -> Unit,
     onMenuClick: () -> Unit
@@ -370,7 +412,10 @@ private fun HomeHeader(
                         fontFamily = MomoBoldFont,
                         fontSize = 20.sp,
                         letterSpacing = 0.5.sp,
-                        style = TextStyle(brush = MomoPrimaryGradient)
+                        style = TextStyle(brush = MomoPrimaryGradient),
+                        modifier = Modifier.bounceClick(scaleDown = 0.94f) {
+                            onMomoClick()
+                        }
                     )
                 }
             }
