@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.media.Ringtone
+import android.media.RingtoneManager
+import android.media.ToneGenerator
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -104,6 +107,8 @@ object CallManager {
     private const val AGORA_PRIMARY_CERTIFICATE = "5f3a23a8b85d4d7694951ff7cbb79a2d"
 
     private var rtcEngine: RtcEngine? = null
+    private var toneGenerator: ToneGenerator? = null
+    private var incomingRingtone: Ringtone? = null
 
     var isCallActive by mutableStateOf(false)
     var isIncomingCall by mutableStateOf(false)
@@ -131,6 +136,7 @@ object CallManager {
 
         override fun onUserJoined(uid: Int, elapsed: Int) {
             isPeerConnected = true
+            stopDialTone()
             diagnosticStatus = "Agora: Partner Connected!"
         }
 
@@ -151,9 +157,46 @@ object CallManager {
 
         override fun onConnectionStateChanged(state: Int, reason: Int) {
             if (state == 5) {
+                stopDialTone()
                 diagnosticStatus = "Agora Connection Failed: reason $reason"
             }
         }
+    }
+
+    private fun startDialTone() {
+        try {
+            stopDialTone()
+            toneGenerator = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80)
+            toneGenerator?.startTone(ToneGenerator.TONE_SUP_RINGTONE)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun stopDialTone() {
+        try {
+            toneGenerator?.stopTone()
+            toneGenerator?.release()
+        } catch (_: Exception) {
+        }
+        toneGenerator = null
+    }
+
+    private fun startIncomingRingtone(context: Context) {
+        try {
+            stopIncomingRingtone()
+            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            incomingRingtone = RingtoneManager.getRingtone(context.applicationContext, uri)
+            incomingRingtone?.play()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun stopIncomingRingtone() {
+        try {
+            incomingRingtone?.stop()
+        } catch (_: Exception) {
+        }
+        incomingRingtone = null
     }
 
     private fun ensureAuth(onReady: () -> Unit) {
@@ -282,16 +325,21 @@ object CallManager {
                                 incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
                                 currentChannelName = channel
                                 isIncomingCall = true
+                                startIncomingRingtone(context)
                                 diagnosticStatus = "Incoming call from $incomingCallerName!"
                             }
                         }
                         "connected" -> {
+                            stopDialTone()
+                            stopIncomingRingtone()
                             if (isCallActive) {
                                 isPeerConnected = true
                                 diagnosticStatus = "Call connected with partner"
                             }
                         }
                         "ended" -> {
+                            stopDialTone()
+                            stopIncomingRingtone()
                             if (isCallActive) {
                                 leaveCallSilently(context)
                             }
@@ -304,6 +352,8 @@ object CallManager {
     }
 
     fun stopSignalingListener() {
+        stopDialTone()
+        stopIncomingRingtone()
         signalingListener?.remove()
         signalingListener = null
     }
@@ -325,6 +375,8 @@ object CallManager {
             publishMicrophoneTrack = true
         }
 
+        startDialTone()
+
         try {
             val token = buildAgoraToken(channelName)
             diagnosticStatus = "Joining Agora Channel..."
@@ -341,18 +393,21 @@ object CallManager {
                 )
                 firestore.collection("App").document("current_call").set(callData)
                     .addOnSuccessListener {
-                        diagnosticStatus = "Signal sent! Waiting for answer..."
+                        diagnosticStatus = "Signal sent! Ringing..."
                     }
                     .addOnFailureListener { e ->
+                        stopDialTone()
                         diagnosticStatus = "Firestore Signal Error: ${e.localizedMessage}"
                     }
             }
         } catch (e: Exception) {
+            stopDialTone()
             diagnosticStatus = "Call Start Error: ${e.localizedMessage}"
         }
     }
 
     fun acceptIncomingCall(context: Context) {
+        stopIncomingRingtone()
         isIncomingCall = false
         initEngine(context)
         isMuted = false
@@ -386,6 +441,7 @@ object CallManager {
     }
 
     fun declineIncomingCall(context: Context) {
+        stopIncomingRingtone()
         isIncomingCall = false
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val targetId = if (myId == "kanu") "momo" else "kanu"
@@ -406,6 +462,9 @@ object CallManager {
     }
 
     fun endCall(context: Context) {
+        stopDialTone()
+        stopIncomingRingtone()
+
         val duration = if (callStartTime > 0L) {
             ((System.currentTimeMillis() - callStartTime) / 1000).toInt()
         } else {
@@ -449,6 +508,9 @@ object CallManager {
     }
 
     fun resetAudioAndCallState(context: Context) {
+        stopDialTone()
+        stopIncomingRingtone()
+
         try {
             rtcEngine?.leaveChannel()
         } catch (_: Exception) {
@@ -482,6 +544,9 @@ object CallManager {
     }
 
     private fun leaveCallSilently(context: Context) {
+        stopDialTone()
+        stopIncomingRingtone()
+
         try {
             rtcEngine?.leaveChannel()
         } catch (_: Exception) {
