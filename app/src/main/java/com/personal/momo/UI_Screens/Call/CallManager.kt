@@ -71,7 +71,6 @@ import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.SecurityConfig
 import com.personal.momo.UI_Screens.bounceClick
@@ -91,13 +90,11 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
 
-// Data Model for Past Call Records
+// Data Model for Past Call Records parsed from App/call_logs document fields
 data class CallLogItem(
-    val id: String = "",
-    val caller: String = "",
-    val receiver: String = "",
-    val status: String = "completed",
-    val durationSeconds: Int = 0,
+    val id: String = "", // timestamp as string
+    val callerId: Int = 1, // 1 = Kanu, 2 = Momo
+    val durationSeconds: Int = 0, // 0 = Missed, >0 = Completed duration
     val timestamp: Long = 0L
 )
 
@@ -120,12 +117,13 @@ object CallManager {
     var isMuted by mutableStateOf(false)
     var isSpeakerOn by mutableStateOf(false)
 
-    // Live Diagnostic Status for Testing
     var diagnosticStatus by mutableStateOf("Idle / Ready")
 
     private var callStartTime: Long = 0L
+    private var activeCallTimestampKey: Long = 0L
     private val firestore by lazy { FirebaseFirestore.getInstance() }
     private var signalingListener: ListenerRegistration? = null
+    private var callLogsListener: ListenerRegistration? = null
 
     private val rtcEventHandler = object : IRtcEngineEventHandler() {
         override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
@@ -219,37 +217,31 @@ object CallManager {
         }
     }
 
-    // In-App Agora RTC Token Builder with Standard Binary Packing & Length Prefixes
     private fun buildAgoraToken(channelName: String, uid: Int = 0): String {
         return try {
             val currentTs = (System.currentTimeMillis() / 1000L).toInt()
-            val privilegeTs = currentTs + 86400 // 24-Hour validity
+            val privilegeTs = currentTs + 86400
             val salt = Random.nextInt(100000000) + 1
             val uidStr = if (uid == 0) "" else (uid.toLong() and 0xFFFFFFFFL).toString()
 
-            // 1. Pack Message buffer (Using privilegeTs to avoid ERR_TOKEN_EXPIRED 109)
             val msgBuf = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
             msgBuf.putInt(salt)
             msgBuf.putInt(privilegeTs)
-            msgBuf.putShort(4.toShort()) // 4 privileges
+            msgBuf.putShort(4.toShort())
 
-            msgBuf.putShort(1.toShort()) // kJoinChannel
+            msgBuf.putShort(1.toShort())
             msgBuf.putInt(privilegeTs)
-
-            msgBuf.putShort(2.toShort()) // kPublishAudioStream
+            msgBuf.putShort(2.toShort())
             msgBuf.putInt(privilegeTs)
-
-            msgBuf.putShort(3.toShort()) // kPublishVideoStream
+            msgBuf.putShort(3.toShort())
             msgBuf.putInt(privilegeTs)
-
-            msgBuf.putShort(4.toShort()) // kPublishDataStream
+            msgBuf.putShort(4.toShort())
             msgBuf.putInt(privilegeTs)
 
             val msgBytes = ByteArray(msgBuf.position())
             msgBuf.flip()
             msgBuf.get(msgBytes)
 
-            // 2. Compute HMAC-SHA256 signature
             val mac = Mac.getInstance("HmacSHA256")
             mac.init(SecretKeySpec(AGORA_PRIMARY_CERTIFICATE.toByteArray(Charsets.UTF_8), "HmacSHA256"))
             mac.update(AGORA_APP_ID.toByteArray(Charsets.UTF_8))
@@ -261,7 +253,6 @@ object CallManager {
             val crcChannel = (CRC32().apply { update(channelName.toByteArray(Charsets.UTF_8)) }.value and 0xFFFFFFFFL).toInt()
             val crcUid = (CRC32().apply { update(uidStr.toByteArray(Charsets.UTF_8)) }.value and 0xFFFFFFFFL).toInt()
 
-            // 3. Pack Content buffer with short length headers for signature and message
             val contentBuf = ByteBuffer.allocate(2 + signature.size + 4 + 4 + 2 + msgBytes.size).order(ByteOrder.LITTLE_ENDIAN)
             contentBuf.putShort(signature.size.toShort())
             contentBuf.put(signature)
@@ -304,13 +295,8 @@ object CallManager {
 
             signalingListener = firestore.collection("App").document("current_call")
                 .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        diagnosticStatus = "Signaling Listen Err: ${error.localizedMessage}"
-                        return@addSnapshotListener
-                    }
-                    if (snapshot == null || !snapshot.exists()) {
-                        return@addSnapshotListener
-                    }
+                    if (error != null) return@addSnapshotListener
+                    if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
                     val status = snapshot.getString("status") ?: ""
                     val caller = snapshot.getString("caller") ?: ""
@@ -325,6 +311,7 @@ object CallManager {
                                 incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
                                 currentChannelName = channel
                                 isIncomingCall = true
+                                activeCallTimestampKey = timestamp
                                 startIncomingRingtone(context)
                                 diagnosticStatus = "Incoming call from $incomingCallerName!"
                             }
@@ -367,6 +354,7 @@ object CallManager {
 
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val targetId = if (myId == "kanu") "momo" else "kanu"
+        activeCallTimestampKey = System.currentTimeMillis()
 
         val options = ChannelMediaOptions().apply {
             channelProfile = Constants.CHANNEL_PROFILE_COMMUNICATION
@@ -389,7 +377,7 @@ object CallManager {
                     "receiver" to targetId,
                     "status" to "calling",
                     "channelName" to channelName,
-                    "timestamp" to System.currentTimeMillis()
+                    "timestamp" to activeCallTimestampKey
                 )
                 firestore.collection("App").document("current_call").set(callData)
                     .addOnSuccessListener {
@@ -444,19 +432,21 @@ object CallManager {
         stopIncomingRingtone()
         isIncomingCall = false
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
-        val targetId = if (myId == "kanu") "momo" else "kanu"
+        val callerCode = if (incomingCallerName.equals("Kanu", ignoreCase = true)) 1 else 2
 
         ensureAuth {
             firestore.collection("App").document("current_call").update("status", "ended")
 
-            val logRecord = hashMapOf(
-                "caller" to targetId,
-                "receiver" to myId,
-                "status" to "missed",
-                "durationSeconds" to 0,
-                "timestamp" to System.currentTimeMillis()
-            )
-            firestore.collection("call_logs").add(logRecord)
+            val logKey = if (activeCallTimestampKey > 0L) activeCallTimestampKey.toString() else System.currentTimeMillis().toString()
+            val missedLogValue = listOf(callerCode, 0) // [caller_id, duration=0]
+
+            firestore.collection("App").document("call_logs")
+                .update(logKey, missedLogValue)
+                .addOnFailureListener {
+                    // If document doesn't exist yet, create it with set
+                    firestore.collection("App").document("call_logs")
+                        .set(mapOf(logKey to missedLogValue), com.google.firebase.firestore.SetOptions.merge())
+                }
             diagnosticStatus = "Call declined"
         }
     }
@@ -472,7 +462,8 @@ object CallManager {
         }
 
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
-        val targetId = if (myId == "kanu") "momo" else "kanu"
+        val callerCode = if (myId == "kanu") 1 else 2
+        val statusDuration = if (isPeerConnected) (if (duration > 0) duration else 1) else 0
 
         try {
             rtcEngine?.leaveChannel()
@@ -489,20 +480,23 @@ object CallManager {
         }
 
         ensureAuth {
-            val logRecord = hashMapOf(
-                "caller" to myId,
-                "receiver" to targetId,
-                "status" to if (isPeerConnected) "completed" else "missed",
-                "durationSeconds" to duration,
-                "timestamp" to System.currentTimeMillis()
-            )
-            firestore.collection("call_logs").add(logRecord)
+            val logKey = if (activeCallTimestampKey > 0L) activeCallTimestampKey.toString() else System.currentTimeMillis().toString()
+            val logValue = listOf(callerCode, statusDuration) // [caller_id, duration_seconds]
+
+            firestore.collection("App").document("call_logs")
+                .update(logKey, logValue)
+                .addOnFailureListener {
+                    firestore.collection("App").document("call_logs")
+                        .set(mapOf(logKey to logValue), com.google.firebase.firestore.SetOptions.merge())
+                }
+
             firestore.collection("App").document("current_call").update("status", "ended")
         }
 
         isCallActive = false
         isPeerConnected = false
         callStartTime = 0L
+        activeCallTimestampKey = 0L
         latencyMs = 0
         diagnosticStatus = "Call ended"
     }
@@ -539,6 +533,7 @@ object CallManager {
         isMuted = false
         isSpeakerOn = false
         callStartTime = 0L
+        activeCallTimestampKey = 0L
         latencyMs = 0
         diagnosticStatus = "Reset complete: Mic released, Audio normal"
     }
@@ -564,6 +559,7 @@ object CallManager {
         isCallActive = false
         isPeerConnected = false
         callStartTime = 0L
+        activeCallTimestampKey = 0L
         latencyMs = 0
     }
 
@@ -580,27 +576,40 @@ object CallManager {
     }
 
     fun observeCallLogs(onLogsUpdated: (List<CallLogItem>) -> Unit): ListenerRegistration {
-        return firestore.collection("call_logs")
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-            .limit(25)
+        return firestore.collection("App").document("call_logs")
             .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null) return@addSnapshotListener
-                val logs = snapshot.documents.mapNotNull { doc ->
-                    val caller = doc.getString("caller") ?: ""
-                    val receiver = doc.getString("receiver") ?: ""
-                    val status = doc.getString("status") ?: "completed"
-                    val duration = doc.getLong("durationSeconds")?.toInt() ?: 0
-                    val timestamp = doc.getLong("timestamp") ?: 0L
-                    CallLogItem(
-                        id = doc.id,
-                        caller = caller,
-                        receiver = receiver,
-                        status = status,
-                        durationSeconds = duration,
-                        timestamp = timestamp
-                    )
+                if (error != null || snapshot == null || !snapshot.exists()) {
+                    onLogsUpdated(emptyList())
+                    return@addSnapshotListener
                 }
-                onLogsUpdated(logs)
+
+                val dataMap = snapshot.data ?: emptyMap()
+                val parsedList = mutableListOf<CallLogItem>()
+
+                for ((key, value) in dataMap) {
+                    val ts = key.toLongOrNull() ?: 0L
+                    if (ts == 0L) continue
+
+                    // Expecting list/array of 2 items: [caller_id, duration_seconds]
+                    val list = value as? List<*> ?: continue
+                    if (list.size >= 2) {
+                        val callerId = (list[0] as? Number)?.toInt() ?: 1
+                        val duration = (list[1] as? Number)?.toInt() ?: 0
+
+                        parsedList.add(
+                            CallLogItem(
+                                id = key,
+                                callerId = callerId,
+                                durationSeconds = duration,
+                                timestamp = ts
+                            )
+                        )
+                    }
+                }
+
+                // Sort descending by timestamp (newest first) and limit to 100
+                val sortedLogs = parsedList.sortedByDescending { it.timestamp }.take(100)
+                onLogsUpdated(sortedLogs)
             }
     }
 }
@@ -882,7 +891,6 @@ private fun CallHubView(
         ) {
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Live Diagnostic Status Strip
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -998,7 +1006,6 @@ private fun CallHubView(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Cancel / Emergency Audio Reset Button
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1100,15 +1107,18 @@ private fun CallLogRow(item: CallLogItem, currentUserId: String, partnerName: St
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val isOutgoing = item.caller.equals(currentUserId, ignoreCase = true)
+                val isMyIdKanu = currentUserId.equals("kanu", ignoreCase = true)
+                val isOutgoing = (isMyIdKanu && item.callerId == 1) || (!isMyIdKanu && item.callerId == 2)
+                val isMissed = item.durationSeconds == 0
+
                 val iconColor = when {
-                    item.status == "missed" -> Color(0xFFF44336)
+                    isMissed -> Color(0xFFF44336)
                     isOutgoing -> Color(0xFF4CAF50)
                     else -> Color(0xFF2196F3)
                 }
 
                 val iconVector = when {
-                    item.status == "missed" -> Icons.Default.CallMissed
+                    isMissed -> Icons.Default.CallMissed
                     isOutgoing -> Icons.Default.CallMade
                     else -> Icons.Default.CallReceived
                 }
@@ -1144,10 +1154,10 @@ private fun CallLogRow(item: CallLogItem, currentUserId: String, partnerName: St
             }
 
             Text(
-                text = if (item.status == "missed") "Missed" else formatLogDuration(item.durationSeconds),
+                text = if (item.durationSeconds == 0) "Missed" else formatLogDuration(item.durationSeconds),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (item.status == "missed") Color(0xFFF44336) else MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (item.durationSeconds == 0) Color(0xFFF44336) else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
