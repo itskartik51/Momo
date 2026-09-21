@@ -16,6 +16,10 @@ android {
         versionName = "1.2405.012"
 
         resourceConfigurations += listOf("en", "hi")
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
