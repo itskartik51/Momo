@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.WelcomeLayoutMode
 import com.personal.momo.UI_Screens.bounceClick
@@ -64,6 +67,7 @@ fun ExpandableMenuTile(
     isExpanded: Boolean,
     onToggle: () -> Unit,
     badge: (@Composable () -> Unit)? = null,
+    endContent: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -98,6 +102,11 @@ fun ExpandableMenuTile(
 
                     badge?.invoke()
                 }
+            }
+
+            if (endContent != null) {
+                Spacer(modifier = Modifier.weight(1f))
+                endContent()
             }
         }
 
@@ -202,6 +211,8 @@ fun MenuScreen(
     var isSecurityExpanded by remember { mutableStateOf(false) }
     var isAppIdExpanded by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
+
+    val isPartnerFinderActive by CacheManager.partnerFinderActiveFlow.collectAsState()
 
     Box(
         modifier = Modifier
@@ -311,12 +322,20 @@ fun MenuScreen(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                 )
 
-                // 4. Finder Proximity Setting Row (Modular from Fndr.kt)
+                // 4. Finder Proximity Setting Row (Modular from Fndr.kt with Live Partner Status Badge)
                 ExpandableMenuTile(
                     icon = Icons.Outlined.MyLocation,
                     title = "Finder",
                     isExpanded = isFinderExpanded,
-                    onToggle = { isFinderExpanded = !isFinderExpanded }
+                    onToggle = { isFinderExpanded = !isFinderExpanded },
+                    endContent = {
+                        Text(
+                            text = if (isPartnerFinderActive) "(Enabled)" else "(Disabled)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        )
+                    }
                 ) {
                     FinderSettingsContent(
                         onShowToast = { toastMessage = it }
