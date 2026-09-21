@@ -2,6 +2,13 @@ package com.personal.momo.UI_Screens.Finder
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +90,48 @@ fun FinderScreen(
         }
         onBack()
     }
+
+    val partnerInfo = trackerState.partnerInfo
+    val selfInfo = trackerState.selfInfo
+    val distanceMeters = trackerState.distanceMeters
+
+    // Dynamic Accuracy-Aware Trigger Distance
+    // Good combined satellite accuracy (<= 10m) sets tight 10m threshold
+    // Weaker accuracy (> 10m) scales threshold up to 18m-20m to prevent compass spinning
+    val selfAcc = selfInfo.accuracy ?: 10f
+    val partnerAcc = partnerInfo.accuracy ?: 10f
+    val combinedAcc = selfAcc + partnerAcc
+
+    val dynamicThreshold = remember(combinedAcc) {
+        when {
+            combinedAcc <= 10f -> 10.0
+            combinedAcc <= 20f -> 14.0
+            combinedAcc <= 30f -> 18.0
+            else -> 20.0
+        }
+    }
+
+    // Hysteresis buffer to eliminate boundary flicker:
+    // Enters together mode at <= dynamicThreshold
+    // Exits together mode at > dynamicThreshold + 6.0m
+    var isProximityTogether by remember { mutableStateOf(false) }
+
+    LaunchedEffect(distanceMeters, dynamicThreshold) {
+        val dist = distanceMeters?.toDouble()
+        if (dist != null) {
+            if (!isProximityTogether && dist <= dynamicThreshold) {
+                isProximityTogether = true
+            } else if (isProximityTogether && dist > (dynamicThreshold + 6.0)) {
+                isProximityTogether = false
+            }
+        } else {
+            isProximityTogether = false
+        }
+    }
+
+    // Double-Tap Test Gesture State Override
+    var isTestTogether by remember { mutableStateOf(false) }
+    val isTogether = isTestTogether || isProximityTogether
 
     Box(
         modifier = Modifier
@@ -225,18 +275,43 @@ fun FinderScreen(
 
             // Card 1: Modular Location Card
             FinderLocationCard(
-                partnerInfo = trackerState.partnerInfo,
-                selfInfo = trackerState.selfInfo
+                partnerInfo = partnerInfo,
+                selfInfo = selfInfo
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Card 2: Modular Target Radar Dial Card
-            CompassRadarCard(
-                partnerInfo = trackerState.partnerInfo,
-                selfInfo = trackerState.selfInfo,
-                distanceMeters = trackerState.distanceMeters
-            )
+            // Card 2: Animated Transition between Compass Radar Dial and Together Lottie Animation Card
+            AnimatedContent(
+                targetState = isTogether,
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(durationMillis = 300)) +
+                            scaleIn(initialScale = 0.96f, animationSpec = tween(durationMillis = 300)))
+                        .togetherWith(
+                            fadeOut(animationSpec = tween(durationMillis = 200)) +
+                                    scaleOut(targetScale = 0.96f, animationSpec = tween(durationMillis = 200))
+                        )
+                },
+                label = "CompassToTogetherTransition"
+            ) { togetherActive ->
+                if (togetherActive) {
+                    TogetherAnimationCard(
+                        partnerName = partnerInfo.name,
+                        onDoubleTap = {
+                            isTestTogether = false
+                        }
+                    )
+                } else {
+                    CompassRadarCard(
+                        partnerInfo = partnerInfo,
+                        selfInfo = selfInfo,
+                        distanceMeters = distanceMeters,
+                        onCenterDoubleTap = {
+                            isTestTogether = true
+                        }
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
         }
