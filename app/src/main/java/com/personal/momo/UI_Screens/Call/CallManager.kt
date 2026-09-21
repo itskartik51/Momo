@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -74,9 +75,15 @@ import io.agora.rtc2.IRtcEngineEventHandler
 import io.agora.rtc2.RtcEngine
 import io.agora.rtc2.RtcEngineConfig
 import kotlinx.coroutines.delay
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.zip.CRC32
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
+import kotlin.random.Random
 
 // Data Model for Past Call Records
 data class CallLogItem(
@@ -91,6 +98,8 @@ data class CallLogItem(
 // Central Voice Engine & Signaling Controller
 object CallManager {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
+    private const val AGORA_PRIMARY_CERTIFICATE = "5f3a23a8b85d4d7694951ff7cbb79a2d"
+
     private var rtcEngine: RtcEngine? = null
 
     var isCallActive by mutableStateOf(false)
@@ -128,6 +137,59 @@ object CallManager {
         }
     }
 
+    // In-App Pure Kotlin Agora RTC Token Builder (v006 AccessToken HMAC-SHA256)
+    private fun buildAgoraToken(channelName: String, uid: Int = 0): String {
+        return try {
+            val currentTs = (System.currentTimeMillis() / 1000L).toInt()
+            val privilegeTs = currentTs + 86400 // Valid for 24 Hours
+            val salt = Random.nextInt(100000000) + 1
+            val uidStr = if (uid == 0) "" else (uid.toLong() and 0xFFFFFFFFL).toString()
+
+            val msgBuf = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN)
+            msgBuf.putInt(salt)
+            msgBuf.putInt(privilegeTs)
+            msgBuf.putShort(4.toShort()) // 4 privilege permissions
+
+            msgBuf.putShort(1.toShort()) // kJoinChannel
+            msgBuf.putInt(privilegeTs)
+
+            msgBuf.putShort(2.toShort()) // kPublishAudioStream
+            msgBuf.putInt(privilegeTs)
+
+            msgBuf.putShort(3.toShort()) // kPublishVideoStream
+            msgBuf.putInt(privilegeTs)
+
+            msgBuf.putShort(4.toShort()) // kPublishDataStream
+            msgBuf.putInt(privilegeTs)
+
+            val msgBytes = ByteArray(msgBuf.position())
+            msgBuf.flip()
+            msgBuf.get(msgBytes)
+
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(SecretKeySpec(AGORA_PRIMARY_CERTIFICATE.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+            mac.update(AGORA_APP_ID.toByteArray(Charsets.UTF_8))
+            mac.update(channelName.toByteArray(Charsets.UTF_8))
+            mac.update(uidStr.toByteArray(Charsets.UTF_8))
+            mac.update(msgBytes)
+            val signature = mac.doFinal()
+
+            val crcChannel = CRC32().apply { update(channelName.toByteArray(Charsets.UTF_8)) }.value.toInt()
+            val crcUid = CRC32().apply { update(uidStr.toByteArray(Charsets.UTF_8)) }.value.toInt()
+
+            val contentBuf = ByteBuffer.allocate(signature.size + 8 + msgBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+            contentBuf.put(signature)
+            contentBuf.putInt(crcChannel)
+            contentBuf.putInt(crcUid)
+            contentBuf.put(msgBytes)
+
+            val base64 = Base64.encodeToString(contentBuf.array(), Base64.NO_WRAP)
+            "006$AGORA_APP_ID$base64"
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
     fun initEngine(context: Context) {
         if (rtcEngine == null) {
             try {
@@ -146,20 +208,25 @@ object CallManager {
 
     fun startSignalingListener(context: Context) {
         if (signalingListener != null) return
+
+        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
+
         signalingListener = firestore.collection("calls").document("current_call")
             .addSnapshotListener { snapshot, error ->
                 if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
                 val status = snapshot.getString("status") ?: ""
                 val caller = snapshot.getString("caller") ?: ""
+                val receiver = snapshot.getString("receiver") ?: ""
                 val channel = snapshot.getString("channelName") ?: "momo_private_voice_room"
                 val timestamp = snapshot.getLong("timestamp") ?: 0L
                 val isRecent = (System.currentTimeMillis() - timestamp) < 60_000L
 
                 when (status) {
                     "calling" -> {
-                        if (!isCallActive && isRecent) {
-                            incomingCallerName = caller
+                        // Ring ONLY IF this device is the designated receiver
+                        if (!isCallActive && isRecent && receiver.equals(myId, ignoreCase = true)) {
+                            incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
                             currentChannelName = channel
                             isIncomingCall = true
                         }
@@ -184,12 +251,15 @@ object CallManager {
         signalingListener = null
     }
 
-    fun startCall(context: Context, callerName: String = "kanu", channelName: String = "momo_private_voice_room") {
+    fun startCall(context: Context, channelName: String = "momo_private_voice_room") {
         initEngine(context)
         isMuted = false
         isSpeakerOn = false
         latencyMs = 120
         currentChannelName = channelName
+
+        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
+        val targetId = if (myId == "kanu") "momo" else "kanu"
 
         val options = ChannelMediaOptions().apply {
             channelProfile = Constants.CHANNEL_PROFILE_COMMUNICATION
@@ -199,11 +269,12 @@ object CallManager {
         }
 
         try {
-            rtcEngine?.joinChannel(null, channelName, 0, options)
+            val token = buildAgoraToken(channelName)
+            rtcEngine?.joinChannel(token, channelName, 0, options)
 
             val callData = hashMapOf(
-                "caller" to callerName,
-                "receiver" to "momo",
+                "caller" to myId,
+                "receiver" to targetId,
                 "status" to "calling",
                 "channelName" to channelName,
                 "timestamp" to System.currentTimeMillis()
@@ -228,19 +299,23 @@ object CallManager {
         }
 
         try {
-            rtcEngine?.joinChannel(null, currentChannelName, 0, options)
+            val token = buildAgoraToken(currentChannelName)
+            rtcEngine?.joinChannel(token, currentChannelName, 0, options)
             firestore.collection("calls").document("current_call").update("status", "connected")
         } catch (_: Exception) {
         }
     }
 
-    fun declineIncomingCall() {
+    fun declineIncomingCall(context: Context) {
         isIncomingCall = false
+        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
+        val targetId = if (myId == "kanu") "momo" else "kanu"
+
         firestore.collection("calls").document("current_call").update("status", "ended")
 
         val logRecord = hashMapOf(
-            "caller" to incomingCallerName,
-            "receiver" to if (incomingCallerName == "kanu") "momo" else "kanu",
+            "caller" to targetId,
+            "receiver" to myId,
             "status" to "missed",
             "durationSeconds" to 0,
             "timestamp" to System.currentTimeMillis()
@@ -248,12 +323,15 @@ object CallManager {
         firestore.collection("call_logs").add(logRecord)
     }
 
-    fun endCall(callerName: String = "kanu") {
+    fun endCall(context: Context) {
         val duration = if (callStartTime > 0L) {
             ((System.currentTimeMillis() - callStartTime) / 1000).toInt()
         } else {
             0
         }
+
+        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
+        val targetId = if (myId == "kanu") "momo" else "kanu"
 
         try {
             rtcEngine?.leaveChannel()
@@ -261,8 +339,8 @@ object CallManager {
         }
 
         val logRecord = hashMapOf(
-            "caller" to callerName,
-            "receiver" to "momo",
+            "caller" to myId,
+            "receiver" to targetId,
             "status" to if (isPeerConnected) "completed" else "missed",
             "durationSeconds" to duration,
             "timestamp" to System.currentTimeMillis()
@@ -333,8 +411,9 @@ fun CallScreen(
     val context = LocalContext.current
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
     val callLogs = remember { mutableStateListOf<CallLogItem>() }
+    val currentUserId by CacheManager.appUserIdFlow.collectAsState()
+    val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
 
-    // Dynamic Permission Handler
     var pendingCallAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -381,21 +460,24 @@ fun CallScreen(
                     }
                 },
                 onDecline = {
-                    CallManager.declineIncomingCall()
+                    CallManager.declineIncomingCall(context)
                 }
             )
         }
         CallManager.isCallActive -> {
             ActiveCallView(
                 avatarUrl = avatarUrl,
+                partnerName = partnerDisplayName,
                 onEndCall = {
-                    CallManager.endCall()
+                    CallManager.endCall(context)
                 }
             )
         }
         else -> {
             CallHubView(
                 avatarUrl = avatarUrl,
+                partnerName = partnerDisplayName,
+                currentUserId = currentUserId,
                 callLogs = callLogs,
                 onBack = onBack,
                 onStartCall = {
@@ -452,7 +534,7 @@ private fun IncomingCallView(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = if (callerName.equals("kanu", ignoreCase = true)) "Kanu" else "Momo",
+                text = callerName,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -538,6 +620,8 @@ private fun IncomingCallView(
 @Composable
 private fun CallHubView(
     avatarUrl: String?,
+    partnerName: String,
+    currentUserId: String,
     callLogs: List<CallLogItem>,
     onBack: () -> Unit,
     onStartCall: () -> Unit
@@ -577,7 +661,7 @@ private fun CallHubView(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Text(
-                    text = "Momo Call Hub",
+                    text = "$partnerName Call Hub",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -615,7 +699,7 @@ private fun CallHubView(
                         if (!avatarUrl.isNullOrBlank()) {
                             AsyncImage(
                                 model = avatarUrl,
-                                contentDescription = "Momo Avatar",
+                                contentDescription = "$partnerName Avatar",
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .clip(CircleShape),
@@ -627,7 +711,7 @@ private fun CallHubView(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Momo",
+                        text = partnerName,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -720,7 +804,7 @@ private fun CallHubView(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(callLogs, key = { it.id }) { item ->
-                        CallLogRow(item = item)
+                        CallLogRow(item = item, currentUserId = currentUserId, partnerName = partnerName)
                     }
                 }
             }
@@ -729,7 +813,7 @@ private fun CallHubView(
 }
 
 @Composable
-private fun CallLogRow(item: CallLogItem) {
+private fun CallLogRow(item: CallLogItem, currentUserId: String, partnerName: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -746,15 +830,16 @@ private fun CallLogRow(item: CallLogItem) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                val isOutgoing = item.caller.equals(currentUserId, ignoreCase = true)
                 val iconColor = when {
                     item.status == "missed" -> Color(0xFFF44336)
-                    item.caller == "kanu" -> Color(0xFF4CAF50)
+                    isOutgoing -> Color(0xFF4CAF50)
                     else -> Color(0xFF2196F3)
                 }
 
                 val iconVector = when {
                     item.status == "missed" -> Icons.Default.CallMissed
-                    item.caller == "kanu" -> Icons.Default.CallMade
+                    isOutgoing -> Icons.Default.CallMade
                     else -> Icons.Default.CallReceived
                 }
 
@@ -775,7 +860,7 @@ private fun CallLogRow(item: CallLogItem) {
 
                 Column {
                     Text(
-                        text = "Momo",
+                        text = partnerName,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
@@ -801,6 +886,7 @@ private fun CallLogRow(item: CallLogItem) {
 @Composable
 private fun ActiveCallView(
     avatarUrl: String?,
+    partnerName: String,
     onEndCall: () -> Unit
 ) {
     val context = LocalContext.current
@@ -858,7 +944,7 @@ private fun ActiveCallView(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Momo",
+                text = partnerName,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
