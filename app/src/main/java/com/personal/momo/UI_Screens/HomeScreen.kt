@@ -67,6 +67,7 @@ import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 import com.personal.momo.UI_Screens.Calendar.MomoEventsCalculator
 import com.personal.momo.UI_Screens.Calendar.MonthEventsAgendaCard
+import com.personal.momo.UI_Screens.Call.CallScreen
 import com.personal.momo.UI_Screens.Finder.FinderScreen
 import com.personal.momo.UI_Screens.Notifications.MomoNotificationEngine
 import com.personal.momo.UI_Screens.Notifications.NotificationAlarmReceiver
@@ -222,38 +223,9 @@ fun HomeScreen() {
     ) { destination ->
         when (destination) {
             HomeScreenDestination.CALL -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.background),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(
-                            text = "Momo Call",
-                            fontSize = 20.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .bounceClick(scaleDown = 0.94f) {
-                                    isCallOpen = false
-                                }
-                                .padding(horizontal = 24.dp, vertical = 10.dp)
-                        ) {
-                            Text(
-                                text = "Back",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-                }
+                CallScreen(
+                    onBack = { isCallOpen = false }
+                )
             }
 
             HomeScreenDestination.FINDER -> {
