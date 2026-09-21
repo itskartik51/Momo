@@ -184,10 +184,10 @@ object CallManager {
             val salt = Random.nextInt(100000000) + 1
             val uidStr = if (uid == 0) "" else (uid.toLong() and 0xFFFFFFFFL).toString()
 
-            // 1. Pack Message buffer
+            // 1. Pack Message buffer (Using privilegeTs to avoid ERR_TOKEN_EXPIRED 109)
             val msgBuf = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
             msgBuf.putInt(salt)
-            msgBuf.putInt(currentTs)
+            msgBuf.putInt(privilegeTs)
             msgBuf.putShort(4.toShort()) // 4 privileges
 
             msgBuf.putShort(1.toShort()) // kJoinChannel
