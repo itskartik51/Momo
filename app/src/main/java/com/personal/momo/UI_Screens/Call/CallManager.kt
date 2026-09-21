@@ -89,6 +89,10 @@ object CallManager {
     private var rtcEngine: RtcEngine? = null
 
     var isCallActive by mutableStateOf(false)
+    var isIncomingCall by mutableStateOf(false)
+    var incomingCallerName by mutableStateOf("Momo")
+    var currentChannelName by mutableStateOf("momo_private_voice_room")
+
     var isPeerConnected by mutableStateOf(false)
     var latencyMs by mutableIntStateOf(0)
     var isMuted by mutableStateOf(false)
@@ -96,6 +100,7 @@ object CallManager {
 
     private var callStartTime: Long = 0L
     private val firestore by lazy { FirebaseFirestore.getInstance() }
+    private var signalingListener: ListenerRegistration? = null
 
     private val rtcEventHandler = object : IRtcEngineEventHandler() {
         override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
@@ -134,7 +139,77 @@ object CallManager {
         }
     }
 
+    fun startSignalingListener(context: Context) {
+        if (signalingListener != null) return
+        signalingListener = firestore.collection("calls").document("current_call")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+
+                val status = snapshot.getString("status") ?: ""
+                val caller = snapshot.getString("caller") ?: ""
+                val channel = snapshot.getString("channelName") ?: "momo_private_voice_room"
+                val timestamp = snapshot.getLong("timestamp") ?: 0L
+                val isRecent = (System.currentTimeMillis() - timestamp) < 60_000L
+
+                when (status) {
+                    "calling" -> {
+                        if (!isCallActive && isRecent) {
+                            incomingCallerName = caller
+                            currentChannelName = channel
+                            isIncomingCall = true
+                        }
+                    }
+                    "connected" -> {
+                        if (isCallActive) {
+                            isPeerConnected = true
+                        }
+                    }
+                    "ended" -> {
+                        if (isCallActive) {
+                            leaveCallSilently()
+                        }
+                        isIncomingCall = false
+                    }
+                }
+            }
+    }
+
+    fun stopSignalingListener() {
+        signalingListener?.remove()
+        signalingListener = null
+    }
+
     fun startCall(context: Context, callerName: String = "kanu", channelName: String = "momo_private_voice_room") {
+        initEngine(context)
+        isMuted = false
+        isSpeakerOn = false
+        latencyMs = 120
+        currentChannelName = channelName
+
+        val options = ChannelMediaOptions().apply {
+            channelProfile = Constants.CHANNEL_PROFILE_COMMUNICATION
+            clientRoleType = Constants.CLIENT_ROLE_BROADCASTER
+            autoSubscribeAudio = true
+            publishMicrophoneTrack = true
+        }
+
+        try {
+            rtcEngine?.joinChannel(null, channelName, 0, options)
+
+            val callData = hashMapOf(
+                "caller" to callerName,
+                "receiver" to "momo",
+                "status" to "calling",
+                "channelName" to channelName,
+                "timestamp" to System.currentTimeMillis()
+            )
+            firestore.collection("calls").document("current_call").set(callData)
+        } catch (_: Exception) {
+        }
+    }
+
+    fun acceptIncomingCall(context: Context) {
+        isIncomingCall = false
         initEngine(context)
         isMuted = false
         isSpeakerOn = false
@@ -148,19 +223,24 @@ object CallManager {
         }
 
         try {
-            rtcEngine?.joinChannel(null, channelName, 0, options)
-
-            // Signaling: Mark call status in Firestore
-            val callData = hashMapOf(
-                "caller" to callerName,
-                "receiver" to "momo",
-                "status" to "calling",
-                "channelName" to channelName,
-                "timestamp" to System.currentTimeMillis()
-            )
-            firestore.collection("calls").document("current_call").set(callData)
+            rtcEngine?.joinChannel(null, currentChannelName, 0, options)
+            firestore.collection("calls").document("current_call").update("status", "connected")
         } catch (_: Exception) {
         }
+    }
+
+    fun declineIncomingCall() {
+        isIncomingCall = false
+        firestore.collection("calls").document("current_call").update("status", "ended")
+
+        val logRecord = hashMapOf(
+            "caller" to incomingCallerName,
+            "receiver" to if (incomingCallerName == "kanu") "momo" else "kanu",
+            "status" to "missed",
+            "durationSeconds" to 0,
+            "timestamp" to System.currentTimeMillis()
+        )
+        firestore.collection("call_logs").add(logRecord)
     }
 
     fun endCall(callerName: String = "kanu") {
@@ -175,7 +255,6 @@ object CallManager {
         } catch (_: Exception) {
         }
 
-        // Save Call Record in Firestore Logs
         val logRecord = hashMapOf(
             "caller" to callerName,
             "receiver" to "momo",
@@ -184,10 +263,19 @@ object CallManager {
             "timestamp" to System.currentTimeMillis()
         )
         firestore.collection("call_logs").add(logRecord)
-
-        // Clear active call state
         firestore.collection("calls").document("current_call").update("status", "ended")
 
+        isCallActive = false
+        isPeerConnected = false
+        callStartTime = 0L
+        latencyMs = 0
+    }
+
+    private fun leaveCallSilently() {
+        try {
+            rtcEngine?.leaveChannel()
+        } catch (_: Exception) {
+        }
         isCallActive = false
         isPeerConnected = false
         callStartTime = 0L
@@ -232,7 +320,7 @@ object CallManager {
     }
 }
 
-// Unified Composable Screen (Hub & Dialer + Active Calling View)
+// Unified Composable Screen (Hub & Dialer + Active Calling View + Incoming Call Dialog)
 @Composable
 fun CallScreen(
     onBack: () -> Unit
@@ -241,40 +329,180 @@ fun CallScreen(
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
     val callLogs = remember { mutableStateListOf<CallLogItem>() }
 
-    // Observe Firestore Call Logs
     DisposableEffect(Unit) {
-        val listener = CallManager.observeCallLogs { updatedList ->
+        CallManager.startSignalingListener(context)
+        val logsListener = CallManager.observeCallLogs { updatedList ->
             callLogs.clear()
             callLogs.addAll(updatedList)
         }
         onDispose {
-            listener.remove()
+            logsListener.remove()
         }
     }
 
-    if (CallManager.isCallActive) {
-        // Active Ongoing Call Screen
-        ActiveCallView(
-            avatarUrl = avatarUrl,
-            onEndCall = {
-                CallManager.endCall()
-            }
-        )
-    } else {
-        // Call Hub & Dialer Screen
-        CallHubView(
-            avatarUrl = avatarUrl,
-            callLogs = callLogs,
-            onBack = onBack,
-            onStartCall = {
-                CallManager.startCall(context)
-            }
-        )
+    when {
+        CallManager.isIncomingCall -> {
+            IncomingCallView(
+                avatarUrl = avatarUrl,
+                callerName = CallManager.incomingCallerName,
+                onAccept = {
+                    CallManager.acceptIncomingCall(context)
+                },
+                onDecline = {
+                    CallManager.declineIncomingCall()
+                }
+            )
+        }
+        CallManager.isCallActive -> {
+            ActiveCallView(
+                avatarUrl = avatarUrl,
+                onEndCall = {
+                    CallManager.endCall()
+                }
+            )
+        }
+        else -> {
+            CallHubView(
+                avatarUrl = avatarUrl,
+                callLogs = callLogs,
+                onBack = onBack,
+                onStartCall = {
+                    CallManager.startCall(context)
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun CallHubScreen(onBack: () -> Unit) = CallScreen(onBack = onBack)
+
+@Composable
+private fun IncomingCallView(
+    avatarUrl: String?,
+    callerName: String,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(116.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!avatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = avatarUrl,
+                        contentDescription = "Incoming Avatar",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = if (callerName.equals("kanu", ignoreCase = true)) "Kanu" else "Momo",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Incoming Voice Call...",
+                fontSize = 15.sp,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        // Bottom Accept / Decline Buttons
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 54.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Decline Button
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF44336))
+                        .bounceClick(scaleDown = 0.88f) {
+                            onDecline()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CallEnd,
+                        contentDescription = "Decline Call",
+                        tint = Color.White,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+                Text(
+                    text = "Decline",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Accept Button
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF4CAF50))
+                        .bounceClick(scaleDown = 0.88f) {
+                            onAccept()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Call,
+                        contentDescription = "Accept Call",
+                        tint = Color.White,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+                Text(
+                    text = "Accept",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun CallHubView(
@@ -288,7 +516,6 @@ private fun CallHubView(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Top App Bar
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.surface,
@@ -334,7 +561,6 @@ private fun CallHubView(
         ) {
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Contact Profile & Direct Call Card
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -384,7 +610,6 @@ private fun CallHubView(
 
                     Spacer(modifier = Modifier.height(18.dp))
 
-                    // Start Voice Call Action Button
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -423,7 +648,6 @@ private fun CallHubView(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Recent Calls History Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -622,7 +846,6 @@ private fun ActiveCallView(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Delay / Latency Indicator Badge
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -646,7 +869,6 @@ private fun ActiveCallView(
             }
         }
 
-        // Active Bottom Call Action Controls
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -654,7 +876,6 @@ private fun ActiveCallView(
             horizontalArrangement = Arrangement.spacedBy(28.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Mute Toggle
             Box(
                 modifier = Modifier
                     .size(56.dp)
@@ -673,7 +894,6 @@ private fun ActiveCallView(
                 )
             }
 
-            // End Call Button
             Box(
                 modifier = Modifier
                     .size(68.dp)
@@ -692,7 +912,6 @@ private fun ActiveCallView(
                 )
             }
 
-            // Speaker Toggle
             Box(
                 modifier = Modifier
                     .size(56.dp)
