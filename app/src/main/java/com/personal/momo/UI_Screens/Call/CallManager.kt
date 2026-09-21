@@ -259,7 +259,7 @@ object CallManager {
         ensureAuth {
             val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
 
-            signalingListener = firestore.collection("calls").document("current_call")
+            signalingListener = firestore.collection("App").document("current_call")
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
                         diagnosticStatus = "Signaling Listen Err: ${error.localizedMessage}"
@@ -339,7 +339,7 @@ object CallManager {
                     "channelName" to channelName,
                     "timestamp" to System.currentTimeMillis()
                 )
-                firestore.collection("calls").document("current_call").set(callData)
+                firestore.collection("App").document("current_call").set(callData)
                     .addOnSuccessListener {
                         diagnosticStatus = "Signal sent! Waiting for answer..."
                     }
@@ -372,7 +372,7 @@ object CallManager {
             rtcEngine?.joinChannel(token, currentChannelName, 0, options)
 
             ensureAuth {
-                firestore.collection("calls").document("current_call").update("status", "connected")
+                firestore.collection("App").document("current_call").update("status", "connected")
                     .addOnSuccessListener {
                         diagnosticStatus = "Accepted. Status: connected"
                     }
@@ -391,7 +391,7 @@ object CallManager {
         val targetId = if (myId == "kanu") "momo" else "kanu"
 
         ensureAuth {
-            firestore.collection("calls").document("current_call").update("status", "ended")
+            firestore.collection("App").document("current_call").update("status", "ended")
 
             val logRecord = hashMapOf(
                 "caller" to targetId,
@@ -438,7 +438,7 @@ object CallManager {
                 "timestamp" to System.currentTimeMillis()
             )
             firestore.collection("call_logs").add(logRecord)
-            firestore.collection("calls").document("current_call").update("status", "ended")
+            firestore.collection("App").document("current_call").update("status", "ended")
         }
 
         isCallActive = false
@@ -466,7 +466,7 @@ object CallManager {
 
         ensureAuth {
             try {
-                firestore.collection("calls").document("current_call").update("status", "ended")
+                firestore.collection("App").document("current_call").update("status", "ended")
             } catch (_: Exception) {
             }
         }
