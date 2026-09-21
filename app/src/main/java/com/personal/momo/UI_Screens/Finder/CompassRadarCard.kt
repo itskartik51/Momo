@@ -147,29 +147,20 @@ fun CompassRadarCard(
         label = "compassSmoothSpring"
     )
 
-    val normalizedAzimuth = remember(animatedAzimuth) {
-        ((animatedAzimuth % 360f) + 360f) % 360f
-    }
+    val normalizedAzimuth = ((animatedAzimuth % 360f) + 360f) % 360f
 
-    // Unified Geodesic Bearing from centralized ProximityMath
-    val partnerBearing = remember(
-        selfInfo.latitude,
-        selfInfo.longitude,
-        partnerInfo.latitude,
-        partnerInfo.longitude
+    // Direct Raw Calculation: Har bar fresh run hoga, purana cached state freeze nahi karega
+    val partnerBearing = if (
+        selfInfo.latitude != null && selfInfo.longitude != null &&
+        partnerInfo.latitude != null && partnerInfo.longitude != null &&
+        (selfInfo.latitude != 0.0 || selfInfo.longitude != 0.0)
     ) {
-        val sLat = selfInfo.latitude
-        val sLng = selfInfo.longitude
-        val pLat = partnerInfo.latitude
-        val pLng = partnerInfo.longitude
-
-        if (sLat != null && sLng != null && pLat != null && pLng != null &&
-            (sLat != 0.0 || sLng != 0.0)
-        ) {
-            ProximityMath.calculateBearing(sLat, sLng, pLat, pLng)
-        } else {
-            null
-        }
+        ProximityMath.calculateBearing(
+            selfInfo.latitude, selfInfo.longitude,
+            partnerInfo.latitude, partnerInfo.longitude
+        )
+    } else {
+        null
     }
 
     // Audio Tick bound to animated heading crossing 30° / 90°
@@ -209,25 +200,22 @@ fun CompassRadarCard(
         }
     }
 
-    // Current Phone Live Heading Direction via Centralized ProximityMath
-    val liveHeadingDirection = remember(normalizedAzimuth) {
-        ProximityMath.getCardinalDirection(normalizedAzimuth.toDouble())
+    // Direct Direction Checks
+    val liveHeadingDirection = ProximityMath.getCardinalDirection(normalizedAzimuth.toDouble())
+
+    val partnerCardinalDirection = if (partnerBearing != null) {
+        ProximityMath.getCardinalDirection(partnerBearing.toDouble())
+    } else {
+        "--"
     }
 
-    // Partner's Real World Direction via Centralized ProximityMath
-    val partnerCardinalDirection = remember(partnerBearing) {
-        if (partnerBearing != null) ProximityMath.getCardinalDirection(partnerBearing.toDouble()) else "--"
-    }
+    val formattedDistance = formatDistanceLabel(distanceMeters)
 
-    val formattedDistance = remember(distanceMeters) {
-        formatDistanceLabel(distanceMeters)
-    }
-
-    val deviationAngle = remember(normalizedAzimuth, partnerBearing) {
-        if (partnerBearing != null) {
-            val diff = abs(normalizedAzimuth - partnerBearing)
-            if (diff > 180f) 360f - diff else diff
-        } else 0f
+    val deviationAngle = if (partnerBearing != null) {
+        val diff = abs(normalizedAzimuth - partnerBearing)
+        if (diff > 180f) 360f - diff else diff
+    } else {
+        0f
     }
 
     val isTargetLocked = partnerBearing != null && deviationAngle <= 12f
