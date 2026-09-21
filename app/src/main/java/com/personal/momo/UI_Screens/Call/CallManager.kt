@@ -126,7 +126,7 @@ object CallManager {
         override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
             isCallActive = true
             callStartTime = System.currentTimeMillis()
-            diagnosticStatus = "Agora: Joined Channel ($channel)"
+            diagnosticStatus = "Agora: Channel Joined ($channel)"
         }
 
         override fun onUserJoined(uid: Int, elapsed: Int) {
@@ -136,7 +136,7 @@ object CallManager {
 
         override fun onUserOffline(uid: Int, reason: Int) {
             isPeerConnected = false
-            diagnosticStatus = "Agora: Partner went offline (reason: $reason)"
+            diagnosticStatus = "Agora: Partner Offline (reason: $reason)"
         }
 
         override fun onRtcStats(stats: RtcStats?) {
@@ -150,14 +150,6 @@ object CallManager {
         }
 
         override fun onConnectionStateChanged(state: Int, reason: Int) {
-            val stateName = when (state) {
-                1 -> "Disconnected"
-                2 -> "Connecting"
-                3 -> "Connected"
-                4 -> "Reconnecting"
-                5 -> "Failed"
-                else -> "State $state"
-            }
             if (state == 5) {
                 diagnosticStatus = "Agora Connection Failed: reason $reason"
             }
@@ -184,35 +176,37 @@ object CallManager {
         }
     }
 
-    // In-App Pure Kotlin Agora RTC Token Builder (v006 AccessToken HMAC-SHA256)
+    // In-App Agora RTC Token Builder with Standard Binary Packing & Length Prefixes
     private fun buildAgoraToken(channelName: String, uid: Int = 0): String {
         return try {
             val currentTs = (System.currentTimeMillis() / 1000L).toInt()
-            val privilegeTs = currentTs + 86400
+            val privilegeTs = currentTs + 86400 // 24-Hour validity
             val salt = Random.nextInt(100000000) + 1
             val uidStr = if (uid == 0) "" else (uid.toLong() and 0xFFFFFFFFL).toString()
 
-            val msgBuf = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN)
+            // 1. Pack Message buffer
+            val msgBuf = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
             msgBuf.putInt(salt)
-            msgBuf.putInt(privilegeTs)
-            msgBuf.putShort(4.toShort())
+            msgBuf.putInt(currentTs)
+            msgBuf.putShort(4.toShort()) // 4 privileges
 
-            msgBuf.putShort(1.toShort())
-            msgBuf.putInt(privilegeTs)
-
-            msgBuf.putShort(2.toShort())
+            msgBuf.putShort(1.toShort()) // kJoinChannel
             msgBuf.putInt(privilegeTs)
 
-            msgBuf.putShort(3.toShort())
+            msgBuf.putShort(2.toShort()) // kPublishAudioStream
             msgBuf.putInt(privilegeTs)
 
-            msgBuf.putShort(4.toShort())
+            msgBuf.putShort(3.toShort()) // kPublishVideoStream
+            msgBuf.putInt(privilegeTs)
+
+            msgBuf.putShort(4.toShort()) // kPublishDataStream
             msgBuf.putInt(privilegeTs)
 
             val msgBytes = ByteArray(msgBuf.position())
             msgBuf.flip()
             msgBuf.get(msgBytes)
 
+            // 2. Compute HMAC-SHA256 signature
             val mac = Mac.getInstance("HmacSHA256")
             mac.init(SecretKeySpec(AGORA_PRIMARY_CERTIFICATE.toByteArray(Charsets.UTF_8), "HmacSHA256"))
             mac.update(AGORA_APP_ID.toByteArray(Charsets.UTF_8))
@@ -221,13 +215,16 @@ object CallManager {
             mac.update(msgBytes)
             val signature = mac.doFinal()
 
-            val crcChannel = CRC32().apply { update(channelName.toByteArray(Charsets.UTF_8)) }.value.toInt()
-            val crcUid = CRC32().apply { update(uidStr.toByteArray(Charsets.UTF_8)) }.value.toInt()
+            val crcChannel = (CRC32().apply { update(channelName.toByteArray(Charsets.UTF_8)) }.value and 0xFFFFFFFFL).toInt()
+            val crcUid = (CRC32().apply { update(uidStr.toByteArray(Charsets.UTF_8)) }.value and 0xFFFFFFFFL).toInt()
 
-            val contentBuf = ByteBuffer.allocate(signature.size + 8 + msgBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+            // 3. Pack Content buffer with short length headers for signature and message
+            val contentBuf = ByteBuffer.allocate(2 + signature.size + 4 + 4 + 2 + msgBytes.size).order(ByteOrder.LITTLE_ENDIAN)
+            contentBuf.putShort(signature.size.toShort())
             contentBuf.put(signature)
             contentBuf.putInt(crcChannel)
             contentBuf.putInt(crcUid)
+            contentBuf.putShort(msgBytes.size.toShort())
             contentBuf.put(msgBytes)
 
             val base64 = Base64.encodeToString(contentBuf.array(), Base64.NO_WRAP)
@@ -296,7 +293,7 @@ object CallManager {
                         }
                         "ended" -> {
                             if (isCallActive) {
-                                leaveCallSilently()
+                                leaveCallSilently(context)
                             }
                             isIncomingCall = false
                             diagnosticStatus = "Call ended"
@@ -423,6 +420,15 @@ object CallManager {
         } catch (_: Exception) {
         }
 
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.let { am ->
+                am.isSpeakerphoneOn = false
+                am.mode = AudioManager.MODE_NORMAL
+            }
+        } catch (_: Exception) {
+        }
+
         ensureAuth {
             val logRecord = hashMapOf(
                 "caller" to myId,
@@ -442,11 +448,54 @@ object CallManager {
         diagnosticStatus = "Call ended"
     }
 
-    private fun leaveCallSilently() {
+    fun resetAudioAndCallState(context: Context) {
         try {
             rtcEngine?.leaveChannel()
         } catch (_: Exception) {
         }
+
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.let { am ->
+                am.isSpeakerphoneOn = false
+                am.isMicrophoneMute = false
+                am.mode = AudioManager.MODE_NORMAL
+            }
+        } catch (_: Exception) {
+        }
+
+        ensureAuth {
+            try {
+                firestore.collection("calls").document("current_call").update("status", "ended")
+            } catch (_: Exception) {
+            }
+        }
+
+        isCallActive = false
+        isIncomingCall = false
+        isPeerConnected = false
+        isMuted = false
+        isSpeakerOn = false
+        callStartTime = 0L
+        latencyMs = 0
+        diagnosticStatus = "Reset complete: Mic released, Audio normal"
+    }
+
+    private fun leaveCallSilently(context: Context) {
+        try {
+            rtcEngine?.leaveChannel()
+        } catch (_: Exception) {
+        }
+
+        try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.let { am ->
+                am.isSpeakerphoneOn = false
+                am.mode = AudioManager.MODE_NORMAL
+            }
+        } catch (_: Exception) {
+        }
+
         isCallActive = false
         isPeerConnected = false
         callStartTime = 0L
@@ -572,6 +621,9 @@ fun CallScreen(
                     executeWithMicPermission {
                         CallManager.startCall(context)
                     }
+                },
+                onResetCall = {
+                    CallManager.resetAudioAndCallState(context)
                 }
             )
         }
@@ -712,7 +764,8 @@ private fun CallHubView(
     currentUserId: String,
     callLogs: List<CallLogItem>,
     onBack: () -> Unit,
-    onStartCall: () -> Unit
+    onStartCall: () -> Unit,
+    onResetCall: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -874,6 +927,39 @@ private fun CallHubView(
                                 color = Color.White,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Cancel / Emergency Audio Reset Button
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                            .bounceClick(scaleDown = 0.94f) {
+                                onResetCall()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CallEnd,
+                                contentDescription = "Reset Call",
+                                tint = Color(0xFFF44336),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Cancel / Reset Audio",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
