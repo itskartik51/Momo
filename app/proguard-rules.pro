@@ -14,3 +14,10 @@
 
 # Keep Model Attributes & Reflection Metadata
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+
+# Agora Voice SDK Protection Rules
+-keep class io.agora.** { *; }
+-dontwarn io.agora.**
+-keepclasseswithmembers class * {
+    native <methods>;
+}
