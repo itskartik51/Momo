@@ -373,9 +373,10 @@ class ProximityLocationService : Service() {
 
         val currentUserId = CacheManager.getAppUserId(this)
         val partnerName = if (currentUserId.equals("Kanu", ignoreCase = true)) "Momo" else "Kanu"
+        val isPartnerActive = CacheManager.partnerFinderActiveFlow.value
 
-        // Proximity notifications evaluation (Strict <= 200m)
-        if (partnerGeo != null && currentRelativeDistance != null) {
+        // Proximity notifications evaluation (Strict <= 200m and partner finder active)
+        if (partnerGeo != null && currentRelativeDistance != null && isPartnerActive) {
             ProximityNotificationHelper.evaluateAlert(this, partnerName, currentRelativeDistance)
         } else {
             ProximityNotificationHelper.dismiss(this)
