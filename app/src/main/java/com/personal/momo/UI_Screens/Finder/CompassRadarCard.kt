@@ -11,6 +11,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +41,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
@@ -63,7 +65,8 @@ fun CompassRadarCard(
     partnerInfo: CacheManager.UserLocationInfo,
     selfInfo: CacheManager.UserLocationInfo,
     distanceMeters: Int?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCenterDoubleTap: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -396,9 +399,14 @@ fun CompassRadarCard(
                     )
                 }
 
-                // Center Display: True Heading Degree + Live Direction
+                // Center Display: True Heading Degree + Live Direction with Double-Tap Test Gesture
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.pointerInput(Unit) {
+                        detectTapGestures(
+                            onDoubleTap = { onCenterDoubleTap() }
+                        )
+                    }
                 ) {
                     Text(
                         text = "${normalizedAzimuth.roundToInt()}°",
