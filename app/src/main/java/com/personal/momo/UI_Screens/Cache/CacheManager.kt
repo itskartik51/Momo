@@ -6,6 +6,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.personal.momo.SecurityConfig
 import com.personal.momo.UI_Screens.Calendar.MomoEvent
@@ -48,6 +49,8 @@ object CacheManager {
     private const val KEY_APP_USER_ID = "cached_app_user_id"
 
     private var prefs: SharedPreferences? = null
+    private var homeConfigListener: ListenerRegistration? = null
+    private var rawFinderActiveMap: Map<*, *>? = null
 
     private val _avatarUrlFlow = MutableStateFlow<String?>(null)
     val avatarUrlFlow: StateFlow<String?> = _avatarUrlFlow.asStateFlow()
@@ -63,6 +66,9 @@ object CacheManager {
 
     private val _finderEnabledFlow = MutableStateFlow(true)
     val finderEnabledFlow: StateFlow<Boolean> = _finderEnabledFlow.asStateFlow()
+
+    private val _partnerFinderActiveFlow = MutableStateFlow(true)
+    val partnerFinderActiveFlow: StateFlow<Boolean> = _partnerFinderActiveFlow.asStateFlow()
 
     private val _tymFlow = MutableStateFlow<Long?>(null)
     val tymFlow: StateFlow<Long?> = _tymFlow.asStateFlow()
@@ -83,6 +89,7 @@ object CacheManager {
         }
         loadLocalCache()
         syncFromFirestore()
+        startHomeConfigRealtimeSync()
     }
 
     private fun loadLocalCache() {
@@ -169,6 +176,7 @@ object CacheManager {
         }
         prefs?.edit()?.putBoolean(KEY_FINDER_ENABLED, enabled)?.apply()
         _finderEnabledFlow.value = enabled
+        updateMyFinderActiveInFirestore(enabled)
     }
 
     fun getAppUserId(context: Context): String {
@@ -184,6 +192,7 @@ object CacheManager {
         }
         prefs?.edit()?.putString(KEY_APP_USER_ID, userId)?.apply()
         _appUserIdFlow.value = userId
+        updatePartnerFinderStatus()
     }
 
     fun updateTym(newTym: Long) {
@@ -308,33 +317,73 @@ object CacheManager {
         }
     }
 
+    private fun startHomeConfigRealtimeSync() {
+        if (homeConfigListener != null) return
+        ensureAuth {
+            val db = FirebaseFirestore.getInstance()
+            homeConfigListener = db.collection("App")
+                .document("home_config")
+                .addSnapshotListener { document, error ->
+                    if (error != null || document == null || !document.exists()) return@addSnapshotListener
+
+                    val rawUrl = document.getString("ic_avt")
+                    if (!rawUrl.isNullOrBlank()) {
+                        val directUrl = resolveDriveUrl(rawUrl)
+                        if (directUrl != _avatarUrlFlow.value) {
+                            saveAvatarUrl(directUrl)
+                        }
+                    }
+
+                    val remoteTym = document.getLong("tym")
+                    if (remoteTym != null && remoteTym != _tymFlow.value) {
+                        saveTym(remoteTym)
+                    }
+
+                    val finderMap = document.get("finder_active") as? Map<*, *>
+                    if (finderMap != null) {
+                        rawFinderActiveMap = finderMap
+                        updatePartnerFinderStatus()
+                    }
+                }
+        }
+    }
+
+    private fun updatePartnerFinderStatus() {
+        val map = rawFinderActiveMap ?: return
+        val currentUserId = _appUserIdFlow.value
+        val isKanu = currentUserId.equals("Kanu", ignoreCase = true)
+        val partnerKey = if (isKanu) "momo" else "kanu"
+        val partnerActive = (map[partnerKey] as? Boolean) ?: true
+        _partnerFinderActiveFlow.value = partnerActive
+    }
+
+    private fun updateMyFinderActiveInFirestore(enabled: Boolean) {
+        ensureAuth {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val currentUserId = _appUserIdFlow.value
+                    val userKey = if (currentUserId.equals("Kanu", ignoreCase = true)) "kanu" else "momo"
+                    val db = FirebaseFirestore.getInstance()
+                    db.collection("App").document("home_config")
+                        .update("finder_active.$userKey", enabled)
+                        .addOnFailureListener {
+                            db.collection("App").document("home_config")
+                                .set(
+                                    mapOf("finder_active" to mapOf(userKey to enabled)),
+                                    SetOptions.merge()
+                                )
+                        }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
     fun syncFromFirestore() {
         ensureAuth {
             CoroutineScope(Dispatchers.IO).launch {
                 val db = FirebaseFirestore.getInstance()
-
-                try {
-                    db.collection("App")
-                        .document("home_config")
-                        .get()
-                        .addOnSuccessListener { document ->
-                            if (document != null && document.exists()) {
-                                val rawUrl = document.getString("ic_avt")
-                                if (!rawUrl.isNullOrBlank()) {
-                                    val directUrl = resolveDriveUrl(rawUrl)
-                                    if (directUrl != _avatarUrlFlow.value) {
-                                        saveAvatarUrl(directUrl)
-                                    }
-                                }
-
-                                val remoteTym = document.getLong("tym")
-                                if (remoteTym != null && remoteTym != _tymFlow.value) {
-                                    saveTym(remoteTym)
-                                }
-                            }
-                        }
-                        .addOnFailureListener {}
-                } catch (e: Exception) {}
 
                 try {
                     db.collection("ApyBday")
