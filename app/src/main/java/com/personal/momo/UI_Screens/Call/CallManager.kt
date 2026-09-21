@@ -1,7 +1,11 @@
 package com.personal.momo.UI_Screens.Call
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -57,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -329,6 +334,31 @@ fun CallScreen(
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
     val callLogs = remember { mutableStateListOf<CallLogItem>() }
 
+    // Dynamic Permission Handler
+    var pendingCallAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pendingCallAction?.invoke()
+        }
+        pendingCallAction = null
+    }
+
+    fun executeWithMicPermission(action: () -> Unit) {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            action()
+        } else {
+            pendingCallAction = action
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     DisposableEffect(Unit) {
         CallManager.startSignalingListener(context)
         val logsListener = CallManager.observeCallLogs { updatedList ->
@@ -346,7 +376,9 @@ fun CallScreen(
                 avatarUrl = avatarUrl,
                 callerName = CallManager.incomingCallerName,
                 onAccept = {
-                    CallManager.acceptIncomingCall(context)
+                    executeWithMicPermission {
+                        CallManager.acceptIncomingCall(context)
+                    }
                 },
                 onDecline = {
                     CallManager.declineIncomingCall()
@@ -367,7 +399,9 @@ fun CallScreen(
                 callLogs = callLogs,
                 onBack = onBack,
                 onStartCall = {
-                    CallManager.startCall(context)
+                    executeWithMicPermission {
+                        CallManager.startCall(context)
+                    }
                 }
             )
         }
@@ -434,7 +468,6 @@ private fun IncomingCallView(
             )
         }
 
-        // Bottom Accept / Decline Buttons
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -443,7 +476,6 @@ private fun IncomingCallView(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Decline Button
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -472,7 +504,6 @@ private fun IncomingCallView(
                 )
             }
 
-            // Accept Button
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
