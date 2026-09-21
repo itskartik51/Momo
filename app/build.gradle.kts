@@ -93,4 +93,7 @@ dependencies {
 
     // Airbnb Lottie for Jetpack Compose
     implementation("com.airbnb.android:lottie-compose:6.4.0")
+
+    // Agora Voice SDK for Realtime Calling
+    implementation("io.agora.rtc:voice-sdk:4.3.1")
 }
