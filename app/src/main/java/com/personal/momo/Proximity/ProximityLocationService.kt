@@ -78,10 +78,27 @@ class ProximityLocationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        CacheManager.init(this)
+
+        if (!CacheManager.isFinderEnabled(this)) {
+            stopSelf()
+            return
+        }
+
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         startForegroundServiceNotification()
 
-        CacheManager.init(this)
+        serviceScope.launch {
+            CacheManager.finderEnabledFlow.collect { isEnabled ->
+                if (!isEnabled) {
+                    stopContinuousLocationUpdates()
+                    periodicLoopJob?.cancel()
+                    firestoreListener?.remove()
+                    firestoreListener = null
+                    stopSelf()
+                }
+            }
+        }
 
         serviceScope.launch {
             CacheManager.appUserIdFlow.collect { userId ->
@@ -100,6 +117,11 @@ class ProximityLocationService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!CacheManager.isFinderEnabled(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         when (intent?.action) {
             ACTION_START_LIVE -> {
                 isManualLiveActive = true
@@ -136,6 +158,7 @@ class ProximityLocationService : Service() {
         stopContinuousLocationUpdates()
         periodicLoopJob?.cancel()
         firestoreListener?.remove()
+        firestoreListener = null
         serviceScope.cancel()
     }
 
@@ -218,6 +241,8 @@ class ProximityLocationService : Service() {
     }
 
     private fun startFirestoreSync() {
+        if (!CacheManager.isFinderEnabled(this)) return
+
         val db = FirebaseFirestore.getInstance()
         val docRef = db.collection("App").document("home_config")
 
@@ -241,6 +266,8 @@ class ProximityLocationService : Service() {
     }
 
     private fun handleLocationUpdate(location: Location) {
+        if (!CacheManager.isFinderEnabled(this)) return
+
         if (location.accuracy > 200.0f) {
             handleLocationFetchFailure()
             return
@@ -256,6 +283,8 @@ class ProximityLocationService : Service() {
     }
 
     private fun uploadMyLocationToFirestore(location: Location) {
+        if (!CacheManager.isFinderEnabled(this)) return
+
         ensureAuth {
             serviceScope.launch {
                 try {
@@ -488,6 +517,7 @@ class ProximityLocationService : Service() {
         const val ACTION_FORCE_SYNC = "com.personal.momo.action.FORCE_SYNC"
 
         fun startService(context: Context) {
+            if (!CacheManager.isFinderEnabled(context)) return
             val intent = Intent(context, ProximityLocationService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -502,6 +532,7 @@ class ProximityLocationService : Service() {
         }
 
         fun startLive(context: Context) {
+            if (!CacheManager.isFinderEnabled(context)) return
             val intent = Intent(context, ProximityLocationService::class.java).apply {
                 action = ACTION_START_LIVE
             }
@@ -524,6 +555,7 @@ class ProximityLocationService : Service() {
         }
 
         fun forceSync(context: Context) {
+            if (!CacheManager.isFinderEnabled(context)) return
             val intent = Intent(context, ProximityLocationService::class.java).apply {
                 action = ACTION_FORCE_SYNC
             }
