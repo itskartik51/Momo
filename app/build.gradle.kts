@@ -66,6 +66,17 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
+
+    packaging {
+        jniLibs {
+            excludes += listOf(
+                "**/libagora_lip_sync_extension.so",
+                "**/libagora_spatial_audio_extension.so",
+                "**/libagora_ai_noise_suppression_extension.so",
+                "**/libagora_audio_beauty_extension.so"
+            )
+        }
+    }
 }
 
 dependencies {
