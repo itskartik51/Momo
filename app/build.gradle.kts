@@ -90,4 +90,7 @@ dependencies {
 
     // Konfetti Celebration Particle System
     implementation("nl.dionsegijn:konfetti-compose:2.0.4")
+
+    // Airbnb Lottie for Jetpack Compose
+    implementation("com.airbnb.android:lottie-compose:6.4.0")
 }
