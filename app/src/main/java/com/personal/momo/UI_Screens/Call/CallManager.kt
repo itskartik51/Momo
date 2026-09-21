@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.VolumeMute
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -64,10 +65,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.SecurityConfig
 import com.personal.momo.UI_Screens.bounceClick
 import io.agora.rtc2.ChannelMediaOptions
 import io.agora.rtc2.Constants
@@ -112,6 +115,9 @@ object CallManager {
     var isMuted by mutableStateOf(false)
     var isSpeakerOn by mutableStateOf(false)
 
+    // Live Diagnostic Status for Testing
+    var diagnosticStatus by mutableStateOf("Idle / Ready")
+
     private var callStartTime: Long = 0L
     private val firestore by lazy { FirebaseFirestore.getInstance() }
     private var signalingListener: ListenerRegistration? = null
@@ -120,19 +126,60 @@ object CallManager {
         override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
             isCallActive = true
             callStartTime = System.currentTimeMillis()
+            diagnosticStatus = "Agora: Joined Channel ($channel)"
         }
 
         override fun onUserJoined(uid: Int, elapsed: Int) {
             isPeerConnected = true
+            diagnosticStatus = "Agora: Partner Connected!"
         }
 
         override fun onUserOffline(uid: Int, reason: Int) {
             isPeerConnected = false
+            diagnosticStatus = "Agora: Partner went offline (reason: $reason)"
         }
 
         override fun onRtcStats(stats: RtcStats?) {
             stats?.let {
                 latencyMs = if (it.gatewayRtt > 0) it.gatewayRtt else it.lastmileDelay
+            }
+        }
+
+        override fun onError(err: Int) {
+            diagnosticStatus = "Agora Error: $err"
+        }
+
+        override fun onConnectionStateChanged(state: Int, reason: Int) {
+            val stateName = when (state) {
+                1 -> "Disconnected"
+                2 -> "Connecting"
+                3 -> "Connected"
+                4 -> "Reconnecting"
+                5 -> "Failed"
+                else -> "State $state"
+            }
+            if (state == 5) {
+                diagnosticStatus = "Agora Connection Failed: reason $reason"
+            }
+        }
+    }
+
+    private fun ensureAuth(onReady: () -> Unit) {
+        val auth = FirebaseAuth.getInstance()
+        if (auth.currentUser != null) {
+            onReady()
+        } else {
+            if (SecurityConfig.AUTH_EMAIL.isNotBlank() && SecurityConfig.AUTH_PASS.isNotBlank()) {
+                diagnosticStatus = "Authenticating Firebase..."
+                auth.signInWithEmailAndPassword(SecurityConfig.AUTH_EMAIL, SecurityConfig.AUTH_PASS)
+                    .addOnSuccessListener {
+                        onReady()
+                    }
+                    .addOnFailureListener { e ->
+                        diagnosticStatus = "Auth Failed: ${e.localizedMessage}"
+                    }
+            } else {
+                onReady()
             }
         }
     }
@@ -141,25 +188,25 @@ object CallManager {
     private fun buildAgoraToken(channelName: String, uid: Int = 0): String {
         return try {
             val currentTs = (System.currentTimeMillis() / 1000L).toInt()
-            val privilegeTs = currentTs + 86400 // Valid for 24 Hours
+            val privilegeTs = currentTs + 86400
             val salt = Random.nextInt(100000000) + 1
             val uidStr = if (uid == 0) "" else (uid.toLong() and 0xFFFFFFFFL).toString()
 
             val msgBuf = ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN)
             msgBuf.putInt(salt)
             msgBuf.putInt(privilegeTs)
-            msgBuf.putShort(4.toShort()) // 4 privilege permissions
+            msgBuf.putShort(4.toShort())
 
-            msgBuf.putShort(1.toShort()) // kJoinChannel
+            msgBuf.putShort(1.toShort())
             msgBuf.putInt(privilegeTs)
 
-            msgBuf.putShort(2.toShort()) // kPublishAudioStream
+            msgBuf.putShort(2.toShort())
             msgBuf.putInt(privilegeTs)
 
-            msgBuf.putShort(3.toShort()) // kPublishVideoStream
+            msgBuf.putShort(3.toShort())
             msgBuf.putInt(privilegeTs)
 
-            msgBuf.putShort(4.toShort()) // kPublishDataStream
+            msgBuf.putShort(4.toShort())
             msgBuf.putInt(privilegeTs)
 
             val msgBytes = ByteArray(msgBuf.position())
@@ -185,7 +232,8 @@ object CallManager {
 
             val base64 = Base64.encodeToString(contentBuf.array(), Base64.NO_WRAP)
             "006$AGORA_APP_ID$base64"
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            diagnosticStatus = "Token Gen Error: ${e.localizedMessage}"
             ""
         }
     }
@@ -201,7 +249,9 @@ object CallManager {
                 rtcEngine = RtcEngine.create(config)
                 rtcEngine?.enableAudio()
                 rtcEngine?.setChannelProfile(Constants.CHANNEL_PROFILE_COMMUNICATION)
-            } catch (_: Exception) {
+                diagnosticStatus = "Agora Engine Initialized"
+            } catch (e: Exception) {
+                diagnosticStatus = "Agora Init Error: ${e.localizedMessage}"
             }
         }
     }
@@ -209,41 +259,51 @@ object CallManager {
     fun startSignalingListener(context: Context) {
         if (signalingListener != null) return
 
-        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
+        ensureAuth {
+            val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
 
-        signalingListener = firestore.collection("calls").document("current_call")
-            .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-
-                val status = snapshot.getString("status") ?: ""
-                val caller = snapshot.getString("caller") ?: ""
-                val receiver = snapshot.getString("receiver") ?: ""
-                val channel = snapshot.getString("channelName") ?: "momo_private_voice_room"
-                val timestamp = snapshot.getLong("timestamp") ?: 0L
-                val isRecent = (System.currentTimeMillis() - timestamp) < 60_000L
-
-                when (status) {
-                    "calling" -> {
-                        // Ring ONLY IF this device is the designated receiver
-                        if (!isCallActive && isRecent && receiver.equals(myId, ignoreCase = true)) {
-                            incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
-                            currentChannelName = channel
-                            isIncomingCall = true
-                        }
+            signalingListener = firestore.collection("calls").document("current_call")
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        diagnosticStatus = "Signaling Listen Err: ${error.localizedMessage}"
+                        return@addSnapshotListener
                     }
-                    "connected" -> {
-                        if (isCallActive) {
-                            isPeerConnected = true
-                        }
+                    if (snapshot == null || !snapshot.exists()) {
+                        return@addSnapshotListener
                     }
-                    "ended" -> {
-                        if (isCallActive) {
-                            leaveCallSilently()
+
+                    val status = snapshot.getString("status") ?: ""
+                    val caller = snapshot.getString("caller") ?: ""
+                    val receiver = snapshot.getString("receiver") ?: ""
+                    val channel = snapshot.getString("channelName") ?: "momo_private_voice_room"
+                    val timestamp = snapshot.getLong("timestamp") ?: 0L
+                    val isRecent = (System.currentTimeMillis() - timestamp) < 60_000L
+
+                    when (status) {
+                        "calling" -> {
+                            if (!isCallActive && isRecent && receiver.equals(myId, ignoreCase = true)) {
+                                incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
+                                currentChannelName = channel
+                                isIncomingCall = true
+                                diagnosticStatus = "Incoming call from $incomingCallerName!"
+                            }
                         }
-                        isIncomingCall = false
+                        "connected" -> {
+                            if (isCallActive) {
+                                isPeerConnected = true
+                                diagnosticStatus = "Call connected with partner"
+                            }
+                        }
+                        "ended" -> {
+                            if (isCallActive) {
+                                leaveCallSilently()
+                            }
+                            isIncomingCall = false
+                            diagnosticStatus = "Call ended"
+                        }
                     }
                 }
-            }
+        }
     }
 
     fun stopSignalingListener() {
@@ -270,17 +330,28 @@ object CallManager {
 
         try {
             val token = buildAgoraToken(channelName)
+            diagnosticStatus = "Joining Agora Channel..."
             rtcEngine?.joinChannel(token, channelName, 0, options)
 
-            val callData = hashMapOf(
-                "caller" to myId,
-                "receiver" to targetId,
-                "status" to "calling",
-                "channelName" to channelName,
-                "timestamp" to System.currentTimeMillis()
-            )
-            firestore.collection("calls").document("current_call").set(callData)
-        } catch (_: Exception) {
+            ensureAuth {
+                diagnosticStatus = "Sending Call Signal to $targetId..."
+                val callData = hashMapOf(
+                    "caller" to myId,
+                    "receiver" to targetId,
+                    "status" to "calling",
+                    "channelName" to channelName,
+                    "timestamp" to System.currentTimeMillis()
+                )
+                firestore.collection("calls").document("current_call").set(callData)
+                    .addOnSuccessListener {
+                        diagnosticStatus = "Signal sent! Waiting for answer..."
+                    }
+                    .addOnFailureListener { e ->
+                        diagnosticStatus = "Firestore Signal Error: ${e.localizedMessage}"
+                    }
+            }
+        } catch (e: Exception) {
+            diagnosticStatus = "Call Start Error: ${e.localizedMessage}"
         }
     }
 
@@ -300,9 +371,20 @@ object CallManager {
 
         try {
             val token = buildAgoraToken(currentChannelName)
+            diagnosticStatus = "Accepting & Joining Agora..."
             rtcEngine?.joinChannel(token, currentChannelName, 0, options)
-            firestore.collection("calls").document("current_call").update("status", "connected")
-        } catch (_: Exception) {
+
+            ensureAuth {
+                firestore.collection("calls").document("current_call").update("status", "connected")
+                    .addOnSuccessListener {
+                        diagnosticStatus = "Accepted. Status: connected"
+                    }
+                    .addOnFailureListener { e ->
+                        diagnosticStatus = "Accept Error: ${e.localizedMessage}"
+                    }
+            }
+        } catch (e: Exception) {
+            diagnosticStatus = "Accept Agora Error: ${e.localizedMessage}"
         }
     }
 
@@ -311,16 +393,19 @@ object CallManager {
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val targetId = if (myId == "kanu") "momo" else "kanu"
 
-        firestore.collection("calls").document("current_call").update("status", "ended")
+        ensureAuth {
+            firestore.collection("calls").document("current_call").update("status", "ended")
 
-        val logRecord = hashMapOf(
-            "caller" to targetId,
-            "receiver" to myId,
-            "status" to "missed",
-            "durationSeconds" to 0,
-            "timestamp" to System.currentTimeMillis()
-        )
-        firestore.collection("call_logs").add(logRecord)
+            val logRecord = hashMapOf(
+                "caller" to targetId,
+                "receiver" to myId,
+                "status" to "missed",
+                "durationSeconds" to 0,
+                "timestamp" to System.currentTimeMillis()
+            )
+            firestore.collection("call_logs").add(logRecord)
+            diagnosticStatus = "Call declined"
+        }
     }
 
     fun endCall(context: Context) {
@@ -338,20 +423,23 @@ object CallManager {
         } catch (_: Exception) {
         }
 
-        val logRecord = hashMapOf(
-            "caller" to myId,
-            "receiver" to targetId,
-            "status" to if (isPeerConnected) "completed" else "missed",
-            "durationSeconds" to duration,
-            "timestamp" to System.currentTimeMillis()
-        )
-        firestore.collection("call_logs").add(logRecord)
-        firestore.collection("calls").document("current_call").update("status", "ended")
+        ensureAuth {
+            val logRecord = hashMapOf(
+                "caller" to myId,
+                "receiver" to targetId,
+                "status" to if (isPeerConnected) "completed" else "missed",
+                "durationSeconds" to duration,
+                "timestamp" to System.currentTimeMillis()
+            )
+            firestore.collection("call_logs").add(logRecord)
+            firestore.collection("calls").document("current_call").update("status", "ended")
+        }
 
         isCallActive = false
         isPeerConnected = false
         callStartTime = 0L
         latencyMs = 0
+        diagnosticStatus = "Call ended"
     }
 
     private fun leaveCallSilently() {
@@ -674,7 +762,38 @@ private fun CallHubView(
                 .fillMaxSize()
                 .padding(horizontal = 20.dp)
         ) {
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Live Diagnostic Status Strip
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = "Diagnostic",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Device: $currentUserId | ${CallManager.diagnosticStatus}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
@@ -761,7 +880,7 @@ private fun CallHubView(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -781,7 +900,7 @@ private fun CallHubView(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (callLogs.isEmpty()) {
                 Box(
