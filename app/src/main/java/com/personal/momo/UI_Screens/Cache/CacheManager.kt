@@ -43,6 +43,7 @@ object CacheManager {
     private const val KEY_PERIOD_DATES = "cached_period_dates"
     private const val KEY_EVENTS = "cached_events"
     private const val KEY_SECURITY_LOCK = "cached_security_lock"
+    private const val KEY_FINDER_ENABLED = "cached_finder_enabled"
     private const val KEY_TYM = "cached_tym"
     private const val KEY_APP_USER_ID = "cached_app_user_id"
 
@@ -59,6 +60,9 @@ object CacheManager {
 
     private val _securityLockFlow = MutableStateFlow(false)
     val securityLockFlow: StateFlow<Boolean> = _securityLockFlow.asStateFlow()
+
+    private val _finderEnabledFlow = MutableStateFlow(true)
+    val finderEnabledFlow: StateFlow<Boolean> = _finderEnabledFlow.asStateFlow()
 
     private val _tymFlow = MutableStateFlow<Long?>(null)
     val tymFlow: StateFlow<Long?> = _tymFlow.asStateFlow()
@@ -125,12 +129,15 @@ object CacheManager {
         // 4. Instant Synchronous Load: Security Lock
         _securityLockFlow.value = p.getBoolean(KEY_SECURITY_LOCK, false)
 
-        // 5. Instant Synchronous Load: Dynamic Tym
+        // 5. Instant Synchronous Load: Finder Enabled (Defaults to true)
+        _finderEnabledFlow.value = p.getBoolean(KEY_FINDER_ENABLED, true)
+
+        // 6. Instant Synchronous Load: Dynamic Tym
         if (p.contains(KEY_TYM)) {
             _tymFlow.value = p.getLong(KEY_TYM, 0L)
         }
 
-        // 6. Instant Synchronous Load: App User ID
+        // 7. Instant Synchronous Load: App User ID
         _appUserIdFlow.value = p.getString(KEY_APP_USER_ID, "Kanu") ?: "Kanu"
     }
 
@@ -149,6 +156,21 @@ object CacheManager {
         _securityLockFlow.value = enabled
     }
 
+    fun isFinderEnabled(context: Context): Boolean {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        return prefs?.getBoolean(KEY_FINDER_ENABLED, true) ?: true
+    }
+
+    fun setFinderEnabled(context: Context, enabled: Boolean) {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        prefs?.edit()?.putBoolean(KEY_FINDER_ENABLED, enabled)?.apply()
+        _finderEnabledFlow.value = enabled
+    }
+
     fun getAppUserId(context: Context): String {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -164,14 +186,9 @@ object CacheManager {
         _appUserIdFlow.value = userId
     }
 
-    /**
-     * Updates dynamic tym value optimistically and syncs to Firestore under App/home_config
-     */
     fun updateTym(newTym: Long) {
-        // Step 1: Instant Local Write (Optimistic UI Update)
         saveTym(newTym)
 
-        // Step 2 & 3: Background Firestore Push & Server Reconciliation
         ensureAuth {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
@@ -193,10 +210,6 @@ object CacheManager {
         }
     }
 
-    /**
-     * Ensures an authenticated internal session is present before performing Firestore operations.
-     * Re-uses existing session if available; otherwise performs a silent background login.
-     */
     private fun ensureAuth(onReady: () -> Unit) {
         val auth = FirebaseAuth.getInstance()
         if (auth.currentUser != null) {
@@ -216,18 +229,10 @@ object CacheManager {
         }
     }
 
-    /**
-     * Optimistic write for new period start date:
-     * 1. Updates in-memory flow and local SharedPreferences instantly for zero UI latency.
-     * 2. Pushes to Firestore under ApyBday/{Year} using arrayUnion on 'peri_date'.
-     * 3. Syncs fresh authoritative state from Firestore upon completion.
-     */
     fun addPeriodDate(date: LocalDate) {
-        // Step 1: Instant Local Write (Optimistic UI Update)
         val updatedDates = (_periodDatesFlow.value + date).distinct().sorted()
         savePeriodDates(updatedDates)
 
-        // Step 2 & 3: Background Firestore Push & Server Reconciliation
         ensureAuth {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
@@ -253,18 +258,10 @@ object CacheManager {
         }
     }
 
-    /**
-     * Optimistic write for new event/memory:
-     * 1. Updates in-memory flow and local SharedPreferences instantly for zero UI latency.
-     * 2. Reads existing keys for Events/{Year}, finds next 3-digit index (e.g. 001, 002).
-     * 3. Writes array payload [title, description, Timestamp, isSpecial] and reconciles with server.
-     */
     fun addEvent(event: MomoEvent) {
-        // Step 1: Instant Local Write (Optimistic UI Update)
         val updatedEvents = (_eventsFlow.value.filterNot { it.id == event.id } + event).sortedBy { it.date }
         saveEvents(updatedEvents)
 
-        // Step 2 & 3: Background Firestore Push & Server Reconciliation
         ensureAuth {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
@@ -316,7 +313,6 @@ object CacheManager {
             CoroutineScope(Dispatchers.IO).launch {
                 val db = FirebaseFirestore.getInstance()
 
-                // 1. Sync Avatar & Dynamic Tym Configuration
                 try {
                     db.collection("App")
                         .document("home_config")
@@ -337,14 +333,9 @@ object CacheManager {
                                 }
                             }
                         }
-                        .addOnFailureListener {
-                            // Silent fail for offline resiliency
-                        }
-                } catch (e: Exception) {
-                    // Ignore network exceptions
-                }
+                        .addOnFailureListener {}
+                } catch (e: Exception) {}
 
-                // 2. Sync Entire ApyBday Collection (All Years)
                 try {
                     db.collection("ApyBday")
                         .get()
@@ -372,14 +363,9 @@ object CacheManager {
                                 }
                             }
                         }
-                        .addOnFailureListener {
-                            // Silent fail: Keeps existing cached dates during offline use
-                        }
-                } catch (e: Exception) {
-                    // Ignore network exceptions
-                }
+                        .addOnFailureListener {}
+                } catch (e: Exception) {}
 
-                // 3. Sync Entire Events Collection (All Documents & Years)
                 try {
                     db.collection("Events")
                         .get()
@@ -426,12 +412,8 @@ object CacheManager {
                                 }
                             }
                         }
-                        .addOnFailureListener {
-                            // Silent fail for offline resiliency
-                        }
-                } catch (e: Exception) {
-                    // Ignore network exceptions
-                }
+                        .addOnFailureListener {}
+                } catch (e: Exception) {}
             }
         }
     }
