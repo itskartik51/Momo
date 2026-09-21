@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.Proximity.ProximityLocationService
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 import com.personal.momo.UI_Screens.Calendar.MomoEventsCalculator
@@ -110,6 +111,8 @@ fun HomeScreen() {
     var isUpdateAvailable by remember { mutableStateOf(false) }
     var currentVisibleMonth by remember { mutableStateOf(YearMonth.now()) }
 
+    val isFinderEnabled by CacheManager.finderEnabledFlow.collectAsState()
+
     // Repeated Notification Permission Handling: Prompts every launch if denied
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -136,6 +139,16 @@ fun HomeScreen() {
             if (!isPermissionGranted) {
                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+    }
+
+    // Reactive Service Controller based on Finder Enabled State
+    LaunchedEffect(isFinderEnabled) {
+        if (isFinderEnabled) {
+            ProximityLocationService.startService(context)
+        } else {
+            isFinderOpen = false
+            ProximityLocationService.stopService(context)
         }
     }
 
@@ -175,7 +188,7 @@ fun HomeScreen() {
     }
 
     val currentDestination = when {
-        isFinderOpen -> HomeScreenDestination.FINDER
+        isFinderOpen && isFinderEnabled -> HomeScreenDestination.FINDER
         isNotificationsOpen -> HomeScreenDestination.NOTIFICATIONS
         isMenuOpen -> HomeScreenDestination.MENU
         else -> HomeScreenDestination.HOME
@@ -237,6 +250,7 @@ fun HomeScreen() {
                             avatarUrl = avatarUrl,
                             isUpdateAvailable = isUpdateAvailable,
                             hasUnreadNotifications = hasUnreadNotifications,
+                            isFinderEnabled = isFinderEnabled,
                             onFinderClick = {
                                 isFinderOpen = true
                             },
@@ -293,6 +307,7 @@ private fun HomeHeader(
     avatarUrl: String?,
     isUpdateAvailable: Boolean,
     hasUnreadNotifications: Boolean,
+    isFinderEnabled: Boolean,
     onFinderClick: () -> Unit,
     onNotificationsClick: () -> Unit,
     onMenuClick: () -> Unit
@@ -365,22 +380,24 @@ private fun HomeHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Finder Action Button
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .bounceClick(scaleDown = 0.88f) {
-                            onFinderClick()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.MyLocation,
-                        contentDescription = "Finder",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp)
-                    )
+                // Finder Action Button (Rendered conditionally based on isFinderEnabled)
+                if (isFinderEnabled) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .bounceClick(scaleDown = 0.88f) {
+                                onFinderClick()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.MyLocation,
+                            contentDescription = "Finder",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
 
                 // Bell Notification Icon with unread indicator dot
