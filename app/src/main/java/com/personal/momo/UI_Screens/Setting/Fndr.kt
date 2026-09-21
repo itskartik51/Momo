@@ -197,7 +197,8 @@ private fun FinderConfirmationDialog(
         Surface(
             shape = RoundedCornerShape(22.dp),
             color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+            tonalElevation = 0.dp,
+            shadowElevation = 3.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
