@@ -31,7 +31,6 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,10 +73,14 @@ fun ActiveCallScreen(
     var isHoldActive by remember { mutableStateOf(false) }
     var isAudioRouteSelectorOpen by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1000L)
-            secondsElapsed++
+    // Accurate Timer: Starts strictly at 00:00 when peer connects
+    LaunchedEffect(CallManager.isPeerConnected) {
+        if (CallManager.isPeerConnected) {
+            secondsElapsed = 0
+            while (true) {
+                delay(1000L)
+                secondsElapsed++
+            }
         }
     }
 
@@ -92,7 +95,7 @@ fun ActiveCallScreen(
         label = "LatencyColor"
     )
 
-    // Solid Google-Dialer tokens
+    // Solid Google Dialer theme tokens (ZERO RED except End Call)
     val activeCircleBg = Color.White
     val activeCircleTint = Color(0xFF1E1F22)
     val inactiveCircleBg = Color(0xFF2C2D32)
@@ -128,7 +131,7 @@ fun ActiveCallScreen(
             )
         }
 
-        // Profile Section locked in Upper 1/3rd
+        // Profile Section locked in Upper 1/3rd (Zero overlap with expanded bottom deck)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top,
@@ -167,10 +170,12 @@ fun ActiveCallScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            // Subtitle state: Ringing -> Connecting -> 00:01
             Text(
                 text = when {
                     isHoldActive -> "Call on Hold"
                     CallManager.isPeerConnected -> formatCallDuration(secondsElapsed)
+                    CallManager.isConnecting -> "Connecting..."
                     else -> "Ringing..."
                 },
                 fontSize = 15.sp,
@@ -179,7 +184,7 @@ fun ActiveCallScreen(
             )
         }
 
-        // Bottom Solid Control Deck (100% Opaque)
+        // Bottom Solid Control Deck (100% Opaque - No transparency bleed-through)
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -196,7 +201,7 @@ fun ActiveCallScreen(
                     .padding(horizontal = 16.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Expanded 3-Item Audio Selector
+                // Expanded 3-Item Audio Route Selector Panel (Appears smoothly above buttons)
                 if (isAudioRouteSelectorOpen && CallManager.isBluetoothAvailable) {
                     val headerTitle = when (CallManager.currentAudioRoute) {
                         AudioRoute.BLUETOOTH -> "Bluetooth"
@@ -204,6 +209,7 @@ fun ActiveCallScreen(
                         AudioRoute.PHONE -> "Phone"
                     }
 
+                    // Header Row: Title + Close "X" Button
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -237,13 +243,14 @@ fun ActiveCallScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Solid Grouped Container for 3 Audio Options
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(20.dp),
                         color = Color(0xFF2B2C30)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            // Bluetooth Option
+                            // 1. Bluetooth Option (Device Name)
                             AudioRouteRow(
                                 icon = Icons.Default.Bluetooth,
                                 title = CallManager.bluetoothDeviceName.ifBlank { "Bluetooth" },
@@ -261,7 +268,7 @@ fun ActiveCallScreen(
                                     .background(Color(0xFF383A40))
                             )
 
-                            // Speaker Option
+                            // 2. Speaker Option
                             AudioRouteRow(
                                 icon = Icons.Default.VolumeUp,
                                 title = "Speaker",
@@ -279,7 +286,7 @@ fun ActiveCallScreen(
                                     .background(Color(0xFF383A40))
                             )
 
-                            // Phone Option
+                            // 3. Phone Option
                             AudioRouteRow(
                                 icon = Icons.Default.Phone,
                                 title = "Phone",
@@ -295,13 +302,13 @@ fun ActiveCallScreen(
                     Spacer(modifier = Modifier.height(20.dp))
                 }
 
-                // Action Buttons Row (Circles updated to 62.dp, Icons to 28.dp)
+                // Fixed Row: Action Circular Buttons (62.dp circles, 28.dp icons)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 1. Mic Toggle (62.dp circle, 28.dp icon, NO RED)
+                    // 1. Mic Toggle (MicOff slash icon when muted, NO RED)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -332,7 +339,7 @@ fun ActiveCallScreen(
                         )
                     }
 
-                    // 2. Hold Toggle (62.dp circle, 28.dp icon, NO RED)
+                    // 2. Hold Toggle (White when active, NO RED)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -364,6 +371,7 @@ fun ActiveCallScreen(
 
                     // 3. Audio Route / Speaker Button (62.dp circle)
                     if (CallManager.isBluetoothAvailable) {
+                        // Bluetooth Connected Mode: Centered [Selected Icon + v] in circle
                         val activeRouteIcon = when (CallManager.currentAudioRoute) {
                             AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
                             AudioRoute.SPEAKER -> Icons.Default.VolumeUp
@@ -421,7 +429,7 @@ fun ActiveCallScreen(
                             )
                         }
                     } else {
-                        // Normal Speaker Button (62.dp circle, 28.dp icon, constant waves via VolumeUp)
+                        // Normal Speaker Button (Constant Waves via VolumeUp, White on active, NO RED)
                         val isSpeakerActive = CallManager.isSpeakerOn
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -456,7 +464,7 @@ fun ActiveCallScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Centered Red Pill End Call Button
+                // Centered Red Pill End Call Button (The ONLY red button)
                 Box(
                     modifier = Modifier
                         .width(148.dp)
