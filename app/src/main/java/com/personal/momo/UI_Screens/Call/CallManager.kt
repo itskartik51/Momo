@@ -50,8 +50,8 @@ import java.util.Locale
 
 /**
  * Pure Coordinator: Connects UI, AgoraCallEngine, and FirestoreCallService.
- * Implements WhatsApp Late-Join Architecture with Zero Cold-Start Pre-Warming
- * and Realtime Bluetooth Device Hardware Monitoring.
+ * Implements WhatsApp Late-Join Architecture with Zero Cold-Start Pre-Warming,
+ * Realtime Bluetooth Device Hardware Monitoring, and Exact Caller Originator Tracking.
  */
 object CallManager {
     var isCallActive by mutableStateOf(false)
@@ -69,6 +69,8 @@ object CallManager {
     var isBluetoothAvailable by mutableStateOf(false)
     var bluetoothDeviceName by mutableStateOf("Bluetooth")
 
+    // Locks the true originator of the call (1 = Kanu, 2 = Momo) regardless of who ends it
+    private var activeCallerCode: Int = 1
     private var connectedAtTimestamp: Long = 0L
     private var audioDeviceCallback: AudioDeviceCallback? = null
 
@@ -196,6 +198,7 @@ object CallManager {
             onIncomingCall = { caller, channel, _ ->
                 if (!isCallActive) {
                     incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
+                    activeCallerCode = if (caller.equals("kanu", ignoreCase = true)) 1 else 2
                     currentChannelName = channel
                     isIncomingCall = true
                     AgoraCallEngine.preWarm(context)
@@ -245,6 +248,10 @@ object CallManager {
         isPeerConnected = false
         connectedAtTimestamp = 0L
 
+        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
+        val targetId = if (myId == "kanu") "momo" else "kanu"
+        activeCallerCode = if (myId == "kanu") 1 else 2
+
         registerAudioDeviceCallback(context)
         refreshBluetoothState(context)
 
@@ -253,9 +260,6 @@ object CallManager {
         } else {
             selectAudioRoute(context, AudioRoute.PHONE)
         }
-
-        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
-        val targetId = if (myId == "kanu") "momo" else "kanu"
 
         CallSounds.startDialTone()
 
@@ -302,10 +306,9 @@ object CallManager {
     fun declineIncomingCall(context: Context) {
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
-        val callerCode = if (incomingCallerName.equals("Kanu", ignoreCase = true)) 1 else 2
 
         val cutTimestamp = System.currentTimeMillis()
-        FirestoreCallService.logCall(cutTimestamp, callerCode, 0)
+        FirestoreCallService.logCall(cutTimestamp, activeCallerCode, 0)
         FirestoreCallService.updateCallStatus("ended")
 
         unregisterAudioDeviceCallback(context)
@@ -313,21 +316,18 @@ object CallManager {
     }
 
     /**
-     * End Call: Logs exact durations and restores audio hardware state.
+     * End Call: Logs exact durations using true originator code and restores audio hardware state.
      */
     fun endCall(context: Context) {
         CallSounds.releaseAll()
 
-        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
-        val callerCode = if (myId == "kanu") 1 else 2
-
         if (isPeerConnected && connectedAtTimestamp > 0L) {
             val durationSeconds = ((System.currentTimeMillis() - connectedAtTimestamp) / 1000).toInt()
             val finalDuration = if (durationSeconds > 0) durationSeconds else 1
-            FirestoreCallService.logCall(connectedAtTimestamp, callerCode, finalDuration)
+            FirestoreCallService.logCall(connectedAtTimestamp, activeCallerCode, finalDuration)
         } else {
             val cutTimestamp = System.currentTimeMillis()
-            FirestoreCallService.logCall(cutTimestamp, callerCode, 0)
+            FirestoreCallService.logCall(cutTimestamp, activeCallerCode, 0)
         }
 
         unregisterAudioDeviceCallback(context)
@@ -489,7 +489,7 @@ private fun CallHubView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
