@@ -51,7 +51,7 @@ import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.delay
 
 @Composable
-fun CallScreen(
+fun ActiveCallScreen(
     onEndCall: () -> Unit
 ) {
     val context = LocalContext.current
