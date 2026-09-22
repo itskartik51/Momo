@@ -12,8 +12,8 @@ android {
         applicationId = "com.personal.momo"
         minSdk = 24
         targetSdk = 34
-        versionCode = 16
-        versionName = "1.2405.16"
+        versionCode = 17
+        versionName = "1.2405.17"
 
         resourceConfigurations += listOf("en", "hi")
 
