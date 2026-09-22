@@ -90,7 +90,7 @@ data class CallLogItem(
     val timestamp: Long = 0L
 )
 
-// Central Voice Engine & Signaling Controller
+// Central Voice Engine & Signaling Controller (Master Orchestrator)
 object CallManager {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
     private const val AGORA_PRIMARY_CERTIFICATE = "5f3a23a8b85d4d7694951ff7cbb79a2d"
@@ -602,9 +602,9 @@ object CallManager {
     }
 }
 
-// Entry Composable for Call Module (Hub, Signaling & Screen Router)
+// Master Composable router for external callers (e.g. HomeScreen.kt)
 @Composable
-fun CallHubScreen(
+fun CallScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -664,8 +664,7 @@ fun CallHubScreen(
             )
         }
         CallManager.isCallActive -> {
-            // Calling the independent CallScreen composable from CallScreen.kt
-            CallScreen(
+            ActiveCallScreen(
                 onEndCall = {
                     CallManager.endCall(context)
                 }
@@ -690,6 +689,9 @@ fun CallHubScreen(
         }
     }
 }
+
+@Composable
+fun CallHubScreen(onBack: () -> Unit) = CallScreen(onBack = onBack)
 
 @Composable
 private fun IncomingCallView(
