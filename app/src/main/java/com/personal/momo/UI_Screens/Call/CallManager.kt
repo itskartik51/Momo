@@ -4,13 +4,9 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
-import android.media.Ringtone
-import android.media.RingtoneManager
-import android.media.ToneGenerator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,11 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,23 +36,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.bounceClick
 import java.util.Locale
 
 // Master Controller & UI Orchestrator
 object CallManager {
-    private var toneGenerator: ToneGenerator? = null
-    private var incomingRingtone: Ringtone? = null
-
     var isCallActive by mutableStateOf(false)
     var isIncomingCall by mutableStateOf(false)
     var incomingCallerName by mutableStateOf("Momo")
@@ -82,7 +69,7 @@ object CallManager {
 
         AgoraCallEngine.onUserJoined = {
             isPeerConnected = true
-            stopDialTone()
+            CallSounds.stopDialTone()
         }
 
         AgoraCallEngine.onUserOffline = { _, _ ->
@@ -96,44 +83,8 @@ object CallManager {
         AgoraCallEngine.onErrorOccurred = { _ -> }
 
         AgoraCallEngine.onConnectionFailed = { _ ->
-            stopDialTone()
+            CallSounds.stopDialTone()
         }
-    }
-
-    private fun startDialTone() {
-        try {
-            stopDialTone()
-            toneGenerator = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80)
-            toneGenerator?.startTone(ToneGenerator.TONE_SUP_RINGTONE)
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun stopDialTone() {
-        try {
-            toneGenerator?.stopTone()
-            toneGenerator?.release()
-        } catch (_: Exception) {
-        }
-        toneGenerator = null
-    }
-
-    private fun startIncomingRingtone(context: Context) {
-        try {
-            stopIncomingRingtone()
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            incomingRingtone = RingtoneManager.getRingtone(context.applicationContext, uri)
-            incomingRingtone?.play()
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun stopIncomingRingtone() {
-        try {
-            incomingRingtone?.stop()
-        } catch (_: Exception) {
-        }
-        incomingRingtone = null
     }
 
     fun startSignalingListener(context: Context) {
@@ -147,19 +98,17 @@ object CallManager {
                     currentChannelName = channel
                     isIncomingCall = true
                     activeCallTimestampKey = timestamp
-                    startIncomingRingtone(context)
+                    CallSounds.startIncomingRingtone(context)
                 }
             },
             onCallConnected = {
-                stopDialTone()
-                stopIncomingRingtone()
+                CallSounds.releaseAll()
                 if (isCallActive) {
                     isPeerConnected = true
                 }
             },
             onCallEnded = {
-                stopDialTone()
-                stopIncomingRingtone()
+                CallSounds.releaseAll()
                 if (isCallActive) {
                     leaveCallSilently(context)
                 }
@@ -169,8 +118,7 @@ object CallManager {
     }
 
     fun stopSignalingListener() {
-        stopDialTone()
-        stopIncomingRingtone()
+        CallSounds.releaseAll()
         FirestoreCallService.stopSignalingListener()
     }
 
@@ -185,7 +133,7 @@ object CallManager {
         val targetId = if (myId == "kanu") "momo" else "kanu"
         activeCallTimestampKey = System.currentTimeMillis()
 
-        startDialTone()
+        CallSounds.startDialTone()
 
         val token = AgoraCallEngine.buildAgoraToken(channelName)
         AgoraCallEngine.joinChannel(channelName, token)
@@ -197,13 +145,13 @@ object CallManager {
             timestamp = activeCallTimestampKey,
             onSuccess = {},
             onFailure = {
-                stopDialTone()
+                CallSounds.stopDialTone()
             }
         )
     }
 
     fun acceptIncomingCall(context: Context) {
-        stopIncomingRingtone()
+        CallSounds.stopIncomingRingtone()
         isIncomingCall = false
         AgoraCallEngine.initEngine(context)
         isMuted = false
@@ -217,7 +165,7 @@ object CallManager {
     }
 
     fun declineIncomingCall(context: Context) {
-        stopIncomingRingtone()
+        CallSounds.stopIncomingRingtone()
         isIncomingCall = false
         val callerCode = if (incomingCallerName.equals("Kanu", ignoreCase = true)) 1 else 2
 
@@ -227,8 +175,7 @@ object CallManager {
     }
 
     fun endCall(context: Context) {
-        stopDialTone()
-        stopIncomingRingtone()
+        CallSounds.releaseAll()
 
         val duration = if (callStartTime > 0L) {
             ((System.currentTimeMillis() - callStartTime) / 1000).toInt()
@@ -263,8 +210,7 @@ object CallManager {
     }
 
     fun resetAudioAndCallState(context: Context) {
-        stopDialTone()
-        stopIncomingRingtone()
+        CallSounds.releaseAll()
 
         AgoraCallEngine.leaveChannel()
 
@@ -291,8 +237,7 @@ object CallManager {
     }
 
     private fun leaveCallSilently(context: Context) {
-        stopDialTone()
-        stopIncomingRingtone()
+        CallSounds.releaseAll()
         AgoraCallEngine.leaveChannel()
 
         try {
@@ -417,130 +362,6 @@ fun CallScreen(
 fun CallHubScreen(onBack: () -> Unit) = CallScreen(onBack = onBack)
 
 @Composable
-private fun IncomingCallView(
-    avatarUrl: String?,
-    callerName: String,
-    onAccept: () -> Unit,
-    onDecline: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(24.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(116.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!avatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = avatarUrl,
-                        contentDescription = "Incoming Avatar",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = callerName,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = "Incoming Voice Call...",
-                fontSize = 15.sp,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium
-            )
-        }
-
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 54.dp)
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(68.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFF44336))
-                        .bounceClick(scaleDown = 0.88f) {
-                            onDecline()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CallEnd,
-                        contentDescription = "Decline Call",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                Text(
-                    text = "Decline",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(68.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF4CAF50))
-                        .bounceClick(scaleDown = 0.88f) {
-                            onAccept()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = "Accept Call",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                Text(
-                    text = "Accept",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun CallHubView(
     avatarUrl: String?,
     partnerName: String,
@@ -585,7 +406,7 @@ private fun CallHubView(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Text(
-                    text = "$partnerName Call Hub",
+                    text = "Call",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -600,7 +421,7 @@ private fun CallHubView(
         ) {
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Modular Dialer Card (without "Private Voice Calling" text)
+            // Modular Dialer Card
             DialerCard(
                 avatarUrl = avatarUrl,
                 partnerName = partnerName,
