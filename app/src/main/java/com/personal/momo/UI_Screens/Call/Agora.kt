@@ -25,7 +25,7 @@ enum class AudioRoute {
 
 /**
  * 100% Self-Contained Agora RTC & Hardware Audio Engine
- * Bahar kisi bhi file ko token, hardware APIs ya RTC internals janne ki zaroorat nahi hai.
+ * Encapsulates Token generation, low-latency audio profiles, pre-warming, and device routing.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
@@ -88,6 +88,12 @@ object AgoraCallEngine {
                 rtcEngine = RtcEngine.create(config)
                 rtcEngine?.enableAudio()
                 rtcEngine?.setChannelProfile(Constants.CHANNEL_PROFILE_COMMUNICATION)
+                
+                // Zero-buffering, ultra-low latency audio profile setup
+                rtcEngine?.setAudioProfile(
+                    Constants.AUDIO_PROFILE_SPEECH_STANDARD,
+                    Constants.AUDIO_SCENARIO_GAME_STREAMING
+                )
                 return true
             } catch (e: Exception) {
                 onError(e.localizedMessage ?: "Engine Init Error")
@@ -95,6 +101,14 @@ object AgoraCallEngine {
             }
         }
         return true
+    }
+
+    /**
+     * Pre-warms native libraries, audio tracks, and permissions into RAM
+     * Does NOT join channel or consume Agora server minutes.
+     */
+    fun preWarm(context: Context) {
+        initEngine(context)
     }
 
     /**
