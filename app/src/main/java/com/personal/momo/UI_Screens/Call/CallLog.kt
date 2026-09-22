@@ -115,17 +115,17 @@ private fun CallLogRow(
             ) {
                 val isMyIdKanu = currentUserId.equals("kanu", ignoreCase = true)
                 val isOutgoing = (isMyIdKanu && item.callerCode == 1) || (!isMyIdKanu && item.callerCode == 2)
-                val isMissed = item.durationSeconds == 0
+                val isUnansweredOrMissed = item.durationSeconds == 0
 
                 val iconColor = when {
-                    isMissed -> Color(0xFFF44336)
+                    isUnansweredOrMissed -> Color(0xFFF44336)
                     isOutgoing -> Color(0xFF4CAF50)
                     else -> Color(0xFF2196F3)
                 }
 
                 val iconVector = when {
-                    isMissed -> Icons.Default.CallMissed
                     isOutgoing -> Icons.Default.CallMade
+                    isUnansweredOrMissed -> Icons.Default.CallMissed
                     else -> Icons.Default.CallReceived
                 }
 
@@ -159,8 +159,14 @@ private fun CallLogRow(
                 }
             }
 
+            val statusText = when {
+                item.durationSeconds > 0 -> formatLogDuration(item.durationSeconds)
+                isOutgoing -> "Unanswered"
+                else -> "Missed"
+            }
+
             Text(
-                text = if (item.durationSeconds == 0) "Missed" else formatLogDuration(item.durationSeconds),
+                text = statusText,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 color = if (item.durationSeconds == 0) Color(0xFFF44336) else MaterialTheme.colorScheme.onSurfaceVariant
