@@ -92,16 +92,16 @@ fun ActiveCallScreen(
         label = "LatencyColor"
     )
 
-    // Clean Google-Dialer high contrast color tokens
+    // Solid, high-contrast tokens matching Google Dialer standards
     val activeCircleBg = Color.White
     val activeCircleTint = Color(0xFF1E1F22)
-    val inactiveCircleBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-    val inactiveCircleTint = MaterialTheme.colorScheme.onSurface
+    val inactiveCircleBg = Color(0xFF2C2D32)
+    val inactiveCircleTint = Color.White
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(Color(0xFF121214))
     ) {
         // Top-Right Latency Capsule
         Row(
@@ -111,7 +111,7 @@ fun ActiveCallScreen(
                 .align(Alignment.TopEnd)
                 .padding(top = 42.dp, end = 20.dp)
                 .clip(RoundedCornerShape(50.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                .background(Color(0xFF242529))
                 .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Box(
@@ -124,24 +124,24 @@ fun ActiveCallScreen(
                 text = "${if (latency > 0) latency else 120} ms",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = Color(0xFFB0B3B8)
             )
         }
 
-        // Center Profile & Call Duration Section
+        // Profile Section securely locked in the Upper 1/3rd of the screen
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.Top,
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(bottom = 120.dp)
+                .align(Alignment.TopCenter)
+                .padding(top = 96.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(116.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                    .background(Color(0xFF242529))
+                    .border(2.dp, Color(0xFF383A40), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (!avatarUrl.isNullOrBlank()) {
@@ -156,16 +156,16 @@ fun ActiveCallScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             Text(
                 text = partnerDisplayName,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = Color.White
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = when {
@@ -175,19 +175,19 @@ fun ActiveCallScreen(
                 },
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
-                color = if (isHoldActive) Color(0xFFFF9800) else MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (isHoldActive) Color(0xFFFF9800) else Color(0xFF9E9E9E)
             )
         }
 
-        // Bottom WhatsApp-Style Control Deck Card (Smooth expansion on Audio Route Open)
+        // Bottom Solid Control Deck (100% Opaque - No transparency bleed-through)
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp, vertical = 28.dp)
+                .padding(horizontal = 16.dp, vertical = 24.dp)
                 .fillMaxWidth(),
             shape = RoundedCornerShape(32.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-            tonalElevation = 2.dp
+            color = Color(0xFF1E1F22),
+            tonalElevation = 6.dp
         ) {
             Column(
                 modifier = Modifier
@@ -196,7 +196,7 @@ fun ActiveCallScreen(
                     .padding(horizontal = 16.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Expanded 3-Item Audio Selector (Only when Bluetooth is connected and opened)
+                // Expanded 3-Item Audio Route Selector Panel (Appears smoothly above buttons)
                 if (isAudioRouteSelectorOpen && CallManager.isBluetoothAvailable) {
                     val headerTitle = when (CallManager.currentAudioRoute) {
                         AudioRoute.BLUETOOTH -> "Bluetooth"
@@ -208,7 +208,7 @@ fun ActiveCallScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -216,7 +216,7 @@ fun ActiveCallScreen(
                             text = headerTitle,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = Color.White
                         )
                         Box(
                             modifier = Modifier
@@ -230,19 +230,19 @@ fun ActiveCallScreen(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = Color(0xFFB0B3B8),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Grouped Container for 3 Audio Options
+                    // Solid Grouped Container for 3 Audio Options
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+                        color = Color(0xFF2B2C30)
                     ) {
                         Column(modifier = Modifier.fillMaxWidth()) {
                             // 1. Bluetooth Option (Device Name)
@@ -260,7 +260,7 @@ fun ActiveCallScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(1.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                                    .background(Color(0xFF383A40))
                             )
 
                             // 2. Speaker Option
@@ -278,7 +278,7 @@ fun ActiveCallScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(1.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                                    .background(Color(0xFF383A40))
                             )
 
                             // 3. Phone Option
@@ -297,13 +297,13 @@ fun ActiveCallScreen(
                     Spacer(modifier = Modifier.height(20.dp))
                 }
 
-                // Row 1: 3 Action Circular Buttons (Mic, Hold, Audio Route)
+                // Fixed Row: Action Circular Buttons (Mic, Hold, Audio Route / Speaker)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 1. Mic Toggle (Slash icon when muted, NO RED)
+                    // 1. Mic Toggle (MicOff slash icon when muted, NO RED)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -330,11 +330,11 @@ fun ActiveCallScreen(
                             text = if (isMicActive) "Unmute" else "Mute",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = Color(0xFFB0B3B8)
                         )
                     }
 
-                    // 2. Hold Toggle (White/Dark theme active, NO RED)
+                    // 2. Hold Toggle (White when active, NO RED)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -360,13 +360,13 @@ fun ActiveCallScreen(
                             text = "Hold",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = Color(0xFFB0B3B8)
                         )
                     }
 
                     // 3. Audio Route / Speaker Button
                     if (CallManager.isBluetoothAvailable) {
-                        // Bluetooth Connected Mode: Center aligned [Selected Icon + v]
+                        // Bluetooth Connected Mode: Centered [Selected Icon + v] in circle
                         val activeRouteIcon = when (CallManager.currentAudioRoute) {
                             AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
                             AudioRoute.SPEAKER -> Icons.Default.VolumeUp
@@ -418,13 +418,13 @@ fun ActiveCallScreen(
                                 text = activeLabel,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = Color(0xFFB0B3B8),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
                     } else {
-                        // Normal Speaker Button (Waves always ON via VolumeUp, NO RED, switches White/Dark)
+                        // Normal Speaker Button (Constant Waves via VolumeUp, White on active, NO RED)
                         val isSpeakerActive = CallManager.isSpeakerOn
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -451,7 +451,7 @@ fun ActiveCallScreen(
                                 text = "Speaker",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = Color(0xFFB0B3B8)
                             )
                         }
                     }
@@ -459,7 +459,7 @@ fun ActiveCallScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Row 2: Centered Red Pill End Call Button (The ONLY Red button)
+                // Centered Red Pill End Call Button (The ONLY red button)
                 Box(
                     modifier = Modifier
                         .width(138.dp)
@@ -507,13 +507,13 @@ private fun AudioRouteRow(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(Color(0xFF383A40)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = MaterialTheme.colorScheme.onSurface,
+                    tint = Color.White,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -522,7 +522,7 @@ private fun AudioRouteRow(
                 text = title,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
