@@ -3,7 +3,6 @@ package com.personal.momo.UI_Screens.Call
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.media.AudioManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -57,6 +56,11 @@ object CallManager {
     var isMuted by mutableStateOf(false)
     var isSpeakerOn by mutableStateOf(false)
 
+    // Bluetooth & Audio Route States
+    var currentAudioRoute by mutableStateOf(AudioRoute.PHONE)
+    var isBluetoothAvailable by mutableStateOf(false)
+    var bluetoothDeviceName by mutableStateOf("Bluetooth")
+
     private var callStartTime: Long = 0L
     private var activeCallTimestampKey: Long = 0L
 
@@ -80,10 +84,67 @@ object CallManager {
             latencyMs = latency
         }
 
+        AgoraCallEngine.onAudioRouteChanged = { routing ->
+            // Routing updates from hardware (e.g. 5 = Bluetooth, 3/4 = Speaker, 1 = Earpiece)
+            when (routing) {
+                5 -> {
+                    isBluetoothAvailable = true
+                    currentAudioRoute = AudioRoute.BLUETOOTH
+                    isSpeakerOn = false
+                }
+                3, 4 -> {
+                    currentAudioRoute = AudioRoute.SPEAKER
+                    isSpeakerOn = true
+                }
+                1 -> {
+                    currentAudioRoute = AudioRoute.PHONE
+                    isSpeakerOn = false
+                }
+            }
+        }
+
         AgoraCallEngine.onErrorOccurred = { _ -> }
 
         AgoraCallEngine.onConnectionFailed = { _ ->
             CallSounds.stopDialTone()
+        }
+    }
+
+    fun refreshBluetoothState(context: Context) {
+        val isBt = AgoraCallEngine.checkBluetoothConnected(context)
+        isBluetoothAvailable = isBt
+        if (isBt) {
+            bluetoothDeviceName = AgoraCallEngine.getConnectedBluetoothName(context)
+            if (isCallActive && currentAudioRoute == AudioRoute.PHONE) {
+                selectAudioRoute(context, AudioRoute.BLUETOOTH)
+            }
+        } else {
+            if (currentAudioRoute == AudioRoute.BLUETOOTH) {
+                selectAudioRoute(context, AudioRoute.PHONE)
+            }
+        }
+    }
+
+    fun selectAudioRoute(context: Context, route: AudioRoute) {
+        currentAudioRoute = route
+        isSpeakerOn = (route == AudioRoute.SPEAKER)
+        AgoraCallEngine.setAudioRoute(context, route)
+    }
+
+    fun toggleSpeaker(context: Context) {
+        refreshBluetoothState(context)
+        if (isBluetoothAvailable) {
+            if (currentAudioRoute == AudioRoute.SPEAKER) {
+                selectAudioRoute(context, AudioRoute.BLUETOOTH)
+            } else {
+                selectAudioRoute(context, AudioRoute.SPEAKER)
+            }
+        } else {
+            if (currentAudioRoute == AudioRoute.SPEAKER) {
+                selectAudioRoute(context, AudioRoute.PHONE)
+            } else {
+                selectAudioRoute(context, AudioRoute.SPEAKER)
+            }
         }
     }
 
@@ -125,9 +186,15 @@ object CallManager {
     fun startCall(context: Context, channelName: String = "momo_private_voice_room") {
         AgoraCallEngine.initEngine(context)
         isMuted = false
-        isSpeakerOn = false
         latencyMs = 120
         currentChannelName = channelName
+
+        refreshBluetoothState(context)
+        if (isBluetoothAvailable) {
+            selectAudioRoute(context, AudioRoute.BLUETOOTH)
+        } else {
+            selectAudioRoute(context, AudioRoute.PHONE)
+        }
 
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val targetId = if (myId == "kanu") "momo" else "kanu"
@@ -155,8 +222,14 @@ object CallManager {
         isIncomingCall = false
         AgoraCallEngine.initEngine(context)
         isMuted = false
-        isSpeakerOn = false
         latencyMs = 120
+
+        refreshBluetoothState(context)
+        if (isBluetoothAvailable) {
+            selectAudioRoute(context, AudioRoute.BLUETOOTH)
+        } else {
+            selectAudioRoute(context, AudioRoute.PHONE)
+        }
 
         val token = AgoraCallEngine.buildAgoraToken(currentChannelName)
         AgoraCallEngine.joinChannel(currentChannelName, token)
@@ -188,15 +261,7 @@ object CallManager {
         val statusDuration = if (isPeerConnected) (if (duration > 0) duration else 1) else 0
 
         AgoraCallEngine.leaveChannel()
-
-        try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.let { am ->
-                am.isSpeakerphoneOn = false
-                am.mode = AudioManager.MODE_NORMAL
-            }
-        } catch (_: Exception) {
-        }
+        AgoraCallEngine.resetAudio(context)
 
         val logKey = if (activeCallTimestampKey > 0L) activeCallTimestampKey else System.currentTimeMillis()
         FirestoreCallService.logCall(logKey, callerCode, statusDuration)
@@ -204,6 +269,8 @@ object CallManager {
 
         isCallActive = false
         isPeerConnected = false
+        currentAudioRoute = AudioRoute.PHONE
+        isSpeakerOn = false
         callStartTime = 0L
         activeCallTimestampKey = 0L
         latencyMs = 0
@@ -211,18 +278,8 @@ object CallManager {
 
     fun resetAudioAndCallState(context: Context) {
         CallSounds.releaseAll()
-
         AgoraCallEngine.leaveChannel()
-
-        try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.let { am ->
-                am.isSpeakerphoneOn = false
-                am.isMicrophoneMute = false
-                am.mode = AudioManager.MODE_NORMAL
-            }
-        } catch (_: Exception) {
-        }
+        AgoraCallEngine.resetAudio(context)
 
         FirestoreCallService.updateCallStatus("ended")
 
@@ -231,6 +288,7 @@ object CallManager {
         isPeerConnected = false
         isMuted = false
         isSpeakerOn = false
+        currentAudioRoute = AudioRoute.PHONE
         callStartTime = 0L
         activeCallTimestampKey = 0L
         latencyMs = 0
@@ -239,18 +297,12 @@ object CallManager {
     private fun leaveCallSilently(context: Context) {
         CallSounds.releaseAll()
         AgoraCallEngine.leaveChannel()
-
-        try {
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.let { am ->
-                am.isSpeakerphoneOn = false
-                am.mode = AudioManager.MODE_NORMAL
-            }
-        } catch (_: Exception) {
-        }
+        AgoraCallEngine.resetAudio(context)
 
         isCallActive = false
         isPeerConnected = false
+        currentAudioRoute = AudioRoute.PHONE
+        isSpeakerOn = false
         callStartTime = 0L
         activeCallTimestampKey = 0L
         latencyMs = 0
@@ -259,11 +311,6 @@ object CallManager {
     fun toggleMute() {
         isMuted = !isMuted
         AgoraCallEngine.setMute(isMuted)
-    }
-
-    fun toggleSpeaker(context: Context) {
-        isSpeakerOn = !isSpeakerOn
-        AgoraCallEngine.setSpeaker(context, isSpeakerOn)
     }
 
     fun observeCallLogs(onLogsUpdated: (List<CallLogItem>) -> Unit) =
@@ -306,6 +353,7 @@ fun CallScreen(
     }
 
     DisposableEffect(Unit) {
+        CallManager.refreshBluetoothState(context)
         CallManager.startSignalingListener(context)
         val logsListener = CallManager.observeCallLogs { updatedList ->
             callLogs.clear()
@@ -421,7 +469,6 @@ private fun CallHubView(
         ) {
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Modular Dialer Card
             DialerCard(
                 avatarUrl = avatarUrl,
                 partnerName = partnerName,
@@ -431,7 +478,6 @@ private fun CallHubView(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Modular Call History Section
             CallLogSection(
                 callLogs = callLogs,
                 currentUserId = currentUserId,
