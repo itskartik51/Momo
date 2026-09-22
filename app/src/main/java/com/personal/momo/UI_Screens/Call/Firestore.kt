@@ -1,5 +1,9 @@
 package com.personal.momo.UI_Screens.Call
 
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
@@ -11,11 +15,19 @@ data class CallLogItem(
     val durationSeconds: Int = 0 // 0 = Missed/Declined
 )
 
+/**
+ * Hybrid Signaling & Logging Architecture:
+ * - Realtime Database (RTDB): Dedicated ~50ms WebSocket for instant calling state handshakes.
+ * - Firestore: Permanent storage for structured historical call logs.
+ */
 object FirestoreCallService {
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
-    private var signalingListener: ListenerRegistration? = null
+    private val rtdb: FirebaseDatabase by lazy { FirebaseDatabase.getInstance() }
 
-    private const val SIGNAL_DOC_PATH = "App/current_call"
+    // Persistent WebSocket node for microsecond call signaling
+    private val signalRef by lazy { rtdb.getReference("calls/current_call") }
+    private var signalListener: ValueEventListener? = null
+
     private const val CALL_LOGS_COLLECTION = "CallLogs"
 
     fun sendCallSignal(
@@ -34,15 +46,13 @@ object FirestoreCallService {
             "timestamp" to timestamp
         )
 
-        firestore.document(SIGNAL_DOC_PATH)
-            .set(payload)
+        signalRef.setValue(payload)
             .addOnSuccessListener { onSuccess() }
             .addOnFailureListener { onFailure(it) }
     }
 
     fun updateCallStatus(status: String) {
-        firestore.document(SIGNAL_DOC_PATH)
-            .update("status", status)
+        signalRef.child("status").setValue(status)
     }
 
     fun startSignalingListener(
@@ -52,17 +62,17 @@ object FirestoreCallService {
         onCallConnected: () -> Unit,
         onCallEnded: () -> Unit
     ) {
-        signalingListener?.remove()
+        stopSignalingListener()
 
-        signalingListener = firestore.document(SIGNAL_DOC_PATH)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+        signalListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (!snapshot.exists()) return
 
-                val caller = snapshot.getString("caller") ?: ""
-                val receiver = snapshot.getString("receiver") ?: ""
-                val channel = snapshot.getString("channelName") ?: ""
-                val status = snapshot.getString("status") ?: ""
-                val timestamp = snapshot.getLong("timestamp") ?: 0L
+                val caller = snapshot.child("caller").getValue(String::class.java) ?: ""
+                val receiver = snapshot.child("receiver").getValue(String::class.java) ?: ""
+                val channel = snapshot.child("channelName").getValue(String::class.java) ?: ""
+                val status = snapshot.child("status").getValue(String::class.java) ?: ""
+                val timestamp = snapshot.child("timestamp").getValue(Long::class.java) ?: 0L
 
                 when (status) {
                     "calling" -> {
@@ -71,7 +81,6 @@ object FirestoreCallService {
                         }
                     }
                     "accepted" -> {
-                        // Triggered when receiver taps accept (signals caller to join Agora)
                         if (caller.equals(myUserId, ignoreCase = true)) {
                             onCallAccepted()
                         }
@@ -84,11 +93,20 @@ object FirestoreCallService {
                     }
                 }
             }
+
+            override fun onCancelled(error: DatabaseError) {
+                // Connection listener fallback
+            }
+        }
+
+        signalRef.addValueEventListener(signalListener as ValueEventListener)
     }
 
     fun stopSignalingListener() {
-        signalingListener?.remove()
-        signalingListener = null
+        signalListener?.let {
+            signalRef.removeEventListener(it)
+            signalListener = null
+        }
     }
 
     /**
