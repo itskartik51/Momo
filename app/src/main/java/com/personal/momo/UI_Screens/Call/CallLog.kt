@@ -97,6 +97,10 @@ private fun CallLogRow(
     currentUserId: String,
     partnerName: String
 ) {
+    val isMyIdKanu = currentUserId.equals("kanu", ignoreCase = true)
+    val isOutgoing = (isMyIdKanu && item.callerCode == 1) || (!isMyIdKanu && item.callerCode == 2)
+    val isUnansweredOrMissed = item.durationSeconds == 0
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -113,10 +117,6 @@ private fun CallLogRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val isMyIdKanu = currentUserId.equals("kanu", ignoreCase = true)
-                val isOutgoing = (isMyIdKanu && item.callerCode == 1) || (!isMyIdKanu && item.callerCode == 2)
-                val isUnansweredOrMissed = item.durationSeconds == 0
-
                 val iconColor = when {
                     isUnansweredOrMissed -> Color(0xFFF44336)
                     isOutgoing -> Color(0xFF4CAF50)
