@@ -44,39 +44,40 @@ import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.bounceClick
 import java.util.Locale
 
-// Master Controller & UI Orchestrator
+/**
+ * Pure Coordinator: Connects UI, AgoraCallEngine, and FirestoreCallService.
+ * Implements WhatsApp Late-Join Architecture (0 Agora Minutes on Missed Calls).
+ */
 object CallManager {
     var isCallActive by mutableStateOf(false)
     var isIncomingCall by mutableStateOf(false)
+    var isConnecting by mutableStateOf(false)
+    var isPeerConnected by mutableStateOf(false)
+
     var incomingCallerName by mutableStateOf("Momo")
     var currentChannelName by mutableStateOf("momo_private_voice_room")
-
-    var isPeerConnected by mutableStateOf(false)
     var latencyMs by mutableIntStateOf(0)
     var isMuted by mutableStateOf(false)
     var isSpeakerOn by mutableStateOf(false)
 
-    // Bluetooth & Audio Route States
     var currentAudioRoute by mutableStateOf(AudioRoute.PHONE)
     var isBluetoothAvailable by mutableStateOf(false)
     var bluetoothDeviceName by mutableStateOf("Bluetooth")
 
-    private var callStartTime: Long = 0L
-    private var activeCallTimestampKey: Long = 0L
+    private var connectedAtTimestamp: Long = 0L
 
     init {
-        // Wire Agora callbacks directly into master state
-        AgoraCallEngine.onJoinChannelSuccess = { _, _ ->
-            isCallActive = true
-            callStartTime = System.currentTimeMillis()
-        }
+        AgoraCallEngine.onJoinSuccess = { _, _ -> }
 
-        AgoraCallEngine.onUserJoined = {
+        AgoraCallEngine.onPeerJoined = {
+            isConnecting = false
             isPeerConnected = true
+            connectedAtTimestamp = System.currentTimeMillis()
             CallSounds.stopDialTone()
+            FirestoreCallService.updateCallStatus("connected")
         }
 
-        AgoraCallEngine.onUserOffline = { _, _ ->
+        AgoraCallEngine.onPeerOffline = { _, _ ->
             isPeerConnected = false
         }
 
@@ -85,7 +86,6 @@ object CallManager {
         }
 
         AgoraCallEngine.onAudioRouteChanged = { routing ->
-            // Routing updates from hardware (e.g. 5 = Bluetooth, 3/4 = Speaker, 1 = Earpiece)
             when (routing) {
                 5 -> {
                     isBluetoothAvailable = true
@@ -103,9 +103,7 @@ object CallManager {
             }
         }
 
-        AgoraCallEngine.onErrorOccurred = { _ -> }
-
-        AgoraCallEngine.onConnectionFailed = { _ ->
+        AgoraCallEngine.onConnectionFailed = {
             CallSounds.stopDialTone()
         }
     }
@@ -148,24 +146,37 @@ object CallManager {
         }
     }
 
+    fun toggleMute() {
+        isMuted = !isMuted
+        AgoraCallEngine.setMute(isMuted)
+    }
+
     fun startSignalingListener(context: Context) {
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
 
         FirestoreCallService.startSignalingListener(
             myUserId = myId,
-            onIncomingCall = { caller, channel, timestamp ->
+            onIncomingCall = { caller, channel, _ ->
                 if (!isCallActive) {
                     incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
                     currentChannelName = channel
                     isIncomingCall = true
-                    activeCallTimestampKey = timestamp
                     CallSounds.startIncomingRingtone(context)
                 }
+            },
+            onCallAccepted = {
+                // Partner tapped accept! Stop ringing, connect Agora now
+                CallSounds.stopDialTone()
+                isConnecting = true
+                AgoraCallEngine.joinRoom(currentChannelName)
             },
             onCallConnected = {
                 CallSounds.releaseAll()
                 if (isCallActive) {
                     isPeerConnected = true
+                    if (connectedAtTimestamp == 0L) {
+                        connectedAtTimestamp = System.currentTimeMillis()
+                    }
                 }
             },
             onCallEnded = {
@@ -183,11 +194,19 @@ object CallManager {
         FirestoreCallService.stopSignalingListener()
     }
 
+    /**
+     * Start Call: Late Join Architecture.
+     * Does NOT join Agora yet! Rings locally and alerts peer.
+     */
     fun startCall(context: Context, channelName: String = "momo_private_voice_room") {
         AgoraCallEngine.initEngine(context)
         isMuted = false
         latencyMs = 120
         currentChannelName = channelName
+        isCallActive = true
+        isConnecting = false
+        isPeerConnected = false
+        connectedAtTimestamp = 0L
 
         refreshBluetoothState(context)
         if (isBluetoothAvailable) {
@@ -198,18 +217,14 @@ object CallManager {
 
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val targetId = if (myId == "kanu") "momo" else "kanu"
-        activeCallTimestampKey = System.currentTimeMillis()
 
         CallSounds.startDialTone()
-
-        val token = AgoraCallEngine.buildAgoraToken(channelName)
-        AgoraCallEngine.joinChannel(channelName, token)
 
         FirestoreCallService.sendCallSignal(
             caller = myId,
             receiver = targetId,
             channelName = channelName,
-            timestamp = activeCallTimestampKey,
+            timestamp = System.currentTimeMillis(),
             onSuccess = {},
             onFailure = {
                 CallSounds.stopDialTone()
@@ -217,12 +232,18 @@ object CallManager {
         )
     }
 
+    /**
+     * Receiver Taps Accept: Joins Agora and tells Caller to join.
+     */
     fun acceptIncomingCall(context: Context) {
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
-        AgoraCallEngine.initEngine(context)
+        isCallActive = true
+        isConnecting = true
         isMuted = false
         latencyMs = 120
+
+        AgoraCallEngine.initEngine(context)
 
         refreshBluetoothState(context)
         if (isBluetoothAvailable) {
@@ -231,97 +252,95 @@ object CallManager {
             selectAudioRoute(context, AudioRoute.PHONE)
         }
 
-        val token = AgoraCallEngine.buildAgoraToken(currentChannelName)
-        AgoraCallEngine.joinChannel(currentChannelName, token)
+        // Receiver joins channel first
+        AgoraCallEngine.joinRoom(currentChannelName)
 
-        FirestoreCallService.updateCallStatus("connected")
+        // Signals caller to join channel now
+        FirestoreCallService.updateCallStatus("accepted")
     }
 
+    /**
+     * Receiver Declines Call: Logs Missed Call at the exact cut second.
+     */
     fun declineIncomingCall(context: Context) {
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
         val callerCode = if (incomingCallerName.equals("Kanu", ignoreCase = true)) 1 else 2
 
+        val cutTimestamp = System.currentTimeMillis()
+        FirestoreCallService.logCall(cutTimestamp, callerCode, 0)
         FirestoreCallService.updateCallStatus("ended")
-        val logKey = if (activeCallTimestampKey > 0L) activeCallTimestampKey else System.currentTimeMillis()
-        FirestoreCallService.logCall(logKey, callerCode, 0)
     }
 
+    /**
+     * End Call:
+     * - If call was connected: logs start timestamp + duration
+     * - If cancelled during ringing: logs cut timestamp + 0 seconds
+     */
     fun endCall(context: Context) {
         CallSounds.releaseAll()
 
-        val duration = if (callStartTime > 0L) {
-            ((System.currentTimeMillis() - callStartTime) / 1000).toInt()
-        } else {
-            0
-        }
-
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val callerCode = if (myId == "kanu") 1 else 2
-        val statusDuration = if (isPeerConnected) (if (duration > 0) duration else 1) else 0
 
-        AgoraCallEngine.leaveChannel()
-        AgoraCallEngine.resetAudio(context)
+        if (isPeerConnected && connectedAtTimestamp > 0L) {
+            val durationSeconds = ((System.currentTimeMillis() - connectedAtTimestamp) / 1000).toInt()
+            val finalDuration = if (durationSeconds > 0) durationSeconds else 1
+            FirestoreCallService.logCall(connectedAtTimestamp, callerCode, finalDuration)
+        } else {
+            // Cancelled before answer
+            val cutTimestamp = System.currentTimeMillis()
+            FirestoreCallService.logCall(cutTimestamp, callerCode, 0)
+        }
 
-        val logKey = if (activeCallTimestampKey > 0L) activeCallTimestampKey else System.currentTimeMillis()
-        FirestoreCallService.logCall(logKey, callerCode, statusDuration)
+        AgoraCallEngine.resetAndLeave(context)
         FirestoreCallService.updateCallStatus("ended")
 
         isCallActive = false
+        isConnecting = false
         isPeerConnected = false
         currentAudioRoute = AudioRoute.PHONE
         isSpeakerOn = false
-        callStartTime = 0L
-        activeCallTimestampKey = 0L
+        connectedAtTimestamp = 0L
         latencyMs = 0
     }
 
     fun resetAudioAndCallState(context: Context) {
         CallSounds.releaseAll()
-        AgoraCallEngine.leaveChannel()
-        AgoraCallEngine.resetAudio(context)
-
+        AgoraCallEngine.resetAndLeave(context)
         FirestoreCallService.updateCallStatus("ended")
 
         isCallActive = false
         isIncomingCall = false
+        isConnecting = false
         isPeerConnected = false
         isMuted = false
         isSpeakerOn = false
         currentAudioRoute = AudioRoute.PHONE
-        callStartTime = 0L
-        activeCallTimestampKey = 0L
+        connectedAtTimestamp = 0L
         latencyMs = 0
     }
 
     private fun leaveCallSilently(context: Context) {
         CallSounds.releaseAll()
-        AgoraCallEngine.leaveChannel()
-        AgoraCallEngine.resetAudio(context)
+        AgoraCallEngine.resetAndLeave(context)
 
         isCallActive = false
+        isConnecting = false
         isPeerConnected = false
         currentAudioRoute = AudioRoute.PHONE
         isSpeakerOn = false
-        callStartTime = 0L
-        activeCallTimestampKey = 0L
+        connectedAtTimestamp = 0L
         latencyMs = 0
-    }
-
-    fun toggleMute() {
-        isMuted = !isMuted
-        AgoraCallEngine.setMute(isMuted)
     }
 
     fun observeCallLogs(onLogsUpdated: (List<CallLogItem>) -> Unit) =
         FirestoreCallService.observeCallLogs(onLogsUpdated)
 }
 
-// Master Composable router for external callers (e.g. HomeScreen.kt)
+// Master Composable router for external callers
 @Composable
-fun CallScreen(
-    onBack: () -> Unit
-) {
+fun CallScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
     val callLogs = remember { mutableStateListOf<CallLogItem>() }
@@ -332,9 +351,7 @@ fun CallScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
-        if (isGranted) {
-            pendingCallAction?.invoke()
-        }
+        if (isGranted) pendingCallAction?.invoke()
         pendingCallAction = null
     }
 
@@ -439,9 +456,7 @@ private fun CallHubView(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .bounceClick(scaleDown = 0.88f) {
-                            onBack()
-                        },
+                        .bounceClick(scaleDown = 0.88f) { onBack() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
