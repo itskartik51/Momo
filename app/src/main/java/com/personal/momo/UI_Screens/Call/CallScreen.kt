@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.outlined.VolumeMute
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -110,17 +109,22 @@ fun ActiveCallScreen(
             )
         }
 
-        // Center Profile & Call Duration Section
+        // Main Layout Column (1/3rd Screen Split for Profile)
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(bottom = 120.dp)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.height(72.dp))
+
+            // Upper 1/3rd Weight Spacer
+            Spacer(modifier = Modifier.weight(1f))
+
+            // Center Profile Section (Avatar, Name, Timer)
             Box(
                 modifier = Modifier
-                    .size(116.dp)
+                    .size(120.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
@@ -159,141 +163,156 @@ fun ActiveCallScreen(
                 fontWeight = FontWeight.Medium,
                 color = if (isHoldActive) Color(0xFFFF9800) else MaterialTheme.colorScheme.onSurfaceVariant
             )
-        }
 
-        // Bottom WhatsApp-Style Control Deck Card
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp, vertical = 28.dp)
-                .fillMaxWidth(),
-            shape = RoundedCornerShape(32.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-            tonalElevation = 2.dp
-        ) {
-            Column(
+            // Lower 2/3rd Weight Spacer
+            Spacer(modifier = Modifier.weight(2f))
+
+            // Bottom WhatsApp-Style Control Deck Card
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(bottom = 28.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(32.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                tonalElevation = 2.dp
             ) {
-                // Row 1: 3 Circular Buttons (Mic, Hold, Speaker) with labels
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // 1. Mic Toggle
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .background(if (CallManager.isMuted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                                .bounceClick(scaleDown = 0.88f) {
-                                    CallManager.toggleMute()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (CallManager.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                contentDescription = "Mute",
-                                tint = if (CallManager.isMuted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Text(
-                            text = if (CallManager.isMuted) "Unmute" else "Mute",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // 2. Hold Toggle (Visual state feedback)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .background(if (isHoldActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                                .bounceClick(scaleDown = 0.88f) {
-                                    isHoldActive = !isHoldActive
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Pause,
-                                contentDescription = "Hold",
-                                tint = if (isHoldActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Text(
-                            text = "Hold",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // 3. Speaker Toggle
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(54.dp)
-                                .clip(CircleShape)
-                                .background(if (CallManager.isSpeakerOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
-                                .bounceClick(scaleDown = 0.88f) {
-                                    CallManager.toggleSpeaker(context)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (CallManager.isSpeakerOn) Icons.Default.VolumeUp else Icons.Outlined.VolumeMute,
-                                contentDescription = "Speaker",
-                                tint = if (CallManager.isSpeakerOn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Text(
-                            text = "Speaker",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Row 2: Centered Red Pill End Call Button
-                Box(
+                Column(
                     modifier = Modifier
-                        .width(138.dp)
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(50.dp))
-                        .background(Color(0xFFE53935))
-                        .bounceClick(scaleDown = 0.92f) {
-                            onEndCall()
-                        },
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CallEnd,
-                        contentDescription = "End Call",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    // Row 1: 3 Equally Weighted Action Buttons (Mic, Hold, Speaker)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 1. Mic Toggle Button
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val isMuted = CallManager.isMuted
+                            val micBgColor = if (isMuted) Color.White else MaterialTheme.colorScheme.surface
+                            val micIconColor = if (isMuted) Color.Black else MaterialTheme.colorScheme.onSurface
+
+                            Box(
+                                modifier = Modifier
+                                    .size(62.dp)
+                                    .clip(CircleShape)
+                                    .background(micBgColor)
+                                    .bounceClick(scaleDown = 0.88f) {
+                                        CallManager.toggleMute()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                    contentDescription = "Mute",
+                                    tint = micIconColor,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Text(
+                                text = if (isMuted) "Unmute" else "Mute",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // 2. Hold Toggle Button
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val holdBgColor = if (isHoldActive) Color.White else MaterialTheme.colorScheme.surface
+                            val holdIconColor = if (isHoldActive) Color.Black else MaterialTheme.colorScheme.onSurface
+
+                            Box(
+                                modifier = Modifier
+                                    .size(62.dp)
+                                    .clip(CircleShape)
+                                    .background(holdBgColor)
+                                    .bounceClick(scaleDown = 0.88f) {
+                                        isHoldActive = !isHoldActive
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Pause,
+                                    contentDescription = "Hold",
+                                    tint = holdIconColor,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Text(
+                                text = "Hold",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // 3. Speaker Toggle Button
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val isSpeakerOn = CallManager.isSpeakerOn
+                            val speakerBgColor = if (isSpeakerOn) Color.White else MaterialTheme.colorScheme.surface
+                            val speakerIconColor = if (isSpeakerOn) Color.Black else MaterialTheme.colorScheme.onSurface
+
+                            Box(
+                                modifier = Modifier
+                                    .size(62.dp)
+                                    .clip(CircleShape)
+                                    .background(speakerBgColor)
+                                    .bounceClick(scaleDown = 0.88f) {
+                                        CallManager.toggleSpeaker(context)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VolumeUp,
+                                    contentDescription = "Speaker",
+                                    tint = speakerIconColor,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Text(
+                                text = "Speaker",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Row 2: Centered Red Pill End Call Button
+                    Box(
+                        modifier = Modifier
+                            .width(138.dp)
+                            .height(52.dp)
+                            .clip(RoundedCornerShape(50.dp))
+                            .background(Color(0xFFE53935))
+                            .bounceClick(scaleDown = 0.92f) {
+                                onEndCall()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CallEnd,
+                            contentDescription = "End Call",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
             }
         }
