@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.CallReceived
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.VolumeMute
@@ -92,9 +93,9 @@ import kotlin.random.Random
 
 // Data Model for Past Call Records parsed from App/call_logs document fields
 data class CallLogItem(
-    val id: String = "", // timestamp as string
-    val callerId: Int = 1, // 1 = Kanu, 2 = Momo
-    val durationSeconds: Int = 0, // 0 = Missed, >0 = Completed duration
+    val id: String = "",
+    val callerId: Int = 1,
+    val durationSeconds: Int = 0,
     val timestamp: Long = 0L
 )
 
@@ -431,19 +432,17 @@ object CallManager {
     fun declineIncomingCall(context: Context) {
         stopIncomingRingtone()
         isIncomingCall = false
-        val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val callerCode = if (incomingCallerName.equals("Kanu", ignoreCase = true)) 1 else 2
 
         ensureAuth {
             firestore.collection("App").document("current_call").update("status", "ended")
 
             val logKey = if (activeCallTimestampKey > 0L) activeCallTimestampKey.toString() else System.currentTimeMillis().toString()
-            val missedLogValue = listOf(callerCode, 0) // [caller_id, duration=0]
+            val missedLogValue = listOf(callerCode, 0)
 
             firestore.collection("App").document("call_logs")
                 .update(logKey, missedLogValue)
                 .addOnFailureListener {
-                    // If document doesn't exist yet, create it with set
                     firestore.collection("App").document("call_logs")
                         .set(mapOf(logKey to missedLogValue), com.google.firebase.firestore.SetOptions.merge())
                 }
@@ -481,7 +480,7 @@ object CallManager {
 
         ensureAuth {
             val logKey = if (activeCallTimestampKey > 0L) activeCallTimestampKey.toString() else System.currentTimeMillis().toString()
-            val logValue = listOf(callerCode, statusDuration) // [caller_id, duration_seconds]
+            val logValue = listOf(callerCode, statusDuration)
 
             firestore.collection("App").document("call_logs")
                 .update(logKey, logValue)
@@ -590,7 +589,6 @@ object CallManager {
                     val ts = key.toLongOrNull() ?: 0L
                     if (ts == 0L) continue
 
-                    // Expecting list/array of 2 items: [caller_id, duration_seconds]
                     val list = value as? List<*> ?: continue
                     if (list.size >= 2) {
                         val callerId = (list[0] as? Number)?.toInt() ?: 1
@@ -607,7 +605,6 @@ object CallManager {
                     }
                 }
 
-                // Sort descending by timestamp (newest first) and limit to 100
                 val sortedLogs = parsedList.sortedByDescending { it.timestamp }.take(100)
                 onLogsUpdated(sortedLogs)
             }
@@ -1171,6 +1168,7 @@ private fun ActiveCallView(
 ) {
     val context = LocalContext.current
     var secondsElapsed by remember { mutableIntStateOf(0) }
+    var isHoldActive by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1193,17 +1191,44 @@ private fun ActiveCallView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
+            .background(MaterialTheme.colorScheme.background)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(24.dp)
+        // Top-Right Latency Capsule / Pill
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 42.dp, end = 20.dp)
+                .clip(RoundedCornerShape(50.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(110.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Text(
+                text = "${if (latency > 0) latency else 120} ms",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // Center Profile & Call Duration Section
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(bottom = 120.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(116.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
@@ -1221,7 +1246,7 @@ private fun ActiveCallView(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = partnerName,
@@ -1234,97 +1259,150 @@ private fun ActiveCallView(
 
             Text(
                 text = when {
+                    isHoldActive -> "Call on Hold"
                     CallManager.isPeerConnected -> formatLogDuration(secondsElapsed)
                     else -> "Ringing..."
                 },
                 fontSize = 15.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                fontWeight = FontWeight.Medium,
+                color = if (isHoldActive) Color(0xFFFF9800) else MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(dotColor)
-                )
-                Text(
-                    text = "${if (latency > 0) latency else 120} ms",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
         }
 
-        Row(
+        // Bottom WhatsApp-Style Control Deck Card
+        Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 48.dp),
-            horizontalArrangement = Arrangement.spacedBy(28.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 16.dp, vertical = 28.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            tonalElevation = 2.dp
         ) {
-            Box(
+            Column(
                 modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(if (CallManager.isMuted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                    .bounceClick(scaleDown = 0.88f) {
-                        CallManager.toggleMute()
-                    },
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(
-                    imageVector = if (CallManager.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                    contentDescription = "Mute",
-                    tint = if (CallManager.isMuted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+                // Row 1: 3 Circular Buttons (Mic, Hold, Speaker) with labels
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 1. Mic Toggle
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape)
+                                .background(if (CallManager.isMuted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                                .bounceClick(scaleDown = 0.88f) {
+                                    CallManager.toggleMute()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (CallManager.isMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                contentDescription = "Mute",
+                                tint = if (CallManager.isMuted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Text(
+                            text = if (CallManager.isMuted) "Unmute" else "Mute",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
-            Box(
-                modifier = Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFF44336))
-                    .bounceClick(scaleDown = 0.88f) {
-                        onEndCall()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CallEnd,
-                    contentDescription = "End Call",
-                    tint = Color.White,
-                    modifier = Modifier.size(30.dp)
-                )
-            }
+                    // 2. Hold Toggle (Visual state feedback)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape)
+                                .background(if (isHoldActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                                .bounceClick(scaleDown = 0.88f) {
+                                    isHoldActive = !isHoldActive
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Pause,
+                                contentDescription = "Hold",
+                                tint = if (isHoldActive) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Text(
+                            text = "Hold",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(if (CallManager.isSpeakerOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                    .bounceClick(scaleDown = 0.88f) {
-                        CallManager.toggleSpeaker(context)
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (CallManager.isSpeakerOn) Icons.Default.VolumeUp else Icons.Outlined.VolumeMute,
-                    contentDescription = "Speaker",
-                    tint = if (CallManager.isSpeakerOn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-                )
+                    // 3. Speaker Toggle
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape)
+                                .background(if (CallManager.isSpeakerOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface)
+                                .bounceClick(scaleDown = 0.88f) {
+                                    CallManager.toggleSpeaker(context)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (CallManager.isSpeakerOn) Icons.Default.VolumeUp else Icons.Outlined.VolumeMute,
+                                contentDescription = "Speaker",
+                                tint = if (CallManager.isSpeakerOn) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Text(
+                            text = "Speaker",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Row 2: Centered Red Pill End Call Button
+                Box(
+                    modifier = Modifier
+                        .width(138.dp)
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(50.dp))
+                        .background(Color(0xFFE53935))
+                        .bounceClick(scaleDown = 0.92f) {
+                            onEndCall()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CallEnd,
+                        contentDescription = "End Call",
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
     }
