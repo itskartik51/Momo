@@ -114,7 +114,7 @@ private fun CallLogRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 val isMyIdKanu = currentUserId.equals("kanu", ignoreCase = true)
-                val isOutgoing = (isMyIdKanu && item.callerId == 1) || (!isMyIdKanu && item.callerId == 2)
+                val isOutgoing = (isMyIdKanu && item.callerCode == 1) || (!isMyIdKanu && item.callerCode == 2)
                 val isMissed = item.durationSeconds == 0
 
                 val iconColor = when {
