@@ -12,8 +12,8 @@ android {
         applicationId = "com.personal.momo"
         minSdk = 24
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.2405.15"
+        versionCode = 16
+        versionName = "1.2405.16"
 
         resourceConfigurations += listOf("en", "hi")
 
@@ -92,10 +92,11 @@ dependencies {
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Firebase Platform, Firestore & Silent Authentication
+    // Firebase Platform, Firestore, Realtime Database & Silent Authentication
     implementation(platform("com.google.firebase:firebase-bom:33.2.0"))
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-database-ktx")
 
     // Google Play Services Location for Proximity Tracking
     implementation("com.google.android.gms:play-services-location:21.3.0")
