@@ -46,7 +46,7 @@ import java.util.Locale
 
 /**
  * Pure Coordinator: Connects UI, AgoraCallEngine, and FirestoreCallService.
- * Implements WhatsApp Late-Join Architecture (0 Agora Minutes on Missed Calls).
+ * Implements WhatsApp Late-Join Architecture with Zero Cold-Start Pre-Warming.
  */
 object CallManager {
     var isCallActive by mutableStateOf(false)
@@ -161,6 +161,8 @@ object CallManager {
                     incomingCallerName = if (caller.equals("kanu", ignoreCase = true)) "Kanu" else "Momo"
                     currentChannelName = channel
                     isIncomingCall = true
+                    // Zero Cold-Start Pre-Warm: Initialize Agora libraries immediately on ring
+                    AgoraCallEngine.preWarm(context)
                     CallSounds.startIncomingRingtone(context)
                 }
             },
@@ -196,10 +198,10 @@ object CallManager {
 
     /**
      * Start Call: Late Join Architecture.
-     * Does NOT join Agora yet! Rings locally and alerts peer.
+     * Pre-warms engine locally, rings dial tone, but does NOT join channel yet.
      */
     fun startCall(context: Context, channelName: String = "momo_private_voice_room") {
-        AgoraCallEngine.initEngine(context)
+        AgoraCallEngine.preWarm(context)
         isMuted = false
         latencyMs = 120
         currentChannelName = channelName
@@ -233,7 +235,8 @@ object CallManager {
     }
 
     /**
-     * Receiver Taps Accept: Joins Agora and tells Caller to join.
+     * Receiver Taps Accept: Engine already warmed up.
+     * Joins Agora immediately (0ms delay) and signals caller.
      */
     fun acceptIncomingCall(context: Context) {
         CallSounds.stopIncomingRingtone()
@@ -243,8 +246,6 @@ object CallManager {
         isMuted = false
         latencyMs = 120
 
-        AgoraCallEngine.initEngine(context)
-
         refreshBluetoothState(context)
         if (isBluetoothAvailable) {
             selectAudioRoute(context, AudioRoute.BLUETOOTH)
@@ -252,15 +253,15 @@ object CallManager {
             selectAudioRoute(context, AudioRoute.PHONE)
         }
 
-        // Receiver joins channel first
+        // Receiver joins channel instantly
         AgoraCallEngine.joinRoom(currentChannelName)
 
-        // Signals caller to join channel now
+        // Signals caller to join
         FirestoreCallService.updateCallStatus("accepted")
     }
 
     /**
-     * Receiver Declines Call: Logs Missed Call at the exact cut second.
+     * Receiver Declines Call: Cleans pre-warmed engine with 0 Agora billing.
      */
     fun declineIncomingCall(context: Context) {
         CallSounds.stopIncomingRingtone()
@@ -270,6 +271,9 @@ object CallManager {
         val cutTimestamp = System.currentTimeMillis()
         FirestoreCallService.logCall(cutTimestamp, callerCode, 0)
         FirestoreCallService.updateCallStatus("ended")
+
+        // Safely clear pre-warmed audio engine without billable session
+        AgoraCallEngine.resetAndLeave(context)
     }
 
     /**
