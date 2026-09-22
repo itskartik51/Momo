@@ -6,7 +6,7 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 
 data class CallLogItem(
     val id: String = "",
@@ -17,8 +17,8 @@ data class CallLogItem(
 
 /**
  * Hybrid Signaling & Logging Architecture:
- * - Realtime Database (RTDB): Dedicated ~50ms WebSocket for instant calling state handshakes.
- * - Firestore: Permanent storage for structured historical call logs.
+ * - Realtime Database (RTDB): Dedicated WebSocket for instant calling state handshakes.
+ * - Firestore: Document 'App/call_logs' storing call records as timestamp -> [callerCode, durationSeconds].
  */
 object FirestoreCallService {
     private val firestore: FirebaseFirestore by lazy { FirebaseFirestore.getInstance() }
@@ -28,7 +28,8 @@ object FirestoreCallService {
     private val signalRef by lazy { rtdb.getReference("calls/current_call") }
     private var signalListener: ValueEventListener? = null
 
-    private const val CALL_LOGS_COLLECTION = "CallLogs"
+    private const val APP_COLLECTION = "App"
+    private const val CALL_LOGS_DOCUMENT = "call_logs"
 
     fun sendCallSignal(
         caller: String,
@@ -110,40 +111,51 @@ object FirestoreCallService {
     }
 
     /**
-     * Accurate Call Logging:
-     * - If connected: exact start timestamp + actual duration
-     * - If missed/declined: exact cut timestamp + 0 seconds
+     * Saves call record into Firestore:
+     * Collection: "App" -> Document: "call_logs"
+     * Format: "timestamp" : [callerCode, durationSeconds]
+     * Uses SetOptions.merge() so existing logs are never overwritten.
      */
     fun logCall(timestamp: Long, callerCode: Int, durationSeconds: Int) {
-        val logData = hashMapOf(
-            "timestamp" to timestamp,
-            "callerCode" to callerCode,
-            "durationSeconds" to durationSeconds
+        val key = timestamp.toString()
+        val entryData = mapOf(
+            key to listOf(callerCode, durationSeconds)
         )
 
-        firestore.collection(CALL_LOGS_COLLECTION)
-            .document(timestamp.toString())
-            .set(logData)
+        firestore.collection(APP_COLLECTION)
+            .document(CALL_LOGS_DOCUMENT)
+            .set(entryData, SetOptions.merge())
     }
 
+    /**
+     * Observes 'App/call_logs' document in real-time, parses array fields,
+     * and sorts items in descending order (latest calls on top).
+     */
     fun observeCallLogs(onLogsUpdated: (List<CallLogItem>) -> Unit): ListenerRegistration {
-        return firestore.collection(CALL_LOGS_COLLECTION)
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-            .limit(50)
-            .addSnapshotListener { snapshots, _ ->
-                if (snapshots == null) return@addSnapshotListener
-                val list = snapshots.documents.mapNotNull { doc ->
-                    val ts = doc.getLong("timestamp") ?: return@mapNotNull null
-                    val cc = doc.getLong("callerCode")?.toInt() ?: 1
-                    val dur = doc.getLong("durationSeconds")?.toInt() ?: 0
-                    CallLogItem(
-                        id = doc.id,
-                        timestamp = ts,
-                        callerCode = cc,
-                        durationSeconds = dur
-                    )
+        return firestore.collection(APP_COLLECTION)
+            .document(CALL_LOGS_DOCUMENT)
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot == null || !snapshot.exists()) {
+                    onLogsUpdated(emptyList())
+                    return@addSnapshotListener
                 }
-                onLogsUpdated(list)
+
+                val rawData = snapshot.data ?: emptyMap<String, Any>()
+                val parsedLogs = rawData.mapNotNull { (key, value) ->
+                    val ts = key.toLongOrNull() ?: return@mapNotNull null
+                    val arrayList = value as? List<*> ?: return@mapNotNull null
+                    val callerCode = (arrayList.getOrNull(0) as? Number)?.toInt() ?: 1
+                    val duration = (arrayList.getOrNull(1) as? Number)?.toInt() ?: 0
+
+                    CallLogItem(
+                        id = key,
+                        timestamp = ts,
+                        callerCode = callerCode,
+                        durationSeconds = duration
+                    )
+                }.sortedByDescending { it.timestamp }
+
+                onLogsUpdated(parsedLogs)
             }
     }
 }
