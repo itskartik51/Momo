@@ -1,7 +1,9 @@
 package com.personal.momo.UI_Screens.Call
 
 import android.content.Context
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Build
 import android.util.Base64
 import io.agora.rtc2.ChannelMediaOptions
 import io.agora.rtc2.Constants
@@ -15,6 +17,12 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
 
+enum class AudioRoute {
+    BLUETOOTH,
+    SPEAKER,
+    PHONE
+}
+
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
     private const val AGORA_PRIMARY_CERTIFICATE = "5f3a23a8b85d4d7694951ff7cbb79a2d"
@@ -27,6 +35,7 @@ object AgoraCallEngine {
     var onUserJoined: ((uid: Int) -> Unit)? = null
     var onUserOffline: ((uid: Int, reason: Int) -> Unit)? = null
     var onLatencyUpdated: ((latencyMs: Int) -> Unit)? = null
+    var onAudioRouteChanged: ((routing: Int) -> Unit)? = null
     var onErrorOccurred: ((err: Int) -> Unit)? = null
     var onConnectionFailed: ((reason: Int) -> Unit)? = null
 
@@ -48,6 +57,10 @@ object AgoraCallEngine {
                 val latency = if (it.gatewayRtt > 0) it.gatewayRtt else it.lastmileDelay
                 onLatencyUpdated?.invoke(latency)
             }
+        }
+
+        override fun onAudioRouteChanged(routing: Int) {
+            onAudioRouteChanged?.invoke(routing)
         }
 
         override fun onError(err: Int) {
@@ -153,9 +166,142 @@ object AgoraCallEngine {
         rtcEngine?.muteLocalAudioStream(isMuted)
     }
 
+    fun checkBluetoothConnected(context: Context): Boolean {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                devices.any {
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.isBluetoothScoOn || audioManager.isBluetoothA2dpOn
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun getConnectedBluetoothName(context: Context): String {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "Bluetooth"
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                val btDevice = devices.firstOrNull {
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+                }
+                val name = btDevice?.productName?.toString()
+                if (!name.isNullOrBlank()) name else "Bluetooth"
+            } else {
+                "Bluetooth"
+            }
+        } catch (_: Exception) {
+            "Bluetooth"
+        }
+    }
+
+    fun setAudioRoute(context: Context, route: AudioRoute) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+
+        when (route) {
+            AudioRoute.SPEAKER -> {
+                rtcEngine?.setEnableSpeakerphone(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val speakerDevice = audioManager.availableCommunicationDevices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                    }
+                    if (speakerDevice != null) {
+                        audioManager.setCommunicationDevice(speakerDevice)
+                    } else {
+                        audioManager.isSpeakerphoneOn = true
+                    }
+                } else {
+                    try {
+                        audioManager.stopBluetoothSco()
+                        audioManager.isBluetoothScoOn = false
+                    } catch (_: Exception) {
+                    }
+                    audioManager.isSpeakerphoneOn = true
+                }
+            }
+            AudioRoute.BLUETOOTH -> {
+                rtcEngine?.setEnableSpeakerphone(false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val btDevice = audioManager.availableCommunicationDevices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                    }
+                    if (btDevice != null) {
+                        audioManager.setCommunicationDevice(btDevice)
+                    } else {
+                        try {
+                            audioManager.startBluetoothSco()
+                            audioManager.isBluetoothScoOn = true
+                        } catch (_: Exception) {
+                        }
+                    }
+                } else {
+                    audioManager.isSpeakerphoneOn = false
+                    try {
+                        audioManager.startBluetoothSco()
+                        audioManager.isBluetoothScoOn = true
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+            AudioRoute.PHONE -> {
+                rtcEngine?.setEnableSpeakerphone(false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val earpieceDevice = audioManager.availableCommunicationDevices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                    }
+                    if (earpieceDevice != null) {
+                        audioManager.setCommunicationDevice(earpieceDevice)
+                    } else {
+                        audioManager.clearCommunicationDevice()
+                        audioManager.isSpeakerphoneOn = false
+                    }
+                } else {
+                    try {
+                        audioManager.stopBluetoothSco()
+                        audioManager.isBluetoothScoOn = false
+                    } catch (_: Exception) {
+                    }
+                    audioManager.isSpeakerphoneOn = false
+                }
+            }
+        }
+    }
+
+    fun resetAudio(context: Context) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager.clearCommunicationDevice()
+            }
+            audioManager.stopBluetoothSco()
+            audioManager.isBluetoothScoOn = false
+            audioManager.isSpeakerphoneOn = false
+            audioManager.isMicrophoneMute = false
+            audioManager.mode = AudioManager.MODE_NORMAL
+        } catch (_: Exception) {
+        }
+    }
+
     fun setSpeaker(context: Context, isSpeakerOn: Boolean) {
-        rtcEngine?.setEnableSpeakerphone(isSpeakerOn)
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        audioManager?.isSpeakerphoneOn = isSpeakerOn
+        if (isSpeakerOn) {
+            setAudioRoute(context, AudioRoute.SPEAKER)
+        } else {
+            if (checkBluetoothConnected(context)) {
+                setAudioRoute(context, AudioRoute.BLUETOOTH)
+            } else {
+                setAudioRoute(context, AudioRoute.PHONE)
+            }
+        }
     }
 }
