@@ -23,17 +23,20 @@ enum class AudioRoute {
     PHONE
 }
 
+/**
+ * 100% Self-Contained Agora RTC & Hardware Audio Engine
+ * Bahar kisi bhi file ko token, hardware APIs ya RTC internals janne ki zaroorat nahi hai.
+ */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
     private const val AGORA_PRIMARY_CERTIFICATE = "5f3a23a8b85d4d7694951ff7cbb79a2d"
 
-    var rtcEngine: RtcEngine? = null
-        private set
+    private var rtcEngine: RtcEngine? = null
 
-    // Callbacks to notify master CallManager
-    var onJoinChannelSuccess: ((channel: String?, uid: Int) -> Unit)? = null
-    var onUserJoined: ((uid: Int) -> Unit)? = null
-    var onUserOffline: ((uid: Int, reason: Int) -> Unit)? = null
+    // High-Level Callbacks for Master Controller
+    var onJoinSuccess: ((channel: String?, uid: Int) -> Unit)? = null
+    var onPeerJoined: ((uid: Int) -> Unit)? = null
+    var onPeerOffline: ((uid: Int, reason: Int) -> Unit)? = null
     var onLatencyUpdated: ((latencyMs: Int) -> Unit)? = null
     var onAudioRouteChanged: ((routing: Int) -> Unit)? = null
     var onErrorOccurred: ((err: Int) -> Unit)? = null
@@ -41,15 +44,15 @@ object AgoraCallEngine {
 
     private val rtcEventHandler = object : IRtcEngineEventHandler() {
         override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
-            onJoinChannelSuccess?.invoke(channel, uid)
+            onJoinSuccess?.invoke(channel, uid)
         }
 
         override fun onUserJoined(uid: Int, elapsed: Int) {
-            onUserJoined?.invoke(uid)
+            onPeerJoined?.invoke(uid)
         }
 
         override fun onUserOffline(uid: Int, reason: Int) {
-            onUserOffline?.invoke(uid, reason)
+            onPeerOffline?.invoke(uid, reason)
         }
 
         override fun onRtcStats(stats: RtcStats?) {
@@ -87,14 +90,17 @@ object AgoraCallEngine {
                 rtcEngine?.setChannelProfile(Constants.CHANNEL_PROFILE_COMMUNICATION)
                 return true
             } catch (e: Exception) {
-                onError(e.localizedMessage ?: "Unknown Init Error")
+                onError(e.localizedMessage ?: "Engine Init Error")
                 return false
             }
         }
         return true
     }
 
-    fun buildAgoraToken(channelName: String, uid: Int = 0): String {
+    /**
+     * Internal Private Token Calculation
+     */
+    private fun buildToken(channelName: String, uid: Int = 0): String {
         return try {
             val currentTs = (System.currentTimeMillis() / 1000L).toInt()
             val privilegeTs = currentTs + 86400
@@ -145,21 +151,25 @@ object AgoraCallEngine {
         }
     }
 
-    fun joinChannel(channelName: String, token: String): Int {
+    /**
+     * Joins Room directly (generates token internally)
+     */
+    fun joinRoom(channelName: String, uid: Int = 0): Boolean {
+        val engine = rtcEngine ?: return false
+        val token = buildToken(channelName, uid)
         val options = ChannelMediaOptions().apply {
             channelProfile = Constants.CHANNEL_PROFILE_COMMUNICATION
             clientRoleType = Constants.CLIENT_ROLE_BROADCASTER
             autoSubscribeAudio = true
             publishMicrophoneTrack = true
         }
-        return rtcEngine?.joinChannel(token, channelName, 0, options) ?: -1
+        return engine.joinChannel(token, channelName, uid, options) == 0
     }
 
-    fun leaveChannel() {
+    fun leaveRoom() {
         try {
             rtcEngine?.leaveChannel()
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     fun setMute(isMuted: Boolean) {
@@ -195,8 +205,7 @@ object AgoraCallEngine {
                     it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
                     (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
                 }
-                val name = btDevice?.productName?.toString()
-                if (!name.isNullOrBlank()) name else "Bluetooth"
+                btDevice?.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Bluetooth"
             } else {
                 "Bluetooth"
             }
@@ -212,57 +221,49 @@ object AgoraCallEngine {
             AudioRoute.SPEAKER -> {
                 rtcEngine?.setEnableSpeakerphone(true)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val speakerDevice = audioManager.availableCommunicationDevices.firstOrNull {
+                    val speaker = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                     }
-                    if (speakerDevice != null) {
-                        audioManager.setCommunicationDevice(speakerDevice)
-                    } else {
-                        audioManager.isSpeakerphoneOn = true
-                    }
+                    if (speaker != null) audioManager.setCommunicationDevice(speaker)
+                    else audioManager.isSpeakerphoneOn = true
                 } else {
                     try {
                         audioManager.stopBluetoothSco()
                         audioManager.isBluetoothScoOn = false
-                    } catch (_: Exception) {
-                    }
+                    } catch (_: Exception) {}
                     audioManager.isSpeakerphoneOn = true
                 }
             }
             AudioRoute.BLUETOOTH -> {
                 rtcEngine?.setEnableSpeakerphone(false)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val btDevice = audioManager.availableCommunicationDevices.firstOrNull {
+                    val bt = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
                         it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
                     }
-                    if (btDevice != null) {
-                        audioManager.setCommunicationDevice(btDevice)
-                    } else {
+                    if (bt != null) audioManager.setCommunicationDevice(bt)
+                    else {
                         try {
                             audioManager.startBluetoothSco()
                             audioManager.isBluetoothScoOn = true
-                        } catch (_: Exception) {
-                        }
+                        } catch (_: Exception) {}
                     }
                 } else {
                     audioManager.isSpeakerphoneOn = false
                     try {
                         audioManager.startBluetoothSco()
                         audioManager.isBluetoothScoOn = true
-                    } catch (_: Exception) {
-                    }
+                    } catch (_: Exception) {}
                 }
             }
             AudioRoute.PHONE -> {
                 rtcEngine?.setEnableSpeakerphone(false)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val earpieceDevice = audioManager.availableCommunicationDevices.firstOrNull {
+                    val earpiece = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     }
-                    if (earpieceDevice != null) {
-                        audioManager.setCommunicationDevice(earpieceDevice)
-                    } else {
+                    if (earpiece != null) audioManager.setCommunicationDevice(earpiece)
+                    else {
                         audioManager.clearCommunicationDevice()
                         audioManager.isSpeakerphoneOn = false
                     }
@@ -270,38 +271,26 @@ object AgoraCallEngine {
                     try {
                         audioManager.stopBluetoothSco()
                         audioManager.isBluetoothScoOn = false
-                    } catch (_: Exception) {
-                    }
+                    } catch (_: Exception) {}
                     audioManager.isSpeakerphoneOn = false
                 }
             }
         }
     }
 
-    fun resetAudio(context: Context) {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+    fun resetAndLeave(context: Context) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                audioManager.clearCommunicationDevice()
+                audioManager?.clearCommunicationDevice()
             }
-            audioManager.stopBluetoothSco()
-            audioManager.isBluetoothScoOn = false
-            audioManager.isSpeakerphoneOn = false
-            audioManager.isMicrophoneMute = false
-            audioManager.mode = AudioManager.MODE_NORMAL
-        } catch (_: Exception) {
-        }
-    }
+            audioManager?.stopBluetoothSco()
+            audioManager?.isBluetoothScoOn = false
+            audioManager?.isSpeakerphoneOn = false
+            audioManager?.isMicrophoneMute = false
+            audioManager?.mode = AudioManager.MODE_NORMAL
+        } catch (_: Exception) {}
 
-    fun setSpeaker(context: Context, isSpeakerOn: Boolean) {
-        if (isSpeakerOn) {
-            setAudioRoute(context, AudioRoute.SPEAKER)
-        } else {
-            if (checkBluetoothConnected(context)) {
-                setAudioRoute(context, AudioRoute.BLUETOOTH)
-            } else {
-                setAudioRoute(context, AudioRoute.PHONE)
-            }
-        }
+        leaveRoom()
     }
 }
