@@ -1,6 +1,8 @@
 package com.personal.momo
 
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -53,10 +55,11 @@ import java.security.MessageDigest
 
 class MainActivity : FragmentActivity() {
 
+    private var isLaunchedForCall = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Automatically clean up old update APK files and download manager history
         cleanOldUpdateApks(this)
 
         if (!isDeviceAuthorized()) {
@@ -65,11 +68,11 @@ class MainActivity : FragmentActivity() {
             return
         }
 
-        // Global Signaling Listener: Ensures background & incoming calls are received anytime
+        // Global Call Listener
         CallManager.startSignalingListener(applicationContext)
 
         configureLockScreenVisibility()
-        handleCallActionIntent(intent)
+        handleIncomingIntent(intent)
 
         setContent {
             MomoTheme {
@@ -77,7 +80,7 @@ class MainActivity : FragmentActivity() {
                 var isUnlocked by remember { mutableStateOf(!isLockConfigured) }
                 val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
-                // Keep screen awake while a call is actively ringing or connected
+                // Keep screen awake while call is ringing or connected
                 LaunchedEffect(CallManager.isIncomingCall, CallManager.isCallActive) {
                     if (CallManager.isIncomingCall || CallManager.isCallActive) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -86,7 +89,6 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                // Runtime Permissions Bundle (Location, Notifications, Audio)
                 val requiredPermissions = remember {
                     buildList {
                         add(android.Manifest.permission.ACCESS_FINE_LOCATION)
@@ -108,7 +110,7 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                // Normal Biometric Trigger: Only if phone is not ringing with an incoming call
+                // Biometric Gatekeeper: Bypassed during active incoming/outgoing ringing state
                 LaunchedEffect(isLockConfigured, isUnlocked, CallManager.isIncomingCall, CallManager.isCallActive) {
                     if (isLockConfigured && !isUnlocked && !CallManager.isIncomingCall && !CallManager.isCallActive) {
                         promptBiometricUnlock(
@@ -118,7 +120,6 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                // Launch Proximity Service once unlocked and permissions verified
                 LaunchedEffect(isUnlocked) {
                     if (isUnlocked) {
                         val hasLocationPermission = ContextCompat.checkSelfPermission(
@@ -134,7 +135,7 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                // PRIORITY RENDER ENGINE: Incoming Call > Active Call > Biometric Gatekeeper > Main Screen
+                // Strict Priority Hierarchy: Incoming Call > Active Call > Lock Gatekeeper > Main Screen
                 when {
                     CallManager.isIncomingCall -> {
                         IncomingCallView(
@@ -153,19 +154,26 @@ class MainActivity : FragmentActivity() {
                                 }
                             },
                             onDecline = {
+                                val launchedForCallSnapshot = isLaunchedForCall
                                 CallManager.declineIncomingCall(this@MainActivity)
+                                if (launchedForCallSnapshot || !isUnlocked) {
+                                    finishAndRemoveTask()
+                                }
                             }
                         )
                     }
                     CallManager.isCallActive -> {
                         ActiveCallScreen(
                             onEndCall = {
+                                val launchedForCallSnapshot = isLaunchedForCall
                                 CallManager.endCall(this@MainActivity)
+                                if (launchedForCallSnapshot || !isUnlocked) {
+                                    finishAndRemoveTask()
+                                }
                             }
                         )
                     }
                     !isUnlocked -> {
-                        // Minimalistic Premium Security Lock Gatekeeper
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -224,32 +232,40 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         configureLockScreenVisibility()
-        handleCallActionIntent(intent)
+        handleIncomingIntent(intent)
     }
 
-    private fun handleCallActionIntent(intent: Intent?) {
-        if (intent?.action == IncomingCallNotifier.ACTION_ACCEPT) {
-            val hasAudioPerm = ContextCompat.checkSelfPermission(
-                this,
-                android.Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
+    private fun handleIncomingIntent(intent: Intent?) {
+        when (intent?.action) {
+            IncomingCallNotifier.ACTION_ACCEPT -> {
+                isLaunchedForCall = true
+                val hasAudioPerm = ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
 
-            if (hasAudioPerm) {
-                CallManager.acceptIncomingCall(this)
+                if (hasAudioPerm) {
+                    CallManager.acceptIncomingCall(this)
+                }
+            }
+            IncomingCallNotifier.ACTION_INCOMING_CALL -> {
+                isLaunchedForCall = true
             }
         }
     }
 
     private fun configureLockScreenVisibility() {
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            )
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+            keyguardManager?.requestDismissKeyguard(this, null)
         }
     }
 
