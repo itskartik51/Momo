@@ -1,11 +1,13 @@
 package com.personal.momo
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +41,10 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.Proximity.ProximityLocationService
+import com.personal.momo.UI_Screens.Call.ActiveCallScreen
+import com.personal.momo.UI_Screens.Call.CallManager
+import com.personal.momo.UI_Screens.Call.IncomingCallNotifier
+import com.personal.momo.UI_Screens.Call.IncomingCallView
 import com.personal.momo.UI_Screens.MainScreen
 import com.personal.momo.UI_Screens.MomoTheme
 import com.personal.momo.UI_Screens.Settings.cleanOldUpdateApks
@@ -58,16 +65,33 @@ class MainActivity : FragmentActivity() {
             return
         }
 
+        // Global Signaling Listener: Ensures background & incoming calls are received anytime
+        CallManager.startSignalingListener(applicationContext)
+
+        configureLockScreenVisibility()
+        handleCallActionIntent(intent)
+
         setContent {
             MomoTheme {
                 val isLockConfigured = remember { CacheManager.isSecurityLockEnabled(this) }
                 var isUnlocked by remember { mutableStateOf(!isLockConfigured) }
+                val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
-                // Runtime Permissions Bundle (Location, Notifications)
+                // Keep screen awake while a call is actively ringing or connected
+                LaunchedEffect(CallManager.isIncomingCall, CallManager.isCallActive) {
+                    if (CallManager.isIncomingCall || CallManager.isCallActive) {
+                        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    } else {
+                        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
+
+                // Runtime Permissions Bundle (Location, Notifications, Audio)
                 val requiredPermissions = remember {
                     buildList {
                         add(android.Manifest.permission.ACCESS_FINE_LOCATION)
                         add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        add(android.Manifest.permission.RECORD_AUDIO)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             add(android.Manifest.permission.POST_NOTIFICATIONS)
                         }
@@ -84,8 +108,9 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                LaunchedEffect(isLockConfigured) {
-                    if (isLockConfigured && !isUnlocked) {
+                // Normal Biometric Trigger: Only if phone is not ringing with an incoming call
+                LaunchedEffect(isLockConfigured, isUnlocked, CallManager.isIncomingCall, CallManager.isCallActive) {
+                    if (isLockConfigured && !isUnlocked && !CallManager.isIncomingCall && !CallManager.isCallActive) {
                         promptBiometricUnlock(
                             onSuccess = { isUnlocked = true },
                             onExit = { finishAndRemoveTask() }
@@ -109,57 +134,122 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                if (isUnlocked) {
-                    MainScreen()
-                } else {
-                    // Minimalistic Premium Security Lock Gatekeeper
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                // PRIORITY RENDER ENGINE: Incoming Call > Active Call > Biometric Gatekeeper > Main Screen
+                when {
+                    CallManager.isIncomingCall -> {
+                        IncomingCallView(
+                            avatarUrl = avatarUrl,
+                            callerName = CallManager.incomingCallerName,
+                            onAccept = {
+                                val hasAudioPerm = ContextCompat.checkSelfPermission(
+                                    this@MainActivity,
+                                    android.Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+
+                                if (hasAudioPerm) {
+                                    CallManager.acceptIncomingCall(this@MainActivity)
+                                } else {
+                                    permissionLauncher.launch(arrayOf(android.Manifest.permission.RECORD_AUDIO))
+                                }
+                            },
+                            onDecline = {
+                                CallManager.declineIncomingCall(this@MainActivity)
+                            }
+                        )
+                    }
+                    CallManager.isCallActive -> {
+                        ActiveCallScreen(
+                            onEndCall = {
+                                CallManager.endCall(this@MainActivity)
+                            }
+                        )
+                    }
+                    !isUnlocked -> {
+                        // Minimalistic Premium Security Lock Gatekeeper
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(76.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                    .bounceClick(scaleDown = 0.90f) {
-                                        promptBiometricUnlock(
-                                            onSuccess = { isUnlocked = true },
-                                            onExit = { finishAndRemoveTask() }
-                                        )
-                                    },
-                                contentAlignment = Alignment.Center
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Fingerprint,
-                                    contentDescription = "Unlock Momo",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(42.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(76.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                        .bounceClick(scaleDown = 0.90f) {
+                                            promptBiometricUnlock(
+                                                onSuccess = { isUnlocked = true },
+                                                onExit = { finishAndRemoveTask() }
+                                            )
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Fingerprint,
+                                        contentDescription = "Unlock Momo",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(42.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text = "Momo is Locked",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                Text(
+                                    text = "Tap icon to unlock",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-
-                            Text(
-                                text = "Momo is Locked",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-
-                            Text(
-                                text = "Tap icon to unlock",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
+                    }
+                    else -> {
+                        MainScreen()
                     }
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        configureLockScreenVisibility()
+        handleCallActionIntent(intent)
+    }
+
+    private fun handleCallActionIntent(intent: Intent?) {
+        if (intent?.action == IncomingCallNotifier.ACTION_ACCEPT) {
+            val hasAudioPerm = ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (hasAudioPerm) {
+                CallManager.acceptIncomingCall(this)
+            }
+        }
+    }
+
+    private fun configureLockScreenVisibility() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
         }
     }
 
