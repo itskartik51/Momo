@@ -47,7 +47,7 @@ import java.util.Locale
 /**
  * Pure Coordinator: Connects UI, AudioMan, AgoraCallEngine, and FirestoreCallService.
  * Coordinates system-wide incoming call notifications (Heads-Up Banner + Full Screen Intent),
- * late-join architecture, and precise call logs.
+ * late-join architecture, and precise call logs without audio echoes.
  */
 object CallManager {
     var isCallActive by mutableStateOf(false)
@@ -105,9 +105,8 @@ object CallManager {
                     isIncomingCall = true
 
                     AgoraCallEngine.preWarm(context)
-                    CallSounds.startIncomingRingtone(context)
 
-                    // Launches High-Priority Heads-Up Banner and wakes screen via Full-Screen Intent
+                    // High-Priority Notification Channel plays native ringtone and wakes the locked screen
                     IncomingCallNotifier.show(context, incomingCallerName)
                 }
             },
