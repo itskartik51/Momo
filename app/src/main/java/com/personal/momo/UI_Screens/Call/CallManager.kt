@@ -71,7 +71,6 @@ object CallManager {
     var isBluetoothAvailable by mutableStateOf(false)
     var bluetoothDeviceName by mutableStateOf("Bluetooth")
 
-    // Locks the true originator of the call (1 = Kanu, 2 = Momo) regardless of who ends it
     private var activeCallerCode: Int = 1
     private var connectedAtTimestamp: Long = 0L
 
@@ -100,7 +99,6 @@ object CallManager {
         }
 
         AgoraCallEngine.onAudioRouteChanged = { routing ->
-            // Prevent feedback loops during intentional route transitions
             if (System.currentTimeMillis() > ignoreAgoraRoutingUntil) {
                 when (routing) {
                     5 -> {
@@ -139,7 +137,6 @@ object CallManager {
                             selectAudioRoute(context, AudioRoute.BLUETOOTH)
                         }
                     }
-                    // 350ms settling time for SCO hardware pipe readiness
                     mainHandler.postDelayed(bluetoothDebounceRunnable!!, 350L)
                 }
 
@@ -254,10 +251,6 @@ object CallManager {
         FirestoreCallService.stopSignalingListener()
     }
 
-    /**
-     * Start Call: Late Join Architecture.
-     * Pre-warms engine locally, rings dial tone, but does NOT join channel yet.
-     */
     fun startCall(context: Context, channelName: String = "momo_private_voice_room") {
         AgoraCallEngine.preWarm(context)
         isMuted = false
@@ -295,10 +288,6 @@ object CallManager {
         )
     }
 
-    /**
-     * Receiver Taps Accept: Engine already warmed up.
-     * Joins Agora immediately (0ms delay) and signals caller.
-     */
     fun acceptIncomingCall(context: Context) {
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
@@ -320,9 +309,6 @@ object CallManager {
         FirestoreCallService.updateCallStatus("accepted")
     }
 
-    /**
-     * Receiver Declines Call: Cleans pre-warmed engine with 0 Agora billing.
-     */
     fun declineIncomingCall(context: Context) {
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
@@ -335,9 +321,6 @@ object CallManager {
         AgoraCallEngine.resetAndLeave(context)
     }
 
-    /**
-     * End Call: Logs exact durations using true originator code and restores audio hardware state.
-     */
     fun endCall(context: Context) {
         CallSounds.releaseAll()
 
