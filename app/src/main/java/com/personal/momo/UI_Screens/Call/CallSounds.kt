@@ -13,7 +13,8 @@ object CallSounds {
     fun startDialTone() {
         try {
             stopDialTone()
-            toneGenerator = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80)
+            // Uses STREAM_RING to avoid occupying the VoIP telephony communication pipeline
+            toneGenerator = ToneGenerator(AudioManager.STREAM_RING, 80)
             toneGenerator?.startTone(ToneGenerator.TONE_SUP_RINGTONE)
         } catch (_: Exception) {
         }
