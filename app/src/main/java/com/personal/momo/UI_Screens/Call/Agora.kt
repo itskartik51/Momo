@@ -26,8 +26,8 @@ enum class AudioRoute {
 }
 
 /**
- * 100% Self-Contained Agora RTC Engine with Android Single Master Audio Routing.
- * Agora streams VoIP audio in DEFAULT scenario while Android OS strictly locks hardware devices.
+ * 100% Self-Contained Agora RTC Engine with Clean Android OS Hardware Routing.
+ * Prevents Bluetooth driver corruption by isolating modern Communication Device APIs from legacy SCO calls.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
@@ -90,7 +90,7 @@ object AgoraCallEngine {
                 rtcEngine = RtcEngine.create(config)
                 rtcEngine?.enableAudio()
                 rtcEngine?.setChannelProfile(Constants.CHANNEL_PROFILE_COMMUNICATION)
-                
+
                 rtcEngine?.setAudioProfile(
                     Constants.AUDIO_PROFILE_SPEECH_STANDARD,
                     Constants.AUDIO_SCENARIO_DEFAULT
@@ -221,9 +221,8 @@ object AgoraCallEngine {
     }
 
     /**
-     * Single Master Hardware Routing:
-     * Android OS is the sole authority for routing communication audio.
-     * Synchronized with Agora's speakerphone toggle to explicitly close background Bluetooth pipes.
+     * Isolated Hardware Audio Routing:
+     * Android 12+ exclusively uses setCommunicationDevice without legacy SCO clashes.
      */
     fun setAudioRoute(context: Context, route: AudioRoute) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -232,62 +231,31 @@ object AgoraCallEngine {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         }
 
-        when (route) {
-            AudioRoute.SPEAKER -> {
-                try {
-                    audioManager.stopBluetoothSco()
-                    @Suppress("DEPRECATION")
-                    audioManager.isBluetoothScoOn = false
-                } catch (_: Exception) {}
-
-                // Signals Agora to cleanly cut Bluetooth stream and route exclusively to speakerphone
-                rtcEngine?.setEnableSpeakerphone(true)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            when (route) {
+                AudioRoute.SPEAKER -> {
+                    rtcEngine?.setEnableSpeakerphone(true)
+                    audioManager.clearCommunicationDevice()
                     val speaker = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                     }
                     if (speaker != null) {
                         audioManager.setCommunicationDevice(speaker)
-                    } else {
-                        audioManager.clearCommunicationDevice()
-                        @Suppress("DEPRECATION")
-                        audioManager.isSpeakerphoneOn = true
                     }
-                } else {
-                    @Suppress("DEPRECATION")
-                    audioManager.isSpeakerphoneOn = true
                 }
-            }
-            AudioRoute.PHONE -> {
-                try {
-                    audioManager.stopBluetoothSco()
-                    @Suppress("DEPRECATION")
-                    audioManager.isBluetoothScoOn = false
-                } catch (_: Exception) {}
-
-                rtcEngine?.setEnableSpeakerphone(false)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                AudioRoute.PHONE -> {
+                    rtcEngine?.setEnableSpeakerphone(false)
+                    audioManager.clearCommunicationDevice()
                     val earpiece = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     }
                     if (earpiece != null) {
                         audioManager.setCommunicationDevice(earpiece)
-                    } else {
-                        audioManager.clearCommunicationDevice()
-                        @Suppress("DEPRECATION")
-                        audioManager.isSpeakerphoneOn = false
                     }
-                } else {
-                    @Suppress("DEPRECATION")
-                    audioManager.isSpeakerphoneOn = false
                 }
-            }
-            AudioRoute.BLUETOOTH -> {
-                rtcEngine?.setEnableSpeakerphone(false)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                AudioRoute.BLUETOOTH -> {
+                    rtcEngine?.setEnableSpeakerphone(false)
+                    audioManager.clearCommunicationDevice()
                     val btDevice = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
                         it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
@@ -305,7 +273,32 @@ object AgoraCallEngine {
                             }
                         }, 250L)
                     }
-                } else {
+                }
+            }
+        } else {
+            when (route) {
+                AudioRoute.SPEAKER -> {
+                    rtcEngine?.setEnableSpeakerphone(true)
+                    try {
+                        audioManager.stopBluetoothSco()
+                        @Suppress("DEPRECATION")
+                        audioManager.isBluetoothScoOn = false
+                    } catch (_: Exception) {}
+                    @Suppress("DEPRECATION")
+                    audioManager.isSpeakerphoneOn = true
+                }
+                AudioRoute.PHONE -> {
+                    rtcEngine?.setEnableSpeakerphone(false)
+                    try {
+                        audioManager.stopBluetoothSco()
+                        @Suppress("DEPRECATION")
+                        audioManager.isBluetoothScoOn = false
+                    } catch (_: Exception) {}
+                    @Suppress("DEPRECATION")
+                    audioManager.isSpeakerphoneOn = false
+                }
+                AudioRoute.BLUETOOTH -> {
+                    rtcEngine?.setEnableSpeakerphone(false)
                     @Suppress("DEPRECATION")
                     audioManager.isSpeakerphoneOn = false
                     try {
@@ -323,12 +316,13 @@ object AgoraCallEngine {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 audioManager?.clearCommunicationDevice()
+            } else {
+                audioManager?.stopBluetoothSco()
+                @Suppress("DEPRECATION")
+                audioManager?.isBluetoothScoOn = false
+                @Suppress("DEPRECATION")
+                audioManager?.isSpeakerphoneOn = false
             }
-            audioManager?.stopBluetoothSco()
-            @Suppress("DEPRECATION")
-            audioManager?.isBluetoothScoOn = false
-            @Suppress("DEPRECATION")
-            audioManager?.isSpeakerphoneOn = false
             audioManager?.isMicrophoneMute = false
             audioManager?.mode = AudioManager.MODE_NORMAL
         } catch (_: Exception) {}
