@@ -12,8 +12,19 @@ import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.PowerManager
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,22 +33,31 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
@@ -46,6 +66,7 @@ import coil.compose.AsyncImage
 import com.personal.momo.MainActivity
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.bounceClick
+import kotlin.math.roundToInt
 
 @Composable
 fun IncomingCallView(
@@ -57,20 +78,22 @@ fun IncomingCallView(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
+            .background(Color(0xFF121214))
     ) {
+        // Top Profile Section: Exactly matches ActiveCallScreen coordinates to eliminate layout shift
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(24.dp)
+            verticalArrangement = Arrangement.Top,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 96.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(116.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                    .background(Color(0xFF242529))
+                    .border(2.dp, Color(0xFF383A40), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 if (!avatarUrl.isNullOrBlank()) {
@@ -85,89 +108,213 @@ fun IncomingCallView(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             Text(
                 text = callerName,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = Color.White
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = "Incoming Voice Call...",
                 fontSize = 15.sp,
-                color = MaterialTheme.colorScheme.primary,
+                color = Color(0xFF9E9E9E),
                 fontWeight = FontWeight.Medium
             )
         }
 
+        // Bottom Action Deck: Floating & Pulsing Swipe-Up Buttons
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 54.dp)
+                .padding(bottom = 44.dp)
                 .fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            SwipeUpCallButton(
+                isAccept = false,
+                label = "Decline",
+                buttonColor = Color(0xFFFF4F4F),
+                waveColor = Color(0xFFFF8787),
+                onTrigger = onDecline
+            )
+
+            SwipeUpCallButton(
+                isAccept = true,
+                label = "Accept",
+                buttonColor = Color(0xFF50FF8A),
+                waveColor = Color(0xFF87FFAF),
+                onTrigger = onAccept
+            )
+        }
+    }
+}
+
+@Composable
+private fun SwipeUpCallButton(
+    isAccept: Boolean,
+    label: String,
+    buttonColor: Color,
+    waveColor: Color,
+    onTrigger: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "ButtonAnimations")
+
+    // 1. Bobbing / Floating Movement (Vertical Sine Wave)
+    val bobbingOffset by infiniteTransition.animateFloat(
+        initialValue = -5f,
+        targetValue = 5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "BobbingOffset"
+    )
+
+    // 2. Phone Icon Wobble / Vibration (-4 deg to +4 deg)
+    val phoneWobble by infiniteTransition.animateFloat(
+        initialValue = -4f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(120, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "PhoneWobble"
+    )
+
+    // 3. Continuous 3-Layer Expanding Ripple Waves
+    val waveProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "WaveProgress"
+    )
+
+    // 4. Subtle Upward Arrow Bounce for Gestural Affordance
+    val arrowBounce by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "ArrowBounce"
+    )
+
+    // Swipe-Up Drag Handling
+    val density = LocalDensity.current
+    val thresholdPx = with(density) { 70.dp.toPx() }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+    val animatedDragOffset by animateFloatAsState(
+        targetValue = dragOffsetY,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "DragAnimation"
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.offset {
+            IntOffset(0, (animatedDragOffset + bobbingOffset).roundToInt())
+        }
+    ) {
+        // Subtle Upward Gesture Indicator
+        Icon(
+            imageVector = Icons.Default.KeyboardArrowUp,
+            contentDescription = "Swipe up",
+            tint = buttonColor.copy(alpha = 0.85f),
+            modifier = Modifier
+                .size(24.dp)
+                .offset(y = arrowBounce.dp)
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(108.dp)
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragEnd = {
+                            if (dragOffsetY <= -thresholdPx) {
+                                onTrigger()
+                            }
+                            dragOffsetY = 0f
+                        },
+                        onDragCancel = {
+                            dragOffsetY = 0f
+                        },
+                        onVerticalDrag = { change, dragAmount ->
+                            change.consume()
+                            dragOffsetY = (dragOffsetY + dragAmount).coerceIn(-thresholdPx * 1.4f, 0f)
+                            if (dragOffsetY <= -thresholdPx) {
+                                onTrigger()
+                                dragOffsetY = 0f
+                            }
+                        }
+                    )
+                }
+        ) {
+            // Triple-Layer Waves Render
+            val wavePhases = listOf(0.0f, 0.33f, 0.66f)
+            wavePhases.forEach { phase ->
+                val progress = (waveProgress + phase) % 1.0f
+                val scale = 1.0f + (progress * 0.58f)
+                val alpha = (1.0f - progress) * 0.42f
+
                 Box(
                     modifier = Modifier
                         .size(68.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFFF44336))
-                        .bounceClick(scaleDown = 0.88f) {
-                            onDecline()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CallEnd,
-                        contentDescription = "Decline Call",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                Text(
-                    text = "Decline",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            this.alpha = alpha
+                        }
+                        .background(waveColor, CircleShape)
                 )
             }
 
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            // Main Interactive Circle
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(buttonColor)
+                    .bounceClick(scaleDown = 0.90f) {
+                        onTrigger()
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                Box(
+                Icon(
+                    imageVector = if (isAccept) Icons.Default.Call else Icons.Default.CallEnd,
+                    contentDescription = label,
+                    tint = if (isAccept) Color(0xFF121214) else Color.White,
                     modifier = Modifier
-                        .size(68.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF4CAF50))
-                        .bounceClick(scaleDown = 0.88f) {
-                            onAccept()
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = "Accept Call",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                Text(
-                    text = "Accept",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                        .size(30.dp)
+                        .graphicsLayer {
+                            rotationZ = phoneWobble
+                        }
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color(0xFFD0D3D8)
+        )
     }
 }
 
