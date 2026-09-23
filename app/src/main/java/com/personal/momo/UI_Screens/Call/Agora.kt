@@ -1,11 +1,6 @@
 package com.personal.momo.UI_Screens.Call
 
 import android.content.Context
-import android.media.AudioDeviceInfo
-import android.media.AudioManager
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.Base64
 import io.agora.rtc2.ChannelMediaOptions
 import io.agora.rtc2.Constants
@@ -19,28 +14,20 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.random.Random
 
-enum class AudioRoute {
-    BLUETOOTH,
-    SPEAKER,
-    PHONE
-}
-
 /**
- * 100% Self-Contained Agora RTC Engine with Clean Android OS Hardware Routing.
- * Fully supports Bluetooth, Wired/USB Headsets, Built-in Earpiece, and Loudspeaker.
+ * 100% Self-Contained Agora RTC Engine for VoIP Audio Streaming.
+ * Pure streaming engine; all hardware audio routing is exclusively managed by AudioMan.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
     private const val AGORA_PRIMARY_CERTIFICATE = "5f3a23a8b85d4d7694951ff7cbb79a2d"
 
     private var rtcEngine: RtcEngine? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     var onJoinSuccess: ((channel: String?, uid: Int) -> Unit)? = null
     var onPeerJoined: ((uid: Int) -> Unit)? = null
     var onPeerOffline: ((uid: Int, reason: Int) -> Unit)? = null
     var onLatencyUpdated: ((latencyMs: Int) -> Unit)? = null
-    var onAudioRouteChanged: ((routing: Int) -> Unit)? = null
     var onErrorOccurred: ((err: Int) -> Unit)? = null
     var onConnectionFailed: ((reason: Int) -> Unit)? = null
 
@@ -62,10 +49,6 @@ object AgoraCallEngine {
                 val latency = if (it.gatewayRtt > 0) it.gatewayRtt else it.lastmileDelay
                 onLatencyUpdated?.invoke(latency)
             }
-        }
-
-        override fun onAudioRouteChanged(routing: Int) {
-            onAudioRouteChanged?.invoke(routing)
         }
 
         override fun onError(err: Int) {
@@ -180,182 +163,5 @@ object AgoraCallEngine {
 
     fun setMute(isMuted: Boolean) {
         rtcEngine?.muteLocalAudioStream(isMuted)
-    }
-
-    fun checkBluetoothConnected(context: Context): Boolean {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                devices.any {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager.isBluetoothScoOn || audioManager.isBluetoothA2dpOn
-            }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    fun checkWiredHeadsetConnected(context: Context): Boolean {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                devices.any {
-                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && it.type == AudioDeviceInfo.TYPE_USB_HEADSET)
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager.isWiredHeadsetOn
-            }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    fun getConnectedBluetoothName(context: Context): String {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "Bluetooth"
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                val btDevice = devices.firstOrNull {
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                    it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && it.type == AudioDeviceInfo.TYPE_BLE_HEADSET)
-                }
-                btDevice?.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Bluetooth"
-            } else {
-                "Bluetooth"
-            }
-        } catch (_: Exception) {
-            "Bluetooth"
-        }
-    }
-
-    /**
-     * Isolated Hardware Audio Routing:
-     * Android 12+ exclusively locks target hardware via setCommunicationDevice.
-     * Supports Bluetooth, Wired/USB Earphones, Built-in Earpiece, and Loudspeaker.
-     */
-    fun setAudioRoute(context: Context, route: AudioRoute) {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-
-        if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) {
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            when (route) {
-                AudioRoute.SPEAKER -> {
-                    rtcEngine?.setEnableSpeakerphone(true)
-                    audioManager.clearCommunicationDevice()
-                    val speaker = audioManager.availableCommunicationDevices.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                    }
-                    if (speaker != null) {
-                        audioManager.setCommunicationDevice(speaker)
-                    }
-                }
-                AudioRoute.PHONE -> {
-                    rtcEngine?.setEnableSpeakerphone(false)
-                    audioManager.clearCommunicationDevice()
-
-                    // Check for wired/USB headphones first; fallback to phone earpiece if none connected
-                    val wired = audioManager.availableCommunicationDevices.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                        it.type == AudioDeviceInfo.TYPE_USB_HEADSET
-                    }
-                    val earpiece = audioManager.availableCommunicationDevices.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-                    }
-
-                    val targetDevice = wired ?: earpiece
-                    if (targetDevice != null) {
-                        audioManager.setCommunicationDevice(targetDevice)
-                    }
-                }
-                AudioRoute.BLUETOOTH -> {
-                    rtcEngine?.setEnableSpeakerphone(false)
-                    audioManager.clearCommunicationDevice()
-                    val btDevice = audioManager.availableCommunicationDevices.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-                    }
-                    if (btDevice != null) {
-                        audioManager.setCommunicationDevice(btDevice)
-                    } else {
-                        mainHandler.postDelayed({
-                            val retryBt = audioManager.availableCommunicationDevices.firstOrNull {
-                                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                                it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-                            }
-                            if (retryBt != null) {
-                                audioManager.setCommunicationDevice(retryBt)
-                            }
-                        }, 250L)
-                    }
-                }
-            }
-        } else {
-            when (route) {
-                AudioRoute.SPEAKER -> {
-                    rtcEngine?.setEnableSpeakerphone(true)
-                    try {
-                        audioManager.stopBluetoothSco()
-                        @Suppress("DEPRECATION")
-                        audioManager.isBluetoothScoOn = false
-                    } catch (_: Exception) {}
-                    @Suppress("DEPRECATION")
-                    audioManager.isSpeakerphoneOn = true
-                }
-                AudioRoute.PHONE -> {
-                    rtcEngine?.setEnableSpeakerphone(false)
-                    try {
-                        audioManager.stopBluetoothSco()
-                        @Suppress("DEPRECATION")
-                        audioManager.isBluetoothScoOn = false
-                    } catch (_: Exception) {}
-                    @Suppress("DEPRECATION")
-                    audioManager.isSpeakerphoneOn = false
-                }
-                AudioRoute.BLUETOOTH -> {
-                    rtcEngine?.setEnableSpeakerphone(false)
-                    @Suppress("DEPRECATION")
-                    audioManager.isSpeakerphoneOn = false
-                    try {
-                        audioManager.startBluetoothSco()
-                        @Suppress("DEPRECATION")
-                        audioManager.isBluetoothScoOn = true
-                    } catch (_: Exception) {}
-                }
-            }
-        }
-    }
-
-    fun resetAndLeave(context: Context) {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                audioManager?.clearCommunicationDevice()
-            } else {
-                audioManager?.stopBluetoothSco()
-                @Suppress("DEPRECATION")
-                audioManager?.isBluetoothScoOn = false
-                @Suppress("DEPRECATION")
-                audioManager?.isSpeakerphoneOn = false
-            }
-            audioManager?.isMicrophoneMute = false
-            audioManager?.mode = AudioManager.MODE_NORMAL
-        } catch (_: Exception) {}
-
-        leaveRoom()
     }
 }
