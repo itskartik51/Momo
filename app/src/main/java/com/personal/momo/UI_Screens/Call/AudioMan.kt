@@ -24,6 +24,9 @@ enum class CallAudioDevice {
  * 1. Wired Earphones (Highest Priority)
  * 2. Bluetooth Headset
  * 3. Normal Mode (Earpiece by default, toggled to Speaker only on explicit user click)
+ *
+ * Guarantees zero audio leakage by explicitly locking isSpeakerphoneOn = false
+ * across all Android API levels whenever a headset or earpiece is active.
  */
 object AudioMan {
     var currentDevice by mutableStateOf(CallAudioDevice.EARPIECE)
@@ -51,15 +54,18 @@ object AudioMan {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 audioManager.clearCommunicationDevice()
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager.isSpeakerphoneOn = false
+            }
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = false
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                 try {
                     audioManager.stopBluetoothSco()
                     @Suppress("DEPRECATION")
                     audioManager.isBluetoothScoOn = false
                 } catch (_: Exception) {}
             }
+
             audioManager.isMicrophoneMute = false
             audioManager.mode = AudioManager.MODE_NORMAL
         } catch (_: Exception) {}
@@ -169,8 +175,11 @@ object AudioMan {
         currentDevice = CallAudioDevice.WIRED
         isSpeakerOn = false
 
+        // Unconditionally kill speakerphone flag to eliminate dual audio leakage
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = false
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.clearCommunicationDevice()
             val target = audioManager.availableCommunicationDevices.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
                 it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
@@ -180,8 +189,6 @@ object AudioMan {
                 audioManager.setCommunicationDevice(target)
             }
         } else {
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = false
             try {
                 audioManager.stopBluetoothSco()
                 @Suppress("DEPRECATION")
@@ -194,8 +201,11 @@ object AudioMan {
         currentDevice = CallAudioDevice.BLUETOOTH
         isSpeakerOn = false
 
+        // Unconditionally kill speakerphone flag to eliminate dual audio leakage
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = false
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.clearCommunicationDevice()
             val target = audioManager.availableCommunicationDevices.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
                 it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
@@ -214,8 +224,6 @@ object AudioMan {
                 }, 250L)
             }
         } else {
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = false
             try {
                 audioManager.startBluetoothSco()
                 @Suppress("DEPRECATION")
@@ -228,8 +236,11 @@ object AudioMan {
         currentDevice = CallAudioDevice.SPEAKER
         isSpeakerOn = true
 
+        // User explicitly wants speakerphone
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = true
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.clearCommunicationDevice()
             val target = audioManager.availableCommunicationDevices.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
             }
@@ -242,8 +253,6 @@ object AudioMan {
                 @Suppress("DEPRECATION")
                 audioManager.isBluetoothScoOn = false
             } catch (_: Exception) {}
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = true
         }
     }
 
@@ -251,8 +260,11 @@ object AudioMan {
         currentDevice = CallAudioDevice.EARPIECE
         isSpeakerOn = false
 
+        // Unconditionally kill speakerphone flag to eliminate dual audio leakage
+        @Suppress("DEPRECATION")
+        audioManager.isSpeakerphoneOn = false
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            audioManager.clearCommunicationDevice()
             val target = audioManager.availableCommunicationDevices.firstOrNull {
                 it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
             }
@@ -265,8 +277,6 @@ object AudioMan {
                 @Suppress("DEPRECATION")
                 audioManager.isBluetoothScoOn = false
             } catch (_: Exception) {}
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = false
         }
     }
 }
