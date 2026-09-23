@@ -4,6 +4,8 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import io.agora.rtc2.ChannelMediaOptions
 import io.agora.rtc2.Constants
@@ -24,16 +26,16 @@ enum class AudioRoute {
 }
 
 /**
- * 100% Self-Contained Agora RTC & Hardware Audio Engine
- * Encapsulates Token generation, communication audio profiles, pre-warming, and deterministic device routing.
+ * 100% Self-Contained Agora RTC Engine with Android Single Master Audio Routing.
+ * Agora streams VoIP audio in DEFAULT scenario while Android OS strictly locks hardware devices.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
     private const val AGORA_PRIMARY_CERTIFICATE = "5f3a23a8b85d4d7694951ff7cbb79a2d"
 
     private var rtcEngine: RtcEngine? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    // High-Level Callbacks for Master Controller
     var onJoinSuccess: ((channel: String?, uid: Int) -> Unit)? = null
     var onPeerJoined: ((uid: Int) -> Unit)? = null
     var onPeerOffline: ((uid: Int, reason: Int) -> Unit)? = null
@@ -89,7 +91,6 @@ object AgoraCallEngine {
                 rtcEngine?.enableAudio()
                 rtcEngine?.setChannelProfile(Constants.CHANNEL_PROFILE_COMMUNICATION)
                 
-                // Telephony communication scenario ensures earpiece & mic pipelines work correctly
                 rtcEngine?.setAudioProfile(
                     Constants.AUDIO_PROFILE_SPEECH_STANDARD,
                     Constants.AUDIO_SCENARIO_DEFAULT
@@ -104,17 +105,10 @@ object AgoraCallEngine {
         return true
     }
 
-    /**
-     * Pre-warms native libraries, audio tracks, and permissions into RAM
-     * Does NOT join channel or consume Agora server minutes.
-     */
     fun preWarm(context: Context) {
         initEngine(context)
     }
 
-    /**
-     * Internal Private Token Calculation
-     */
     private fun buildToken(channelName: String, uid: Int = 0): String {
         return try {
             val currentTs = (System.currentTimeMillis() / 1000L).toInt()
@@ -166,9 +160,6 @@ object AgoraCallEngine {
         }
     }
 
-    /**
-     * Joins Room directly (generates token internally)
-     */
     fun joinRoom(channelName: String, uid: Int = 0): Boolean {
         val engine = rtcEngine ?: return false
         val token = buildToken(channelName, uid)
@@ -229,17 +220,26 @@ object AgoraCallEngine {
         }
     }
 
+    /**
+     * Single Master Hardware Routing:
+     * Android OS is the sole authority for routing communication audio.
+     * Decoupled from Agora native speakerphone commands to eliminate deadlocks and race conditions.
+     */
     fun setAudioRoute(context: Context, route: AudioRoute) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
 
-        // Telephony mode ensures audio routing gates stay active
         if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         }
 
         when (route) {
             AudioRoute.SPEAKER -> {
-                rtcEngine?.setEnableSpeakerphone(true)
+                try {
+                    audioManager.stopBluetoothSco()
+                    @Suppress("DEPRECATION")
+                    audioManager.isBluetoothScoOn = false
+                } catch (_: Exception) {}
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val speaker = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
@@ -252,17 +252,17 @@ object AgoraCallEngine {
                         audioManager.isSpeakerphoneOn = true
                     }
                 } else {
-                    try {
-                        audioManager.stopBluetoothSco()
-                        @Suppress("DEPRECATION")
-                        audioManager.isBluetoothScoOn = false
-                    } catch (_: Exception) {}
                     @Suppress("DEPRECATION")
                     audioManager.isSpeakerphoneOn = true
                 }
             }
             AudioRoute.PHONE -> {
-                rtcEngine?.setEnableSpeakerphone(false)
+                try {
+                    audioManager.stopBluetoothSco()
+                    @Suppress("DEPRECATION")
+                    audioManager.isBluetoothScoOn = false
+                } catch (_: Exception) {}
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val earpiece = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
@@ -275,31 +275,29 @@ object AgoraCallEngine {
                         audioManager.isSpeakerphoneOn = false
                     }
                 } else {
-                    try {
-                        audioManager.stopBluetoothSco()
-                        @Suppress("DEPRECATION")
-                        audioManager.isBluetoothScoOn = false
-                    } catch (_: Exception) {}
                     @Suppress("DEPRECATION")
                     audioManager.isSpeakerphoneOn = false
                 }
             }
             AudioRoute.BLUETOOTH -> {
-                rtcEngine?.setEnableSpeakerphone(false)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val btDevice = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
                     }
                     if (btDevice != null) {
                         audioManager.setCommunicationDevice(btDevice)
                     } else {
-                        try {
-                            audioManager.startBluetoothSco()
-                            @Suppress("DEPRECATION")
-                            audioManager.isBluetoothScoOn = true
-                        } catch (_: Exception) {}
+                        // Retry shortly if SCO communication device registration is in progress
+                        mainHandler.postDelayed({
+                            val retryBt = audioManager.availableCommunicationDevices.firstOrNull {
+                                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                                it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                            }
+                            if (retryBt != null) {
+                                audioManager.setCommunicationDevice(retryBt)
+                            }
+                        }, 250L)
                     }
                 } else {
                     @Suppress("DEPRECATION")
