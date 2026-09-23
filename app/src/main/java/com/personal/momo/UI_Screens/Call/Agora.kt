@@ -27,7 +27,7 @@ enum class AudioRoute {
 
 /**
  * 100% Self-Contained Agora RTC Engine with Clean Android OS Hardware Routing.
- * Prevents Bluetooth driver corruption by isolating modern Communication Device APIs from legacy SCO calls.
+ * Fully supports Bluetooth, Wired/USB Headsets, Built-in Earpiece, and Loudspeaker.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
@@ -201,6 +201,25 @@ object AgoraCallEngine {
         }
     }
 
+    fun checkWiredHeadsetConnected(context: Context): Boolean {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                devices.any {
+                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && it.type == AudioDeviceInfo.TYPE_USB_HEADSET)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.isWiredHeadsetOn
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun getConnectedBluetoothName(context: Context): String {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return "Bluetooth"
         return try {
@@ -222,7 +241,8 @@ object AgoraCallEngine {
 
     /**
      * Isolated Hardware Audio Routing:
-     * Android 12+ exclusively uses setCommunicationDevice without legacy SCO clashes.
+     * Android 12+ exclusively locks target hardware via setCommunicationDevice.
+     * Supports Bluetooth, Wired/USB Earphones, Built-in Earpiece, and Loudspeaker.
      */
     fun setAudioRoute(context: Context, route: AudioRoute) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -246,11 +266,20 @@ object AgoraCallEngine {
                 AudioRoute.PHONE -> {
                     rtcEngine?.setEnableSpeakerphone(false)
                     audioManager.clearCommunicationDevice()
+
+                    // Check for wired/USB headphones first; fallback to phone earpiece if none connected
+                    val wired = audioManager.availableCommunicationDevices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                        it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+                    }
                     val earpiece = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     }
-                    if (earpiece != null) {
-                        audioManager.setCommunicationDevice(earpiece)
+
+                    val targetDevice = wired ?: earpiece
+                    if (targetDevice != null) {
+                        audioManager.setCommunicationDevice(targetDevice)
                     }
                 }
                 AudioRoute.BLUETOOTH -> {
