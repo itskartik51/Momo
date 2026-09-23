@@ -3,12 +3,6 @@ package com.personal.momo.UI_Screens.Call
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.media.AudioDeviceCallback
-import android.media.AudioDeviceInfo
-import android.media.AudioManager
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -51,9 +45,9 @@ import com.personal.momo.UI_Screens.bounceClick
 import java.util.Locale
 
 /**
- * Pure Coordinator: Connects UI, AgoraCallEngine, and FirestoreCallService.
+ * Pure Coordinator: Connects UI, AudioMan, AgoraCallEngine, and FirestoreCallService.
  * Implements WhatsApp Late-Join Architecture with Zero Cold-Start Pre-Warming,
- * Realtime Bluetooth & Wired Headset Monitoring, Debounced Hotplugging, and Exact Caller Originator Tracking.
+ * Hardware Audio Separation via AudioMan, and Exact Caller Originator Tracking.
  */
 object CallManager {
     var isCallActive by mutableStateOf(false)
@@ -65,19 +59,9 @@ object CallManager {
     var currentChannelName by mutableStateOf("momo_private_voice_room")
     var latencyMs by mutableIntStateOf(0)
     var isMuted by mutableStateOf(false)
-    var isSpeakerOn by mutableStateOf(false)
-
-    var currentAudioRoute by mutableStateOf(AudioRoute.PHONE)
-    var isBluetoothAvailable by mutableStateOf(false)
-    var isWiredHeadsetAvailable by mutableStateOf(false)
-    var bluetoothDeviceName by mutableStateOf("Bluetooth")
 
     private var activeCallerCode: Int = 1
     private var connectedAtTimestamp: Long = 0L
-
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var bluetoothDebounceRunnable: Runnable? = null
-    private var audioDeviceCallback: AudioDeviceCallback? = null
 
     init {
         AgoraCallEngine.onJoinSuccess = { _, _ -> }
@@ -98,102 +82,8 @@ object CallManager {
             latencyMs = latency
         }
 
-        AgoraCallEngine.onAudioRouteChanged = { routing ->
-            if (routing == 5) {
-                isBluetoothAvailable = true
-            }
-        }
-
         AgoraCallEngine.onConnectionFailed = {
             CallSounds.stopDialTone()
-        }
-    }
-
-    private fun registerAudioDeviceCallback(context: Context) {
-        if (audioDeviceCallback != null) return
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            audioDeviceCallback = object : AudioDeviceCallback() {
-                override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                    bluetoothDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
-                    bluetoothDebounceRunnable = Runnable {
-                        refreshBluetoothState(context)
-                        if (isCallActive) {
-                            if (isBluetoothAvailable) {
-                                selectAudioRoute(context, AudioRoute.BLUETOOTH)
-                            } else if (currentAudioRoute == AudioRoute.PHONE) {
-                                selectAudioRoute(context, AudioRoute.PHONE)
-                            }
-                        }
-                    }
-                    mainHandler.postDelayed(bluetoothDebounceRunnable!!, 350L)
-                }
-
-                override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
-                    bluetoothDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
-                    refreshBluetoothState(context)
-                    if (isCallActive) {
-                        if (!isBluetoothAvailable && currentAudioRoute == AudioRoute.BLUETOOTH) {
-                            selectAudioRoute(context, AudioRoute.PHONE)
-                        } else if (currentAudioRoute == AudioRoute.PHONE) {
-                            selectAudioRoute(context, AudioRoute.PHONE)
-                        }
-                    }
-                }
-            }
-            audioManager.registerAudioDeviceCallback(audioDeviceCallback, null)
-        }
-    }
-
-    private fun unregisterAudioDeviceCallback(context: Context) {
-        bluetoothDebounceRunnable?.let {
-            mainHandler.removeCallbacks(it)
-            bluetoothDebounceRunnable = null
-        }
-        if (audioDeviceCallback == null) return
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            audioManager.unregisterAudioDeviceCallback(audioDeviceCallback)
-        }
-        audioDeviceCallback = null
-    }
-
-    fun refreshBluetoothState(context: Context) {
-        val isBt = AgoraCallEngine.checkBluetoothConnected(context)
-        isBluetoothAvailable = isBt
-        isWiredHeadsetAvailable = AgoraCallEngine.checkWiredHeadsetConnected(context)
-
-        if (isBt) {
-            bluetoothDeviceName = AgoraCallEngine.getConnectedBluetoothName(context)
-        } else {
-            if (currentAudioRoute == AudioRoute.BLUETOOTH) {
-                currentAudioRoute = AudioRoute.PHONE
-                isSpeakerOn = false
-            }
-        }
-    }
-
-    fun selectAudioRoute(context: Context, route: AudioRoute) {
-        currentAudioRoute = route
-        isSpeakerOn = (route == AudioRoute.SPEAKER)
-        AgoraCallEngine.setAudioRoute(context, route)
-    }
-
-    fun toggleSpeaker(context: Context) {
-        refreshBluetoothState(context)
-        if (isBluetoothAvailable) {
-            if (currentAudioRoute == AudioRoute.SPEAKER) {
-                selectAudioRoute(context, AudioRoute.BLUETOOTH)
-            } else {
-                selectAudioRoute(context, AudioRoute.SPEAKER)
-            }
-        } else {
-            if (currentAudioRoute == AudioRoute.SPEAKER) {
-                selectAudioRoute(context, AudioRoute.PHONE)
-            } else {
-                selectAudioRoute(context, AudioRoute.SPEAKER)
-            }
         }
     }
 
@@ -260,15 +150,7 @@ object CallManager {
         val targetId = if (myId == "kanu") "momo" else "kanu"
         activeCallerCode = if (myId == "kanu") 1 else 2
 
-        registerAudioDeviceCallback(context)
-        refreshBluetoothState(context)
-
-        if (isBluetoothAvailable) {
-            selectAudioRoute(context, AudioRoute.BLUETOOTH)
-        } else {
-            selectAudioRoute(context, AudioRoute.PHONE)
-        }
-
+        AudioMan.start(context)
         CallSounds.startDialTone()
 
         FirestoreCallService.sendCallSignal(
@@ -291,15 +173,7 @@ object CallManager {
         isMuted = false
         latencyMs = 120
 
-        registerAudioDeviceCallback(context)
-        refreshBluetoothState(context)
-
-        if (isBluetoothAvailable) {
-            selectAudioRoute(context, AudioRoute.BLUETOOTH)
-        } else {
-            selectAudioRoute(context, AudioRoute.PHONE)
-        }
-
+        AudioMan.start(context)
         AgoraCallEngine.joinRoom(currentChannelName)
         FirestoreCallService.updateCallStatus("accepted")
     }
@@ -312,8 +186,8 @@ object CallManager {
         FirestoreCallService.logCall(cutTimestamp, activeCallerCode, 0)
         FirestoreCallService.updateCallStatus("ended")
 
-        unregisterAudioDeviceCallback(context)
-        AgoraCallEngine.resetAndLeave(context)
+        AudioMan.stop(context)
+        AgoraCallEngine.leaveRoom()
     }
 
     fun endCall(context: Context) {
@@ -328,23 +202,21 @@ object CallManager {
             FirestoreCallService.logCall(cutTimestamp, activeCallerCode, 0)
         }
 
-        unregisterAudioDeviceCallback(context)
-        AgoraCallEngine.resetAndLeave(context)
+        AudioMan.stop(context)
+        AgoraCallEngine.leaveRoom()
         FirestoreCallService.updateCallStatus("ended")
 
         isCallActive = false
         isConnecting = false
         isPeerConnected = false
-        currentAudioRoute = AudioRoute.PHONE
-        isSpeakerOn = false
         connectedAtTimestamp = 0L
         latencyMs = 0
     }
 
     fun resetAudioAndCallState(context: Context) {
         CallSounds.releaseAll()
-        unregisterAudioDeviceCallback(context)
-        AgoraCallEngine.resetAndLeave(context)
+        AudioMan.stop(context)
+        AgoraCallEngine.leaveRoom()
         FirestoreCallService.updateCallStatus("ended")
 
         isCallActive = false
@@ -352,22 +224,18 @@ object CallManager {
         isConnecting = false
         isPeerConnected = false
         isMuted = false
-        isSpeakerOn = false
-        currentAudioRoute = AudioRoute.PHONE
         connectedAtTimestamp = 0L
         latencyMs = 0
     }
 
     private fun leaveCallSilently(context: Context) {
         CallSounds.releaseAll()
-        unregisterAudioDeviceCallback(context)
-        AgoraCallEngine.resetAndLeave(context)
+        AudioMan.stop(context)
+        AgoraCallEngine.leaveRoom()
 
         isCallActive = false
         isConnecting = false
         isPeerConnected = false
-        currentAudioRoute = AudioRoute.PHONE
-        isSpeakerOn = false
         connectedAtTimestamp = 0L
         latencyMs = 0
     }
@@ -407,7 +275,6 @@ fun CallScreen(onBack: () -> Unit) {
     }
 
     DisposableEffect(Unit) {
-        CallManager.refreshBluetoothState(context)
         CallManager.startSignalingListener(context)
         val logsListener = CallManager.observeCallLogs { updatedList ->
             callLogs.clear()
