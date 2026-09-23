@@ -98,7 +98,6 @@ object CallManager {
         }
 
         AgoraCallEngine.onAudioRouteChanged = { routing ->
-            // Update availability flag only; do not overwrite user-selected routes
             if (routing == 5) {
                 isBluetoothAvailable = true
             }
@@ -366,7 +365,6 @@ object CallManager {
         FirestoreCallService.observeCallLogs(onLogsUpdated)
 }
 
-// Master Composable router for external callers
 @Composable
 fun CallScreen(onBack: () -> Unit) {
     val context = LocalContext.current
