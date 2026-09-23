@@ -1,5 +1,6 @@
 package com.personal.momo.UI_Screens.Call
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -7,7 +8,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
+import android.os.PowerManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -43,9 +47,6 @@ import com.personal.momo.MainActivity
 import com.personal.momo.R
 import com.personal.momo.UI_Screens.bounceClick
 
-/**
- * 1. UI: Full Screen Incoming Call View
- */
 @Composable
 fun IncomingCallView(
     avatarUrl: String?,
@@ -170,19 +171,38 @@ fun IncomingCallView(
     }
 }
 
-/**
- * 2. NOTIFICATION: Centralized Incoming Call Heads-up & Full-Screen Intent Notifier
- */
 object IncomingCallNotifier {
-    const val CHANNEL_ID = "momo_incoming_call_channel"
+    const val CHANNEL_ID = "momo_call_v2"
     const val NOTIFICATION_ID = 9110
     const val ACTION_ACCEPT = "com.personal.momo.action.ACCEPT_CALL"
     const val ACTION_DECLINE = "com.personal.momo.action.DECLINE_CALL"
+    const val ACTION_INCOMING_CALL = "com.personal.momo.action.INCOMING_CALL"
 
+    @SuppressLint("InvalidWakeLockTag")
     fun show(context: Context, callerName: String) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+        // Instant hardware screen turn-on via WakeLock
+        try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            @Suppress("DEPRECATION")
+            val wakeLock = powerManager.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                PowerManager.ON_AFTER_RELEASE,
+                "momo:incoming_call_wake"
+            )
+            wakeLock.acquire(10_000L)
+        } catch (_: Exception) {}
+
+        val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .build()
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Incoming Voice Calls",
@@ -190,8 +210,8 @@ object IncomingCallNotifier {
             ).apply {
                 description = "High-priority incoming call banner and lock screen wake up"
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 400, 200, 400)
-                setSound(null, null) // In-app CallSounds handles audio playback
+                vibrationPattern = longArrayOf(0, 800, 500, 800)
+                setSound(ringtoneUri, audioAttributes)
                 lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
             }
             notificationManager.createNotificationChannel(channel)
@@ -202,11 +222,10 @@ object IncomingCallNotifier {
             if (permission != PackageManager.PERMISSION_GRANTED) return
         }
 
-        // Full Screen Intent: Opens MainActivity directly over lock screen
+        // Direct Incoming Call UI Intent (Opens IncomingCallView directly over lock screen)
         val fullScreenIntent = Intent(context, MainActivity::class.java).apply {
-            action = Intent.ACTION_MAIN
-            addCategory(Intent.CATEGORY_LAUNCHER)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            action = ACTION_INCOMING_CALL
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val fullScreenPendingIntent = PendingIntent.getActivity(
             context,
@@ -215,7 +234,7 @@ object IncomingCallNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Action 1: Decline Button (Handled via CallActionReceiver silently)
+        // Silent Decline Action (BroadcastReceiver cuts call without launching activity)
         val declineIntent = Intent(context, CallActionReceiver::class.java).apply {
             action = ACTION_DECLINE
         }
@@ -226,10 +245,10 @@ object IncomingCallNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Action 2: Accept Button (Launches MainActivity and auto-accepts)
+        // Direct Accept Action
         val acceptIntent = Intent(context, MainActivity::class.java).apply {
             action = ACTION_ACCEPT
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val acceptPendingIntent = PendingIntent.getActivity(
             context,
@@ -246,6 +265,7 @@ object IncomingCallNotifier {
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setAutoCancel(true)
             .setOngoing(true)
+            .setSound(ringtoneUri)
             .setContentIntent(fullScreenPendingIntent)
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .addAction(R.mipmap.ic_launcher, "Decline", declinePendingIntent)
@@ -261,9 +281,6 @@ object IncomingCallNotifier {
     }
 }
 
-/**
- * 3. RECEIVER: Handles silent Call Decline directly from the Heads-Up Banner
- */
 class CallActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
         val ctx = context ?: return
