@@ -21,12 +21,12 @@ enum class CallAudioDevice {
 /**
  * Dedicated Hardware Audio Controller for Momo VoIP.
  * Strictly enforces hardware priority:
- * 1. Wired Earphones (Highest Priority)
- * 2. Bluetooth Headset
+ * 1. Wired Earphones (Highest Priority - 3.5mm Jack & Type-C Audio)
+ * 2. Bluetooth Headset (Active when Wired is not present)
  * 3. Normal Mode (Earpiece by default, toggled to Speaker only on explicit user click)
  *
- * Guarantees zero audio leakage by explicitly locking isSpeakerphoneOn = false
- * across all Android API levels whenever a headset or earpiece is active.
+ * Guarantees zero audio leakage by explicitly setting isSpeakerphoneOn = false
+ * across all Android versions (API 26-35) whenever a headset or earpiece is active.
  */
 object AudioMan {
     var currentDevice by mutableStateOf(CallAudioDevice.EARPIECE)
@@ -38,6 +38,7 @@ object AudioMan {
     private var audioDeviceCallback: AudioDeviceCallback? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var debounceRunnable: Runnable? = null
+    private var retryRunnable: Runnable? = null
 
     fun start(context: Context) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -78,7 +79,7 @@ object AudioMan {
     }
 
     fun toggleSpeaker(context: Context) {
-        // Locked when a physical peripheral (Wired or BT) is plugged in
+        // Locked when a physical peripheral (Wired or BT) is active
         if (isWiredConnected || isBluetoothConnected) return
 
         isSpeakerManuallySelected = !isSpeakerManuallySelected
@@ -106,6 +107,8 @@ object AudioMan {
     private fun unregisterCallback(context: Context) {
         debounceRunnable?.let { mainHandler.removeCallbacks(it) }
         debounceRunnable = null
+        retryRunnable?.let { mainHandler.removeCallbacks(it) }
+        retryRunnable = null
 
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && audioDeviceCallback != null) {
@@ -119,7 +122,7 @@ object AudioMan {
         debounceRunnable = Runnable {
             refreshAndRoute(context)
         }
-        mainHandler.postDelayed(debounceRunnable!!, 300L)
+        mainHandler.postDelayed(debounceRunnable!!, 250L)
     }
 
     fun refreshAndRoute(context: Context) {
@@ -157,7 +160,7 @@ object AudioMan {
         val hasBt = btDevice != null || (outputs.isEmpty() && (@Suppress("DEPRECATION") audioManager.isBluetoothScoOn || @Suppress("DEPRECATION") audioManager.isBluetoothA2dpOn))
         isBluetoothConnected = hasBt
 
-        // Strict Priority: Wired > Bluetooth > Speaker (if user tapped) > Earpiece
+        // Strict Priority: Wired Earphones > Bluetooth Headset > Speaker > Earpiece
         if (hasWired) {
             routeToWired(audioManager)
         } else if (hasBt) {
@@ -175,7 +178,7 @@ object AudioMan {
         currentDevice = CallAudioDevice.WIRED
         isSpeakerOn = false
 
-        // Unconditionally kill speakerphone flag to eliminate dual audio leakage
+        // Unconditionally kill speakerphone flag across all Android OS versions
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
@@ -187,6 +190,20 @@ object AudioMan {
             }
             if (target != null) {
                 audioManager.setCommunicationDevice(target)
+            } else {
+                // USB DACs take up to 150ms to mount in availableCommunicationDevices
+                retryRunnable?.let { mainHandler.removeCallbacks(it) }
+                retryRunnable = Runnable {
+                    val retryTarget = audioManager.availableCommunicationDevices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                        it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+                    }
+                    if (retryTarget != null) {
+                        audioManager.setCommunicationDevice(retryTarget)
+                    }
+                }
+                mainHandler.postDelayed(retryRunnable!!, 150L)
             }
         } else {
             try {
@@ -201,7 +218,7 @@ object AudioMan {
         currentDevice = CallAudioDevice.BLUETOOTH
         isSpeakerOn = false
 
-        // Unconditionally kill speakerphone flag to eliminate dual audio leakage
+        // Unconditionally kill speakerphone flag across all Android OS versions
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
@@ -213,15 +230,18 @@ object AudioMan {
             if (target != null) {
                 audioManager.setCommunicationDevice(target)
             } else {
-                mainHandler.postDelayed({
-                    val retry = audioManager.availableCommunicationDevices.firstOrNull {
+                // Bluetooth SCO socket registration delay buffer
+                retryRunnable?.let { mainHandler.removeCallbacks(it) }
+                retryRunnable = Runnable {
+                    val retryBt = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
                         it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
                     }
-                    if (retry != null) {
-                        audioManager.setCommunicationDevice(retry)
+                    if (retryBt != null) {
+                        audioManager.setCommunicationDevice(retryBt)
                     }
-                }, 250L)
+                }
+                mainHandler.postDelayed(retryRunnable!!, 200L)
             }
         } else {
             try {
@@ -236,7 +256,6 @@ object AudioMan {
         currentDevice = CallAudioDevice.SPEAKER
         isSpeakerOn = true
 
-        // User explicitly wants speakerphone
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = true
 
@@ -260,7 +279,7 @@ object AudioMan {
         currentDevice = CallAudioDevice.EARPIECE
         isSpeakerOn = false
 
-        // Unconditionally kill speakerphone flag to eliminate dual audio leakage
+        // Unconditionally kill speakerphone flag across all Android OS versions
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
