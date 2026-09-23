@@ -13,19 +13,17 @@ object CallSounds {
     fun startDialTone() {
         try {
             stopDialTone()
-            // Uses STREAM_RING to avoid occupying the VoIP telephony communication pipeline
-            toneGenerator = ToneGenerator(AudioManager.STREAM_RING, 80)
+            // Strictly uses STREAM_VOICE_CALL to obey AudioMan's hardware routing without speaker leakage
+            toneGenerator = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70)
             toneGenerator?.startTone(ToneGenerator.TONE_SUP_RINGTONE)
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     fun stopDialTone() {
         try {
             toneGenerator?.stopTone()
             toneGenerator?.release()
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
         toneGenerator = null
     }
 
@@ -35,15 +33,13 @@ object CallSounds {
             val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
             incomingRingtone = RingtoneManager.getRingtone(context.applicationContext, uri)
             incomingRingtone?.play()
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
     }
 
     fun stopIncomingRingtone() {
         try {
             incomingRingtone?.stop()
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
         incomingRingtone = null
     }
 
