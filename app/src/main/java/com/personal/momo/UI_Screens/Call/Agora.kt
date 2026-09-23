@@ -223,7 +223,7 @@ object AgoraCallEngine {
     /**
      * Single Master Hardware Routing:
      * Android OS is the sole authority for routing communication audio.
-     * Decoupled from Agora native speakerphone commands to eliminate deadlocks and race conditions.
+     * Synchronized with Agora's speakerphone toggle to explicitly close background Bluetooth pipes.
      */
     fun setAudioRoute(context: Context, route: AudioRoute) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
@@ -239,6 +239,9 @@ object AgoraCallEngine {
                     @Suppress("DEPRECATION")
                     audioManager.isBluetoothScoOn = false
                 } catch (_: Exception) {}
+
+                // Signals Agora to cleanly cut Bluetooth stream and route exclusively to speakerphone
+                rtcEngine?.setEnableSpeakerphone(true)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val speaker = audioManager.availableCommunicationDevices.firstOrNull {
@@ -263,6 +266,8 @@ object AgoraCallEngine {
                     audioManager.isBluetoothScoOn = false
                 } catch (_: Exception) {}
 
+                rtcEngine?.setEnableSpeakerphone(false)
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val earpiece = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
@@ -280,6 +285,8 @@ object AgoraCallEngine {
                 }
             }
             AudioRoute.BLUETOOTH -> {
+                rtcEngine?.setEnableSpeakerphone(false)
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val btDevice = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
@@ -288,7 +295,6 @@ object AgoraCallEngine {
                     if (btDevice != null) {
                         audioManager.setCommunicationDevice(btDevice)
                     } else {
-                        // Retry shortly if SCO communication device registration is in progress
                         mainHandler.postDelayed({
                             val retryBt = audioManager.availableCommunicationDevices.firstOrNull {
                                 it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
