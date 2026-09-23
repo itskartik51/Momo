@@ -22,11 +22,13 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
-import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import com.google.firebase.firestore.GeoPoint
-import com.google.firebase.firestore.ListenerRegistration
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.R
 import com.personal.momo.SecurityConfig
@@ -52,13 +54,14 @@ class ProximityLocationService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private var firestoreListener: ListenerRegistration? = null
+    private var rtdbLocationRef: DatabaseReference? = null
+    private var rtdbListener: ValueEventListener? = null
 
     private var rawLocationMap: Map<*, *>? = null
 
     private var partnerLastLocation: GeoPoint? = null
     private var partnerLastAccuracy: Float = 0.0f
-    private var partnerLastTimestamp: Timestamp? = null
+    private var partnerLastTimestampMillis: Long? = null
 
     private var myLastLocation: Location? = null
     private var currentTrackingMode: TrackingMode? = null
@@ -66,7 +69,7 @@ class ProximityLocationService : Service() {
     private var periodicLoopJob: Job? = null
     private var isContinuousUpdatesActive = false
 
-    private var lastFirestoreUploadTime: Long = 0L
+    private var lastLocationUploadTime: Long = 0L
     private var isManualLiveActive: Boolean = false
 
     private val locationCallback = object : LocationCallback() {
@@ -93,8 +96,9 @@ class ProximityLocationService : Service() {
                 if (!isEnabled) {
                     stopContinuousLocationUpdates()
                     periodicLoopJob?.cancel()
-                    firestoreListener?.remove()
-                    firestoreListener = null
+                    rtdbListener?.let { rtdbLocationRef?.removeEventListener(it) }
+                    rtdbListener = null
+                    rtdbLocationRef = null
                     stopSelf()
                 }
             }
@@ -103,13 +107,13 @@ class ProximityLocationService : Service() {
         serviceScope.launch {
             CacheManager.appUserIdFlow.collect { userId ->
                 updateUserIdentity(userId)
-                lastFirestoreUploadTime = 0L
+                lastLocationUploadTime = 0L
                 fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
             }
         }
 
         ensureAuth {
-            startFirestoreSync()
+            startRealtimeDbSync()
             serviceScope.launch {
                 fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
             }
@@ -142,7 +146,7 @@ class ProximityLocationService : Service() {
             else -> {
                 val currentUserId = CacheManager.getAppUserId(this)
                 updateUserIdentity(currentUserId)
-                lastFirestoreUploadTime = 0L
+                lastLocationUploadTime = 0L
                 serviceScope.launch {
                     fetchAndProcessSingleLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY)
                 }
@@ -157,8 +161,9 @@ class ProximityLocationService : Service() {
         super.onDestroy()
         stopContinuousLocationUpdates()
         periodicLoopJob?.cancel()
-        firestoreListener?.remove()
-        firestoreListener = null
+        rtdbListener?.let { rtdbLocationRef?.removeEventListener(it) }
+        rtdbListener = null
+        rtdbLocationRef = null
         serviceScope.cancel()
     }
 
@@ -169,14 +174,16 @@ class ProximityLocationService : Service() {
             val partnerKey = if (isKanu) "momo" else "kanu"
             val partnerData = locationMap[partnerKey] as? List<*>
             if (partnerData != null && partnerData.size >= 3) {
-                val partnerGeo = partnerData[0] as? GeoPoint
+                val partnerCoordMap = partnerData[0] as? Map<*, *>
+                val lat = (partnerCoordMap?.get("latitude") as? Number)?.toDouble()
+                val lng = (partnerCoordMap?.get("longitude") as? Number)?.toDouble()
                 val partnerAcc = (partnerData[1] as? Number)?.toFloat() ?: 0.0f
-                val partnerTime = partnerData[2] as? Timestamp
+                val partnerTime = (partnerData[2] as? Number)?.toLong()
 
-                if (partnerGeo != null && partnerAcc <= 200.0f && partnerTime != null) {
-                    partnerLastLocation = partnerGeo
+                if (lat != null && lng != null && partnerAcc <= 200.0f && partnerTime != null) {
+                    partnerLastLocation = GeoPoint(lat, lng)
                     partnerLastAccuracy = partnerAcc
-                    partnerLastTimestamp = partnerTime
+                    partnerLastTimestampMillis = partnerTime
                 }
             }
         }
@@ -240,28 +247,32 @@ class ProximityLocationService : Service() {
         }
     }
 
-    private fun startFirestoreSync() {
+    private fun startRealtimeDbSync() {
         if (!CacheManager.isFinderEnabled(this)) return
 
-        val db = FirebaseFirestore.getInstance()
-        val docRef = db.collection("App").document("home_config")
+        val ref = FirebaseDatabase.getInstance().getReference("location")
+        rtdbLocationRef = ref
 
-        firestoreListener = docRef.addSnapshotListener { snapshot, error ->
-            if (error != null || snapshot == null || !snapshot.exists()) {
-                return@addSnapshotListener
+        rtdbListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                rawLocationMap = snapshot.value as? Map<*, *>
+
+                val currentUserId = CacheManager.getAppUserId(this@ProximityLocationService)
+                updateUserIdentity(currentUserId)
+                evaluateProximityStateMachine()
             }
 
-            rawLocationMap = snapshot.get("location") as? Map<*, *>
-
-            val currentUserId = CacheManager.getAppUserId(this)
-            updateUserIdentity(currentUserId)
-            evaluateProximityStateMachine()
+            override fun onCancelled(error: DatabaseError) {
+                // Connection or permission failure handling
+            }
         }
+
+        ref.addValueEventListener(rtdbListener as ValueEventListener)
     }
 
     private fun isPartnerDataFresh(): Boolean {
-        val timestamp = partnerLastTimestamp ?: return false
-        val ageMillis = System.currentTimeMillis() - timestamp.toDate().time
+        val timestampMillis = partnerLastTimestampMillis ?: return false
+        val ageMillis = System.currentTimeMillis() - timestampMillis
         return ageMillis in -30_000L..(45 * 60 * 1000L)
     }
 
@@ -274,7 +285,7 @@ class ProximityLocationService : Service() {
         }
 
         myLastLocation = location
-        uploadMyLocationToFirestore(location)
+        uploadMyLocationToRealtimeDb(location)
         evaluateProximityStateMachine()
     }
 
@@ -282,7 +293,7 @@ class ProximityLocationService : Service() {
         evaluateProximityStateMachine()
     }
 
-    private fun uploadMyLocationToFirestore(location: Location) {
+    private fun uploadMyLocationToRealtimeDb(location: Location) {
         if (!CacheManager.isFinderEnabled(this)) return
 
         ensureAuth {
@@ -290,20 +301,21 @@ class ProximityLocationService : Service() {
                 try {
                     val currentUserId = CacheManager.getAppUserId(this@ProximityLocationService)
                     val userKey = if (currentUserId.equals("Kanu", ignoreCase = true)) "kanu" else "momo"
-                    val geoPoint = GeoPoint(location.latitude, location.longitude)
 
+                    val coords = mapOf(
+                        "latitude" to location.latitude,
+                        "longitude" to location.longitude
+                    )
                     val payload = listOf(
-                        geoPoint,
+                        coords,
                         location.accuracy.toInt(),
-                        Timestamp.now()
+                        System.currentTimeMillis()
                     )
 
-                    FirebaseFirestore.getInstance()
-                        .collection("App")
-                        .document("home_config")
-                        .update("location.$userKey", payload)
+                    val dbRef = FirebaseDatabase.getInstance().getReference("location").child(userKey)
+                    dbRef.setValue(payload)
                         .addOnSuccessListener {
-                            lastFirestoreUploadTime = System.currentTimeMillis()
+                            lastLocationUploadTime = System.currentTimeMillis()
                         }
                         .addOnFailureListener { e ->
                             e.printStackTrace()
@@ -326,7 +338,7 @@ class ProximityLocationService : Service() {
             latitude = partnerLastLocation?.latitude,
             longitude = partnerLastLocation?.longitude,
             accuracy = partnerLastAccuracy.takeIf { it > 0f },
-            timestamp = partnerLastTimestamp?.toDate()?.time
+            timestamp = partnerLastTimestampMillis
         )
 
         val myLoc = myLastLocation
