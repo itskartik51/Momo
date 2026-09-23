@@ -7,6 +7,8 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -51,7 +53,7 @@ import java.util.Locale
 /**
  * Pure Coordinator: Connects UI, AgoraCallEngine, and FirestoreCallService.
  * Implements WhatsApp Late-Join Architecture with Zero Cold-Start Pre-Warming,
- * Realtime Bluetooth Device Hardware Monitoring, and Exact Caller Originator Tracking.
+ * Realtime Bluetooth Device Hardware Monitoring, Debounced Hotplugging, and Exact Caller Originator Tracking.
  */
 object CallManager {
     var isCallActive by mutableStateOf(false)
@@ -72,7 +74,11 @@ object CallManager {
     // Locks the true originator of the call (1 = Kanu, 2 = Momo) regardless of who ends it
     private var activeCallerCode: Int = 1
     private var connectedAtTimestamp: Long = 0L
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var bluetoothDebounceRunnable: Runnable? = null
     private var audioDeviceCallback: AudioDeviceCallback? = null
+    private var ignoreAgoraRoutingUntil: Long = 0L
 
     init {
         AgoraCallEngine.onJoinSuccess = { _, _ -> }
@@ -94,19 +100,22 @@ object CallManager {
         }
 
         AgoraCallEngine.onAudioRouteChanged = { routing ->
-            when (routing) {
-                5 -> {
-                    isBluetoothAvailable = true
-                    currentAudioRoute = AudioRoute.BLUETOOTH
-                    isSpeakerOn = false
-                }
-                3, 4 -> {
-                    currentAudioRoute = AudioRoute.SPEAKER
-                    isSpeakerOn = true
-                }
-                1 -> {
-                    currentAudioRoute = AudioRoute.PHONE
-                    isSpeakerOn = false
+            // Prevent feedback loops during intentional route transitions
+            if (System.currentTimeMillis() > ignoreAgoraRoutingUntil) {
+                when (routing) {
+                    5 -> {
+                        isBluetoothAvailable = true
+                        currentAudioRoute = AudioRoute.BLUETOOTH
+                        isSpeakerOn = false
+                    }
+                    3, 4 -> {
+                        currentAudioRoute = AudioRoute.SPEAKER
+                        isSpeakerOn = true
+                    }
+                    1 -> {
+                        currentAudioRoute = AudioRoute.PHONE
+                        isSpeakerOn = false
+                    }
                 }
             }
         }
@@ -123,13 +132,19 @@ object CallManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             audioDeviceCallback = object : AudioDeviceCallback() {
                 override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                    refreshBluetoothState(context)
-                    if (isBluetoothAvailable && isCallActive) {
-                        selectAudioRoute(context, AudioRoute.BLUETOOTH)
+                    bluetoothDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+                    bluetoothDebounceRunnable = Runnable {
+                        refreshBluetoothState(context)
+                        if (isBluetoothAvailable && isCallActive) {
+                            selectAudioRoute(context, AudioRoute.BLUETOOTH)
+                        }
                     }
+                    // 350ms settling time for SCO hardware pipe readiness
+                    mainHandler.postDelayed(bluetoothDebounceRunnable!!, 350L)
                 }
 
                 override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                    bluetoothDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
                     refreshBluetoothState(context)
                     if (!isBluetoothAvailable && isCallActive && currentAudioRoute == AudioRoute.BLUETOOTH) {
                         selectAudioRoute(context, AudioRoute.PHONE)
@@ -141,6 +156,10 @@ object CallManager {
     }
 
     private fun unregisterAudioDeviceCallback(context: Context) {
+        bluetoothDebounceRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            bluetoothDebounceRunnable = null
+        }
         if (audioDeviceCallback == null) return
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -163,6 +182,7 @@ object CallManager {
     }
 
     fun selectAudioRoute(context: Context, route: AudioRoute) {
+        ignoreAgoraRoutingUntil = System.currentTimeMillis() + 1200L
         currentAudioRoute = route
         isSpeakerOn = (route == AudioRoute.SPEAKER)
         AgoraCallEngine.setAudioRoute(context, route)
@@ -341,6 +361,7 @@ object CallManager {
         isSpeakerOn = false
         connectedAtTimestamp = 0L
         latencyMs = 0
+        ignoreAgoraRoutingUntil = 0L
     }
 
     fun resetAudioAndCallState(context: Context) {
@@ -358,6 +379,7 @@ object CallManager {
         currentAudioRoute = AudioRoute.PHONE
         connectedAtTimestamp = 0L
         latencyMs = 0
+        ignoreAgoraRoutingUntil = 0L
     }
 
     private fun leaveCallSilently(context: Context) {
@@ -372,6 +394,7 @@ object CallManager {
         isSpeakerOn = false
         connectedAtTimestamp = 0L
         latencyMs = 0
+        ignoreAgoraRoutingUntil = 0L
     }
 
     fun observeCallLogs(onLogsUpdated: (List<CallLogItem>) -> Unit) =
@@ -489,14 +512,14 @@ private fun CallHubView(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .bounceClick(scaleDown = 0.88f) { onBack() },
+                        .bounceClick(scaleDown = 0.94f) { onBack() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
