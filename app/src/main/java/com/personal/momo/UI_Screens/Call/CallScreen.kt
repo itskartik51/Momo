@@ -5,7 +5,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +21,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -44,11 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -71,9 +63,7 @@ fun ActiveCallScreen(
 
     var secondsElapsed by remember { mutableIntStateOf(0) }
     var isHoldActive by remember { mutableStateOf(false) }
-    var isAudioRouteSelectorOpen by remember { mutableStateOf(false) }
 
-    // Accurate Timer: Starts strictly at 00:00 when peer connects
     LaunchedEffect(CallManager.isPeerConnected) {
         if (CallManager.isPeerConnected) {
             secondsElapsed = 0
@@ -95,7 +85,6 @@ fun ActiveCallScreen(
         label = "LatencyColor"
     )
 
-    // Solid Google Dialer theme tokens (ZERO RED except End Call)
     val activeCircleBg = Color.White
     val activeCircleTint = Color(0xFF1E1F22)
     val inactiveCircleBg = Color(0xFF2C2D32)
@@ -131,7 +120,7 @@ fun ActiveCallScreen(
             )
         }
 
-        // Profile Section locked in Upper 1/3rd (Zero overlap with expanded bottom deck)
+        // Profile Section
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top,
@@ -170,7 +159,6 @@ fun ActiveCallScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Subtitle state: Ringing -> Connecting -> 00:01
             Text(
                 text = when {
                     isHoldActive -> "Call on Hold"
@@ -184,7 +172,7 @@ fun ActiveCallScreen(
             )
         }
 
-        // Bottom Solid Control Deck (100% Opaque - No transparency bleed-through)
+        // Bottom Solid Control Deck
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -201,114 +189,13 @@ fun ActiveCallScreen(
                     .padding(horizontal = 16.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Expanded 3-Item Audio Route Selector Panel (Appears smoothly above buttons)
-                if (isAudioRouteSelectorOpen && CallManager.isBluetoothAvailable) {
-                    val headerTitle = when (CallManager.currentAudioRoute) {
-                        AudioRoute.BLUETOOTH -> "Bluetooth"
-                        AudioRoute.SPEAKER -> "Speaker"
-                        AudioRoute.PHONE -> "Phone"
-                    }
-
-                    // Header Row: Title + Close "X" Button
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = headerTitle,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .bounceClick(scaleDown = 0.88f) {
-                                    isAudioRouteSelectorOpen = false
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = Color(0xFFB0B3B8),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Solid Grouped Container for 3 Audio Options
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFF2B2C30)
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            // 1. Bluetooth Option (Device Name)
-                            AudioRouteRow(
-                                icon = Icons.Default.Bluetooth,
-                                title = CallManager.bluetoothDeviceName.ifBlank { "Bluetooth" },
-                                isSelected = (CallManager.currentAudioRoute == AudioRoute.BLUETOOTH),
-                                onClick = {
-                                    CallManager.selectAudioRoute(context, AudioRoute.BLUETOOTH)
-                                    isAudioRouteSelectorOpen = false
-                                }
-                            )
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(Color(0xFF383A40))
-                            )
-
-                            // 2. Speaker Option
-                            AudioRouteRow(
-                                icon = Icons.Default.VolumeUp,
-                                title = "Speaker",
-                                isSelected = (CallManager.currentAudioRoute == AudioRoute.SPEAKER),
-                                onClick = {
-                                    CallManager.selectAudioRoute(context, AudioRoute.SPEAKER)
-                                    isAudioRouteSelectorOpen = false
-                                }
-                            )
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(Color(0xFF383A40))
-                            )
-
-                            // 3. Phone Option
-                            AudioRouteRow(
-                                icon = Icons.Default.Phone,
-                                title = "Phone",
-                                isSelected = (CallManager.currentAudioRoute == AudioRoute.PHONE),
-                                onClick = {
-                                    CallManager.selectAudioRoute(context, AudioRoute.PHONE)
-                                    isAudioRouteSelectorOpen = false
-                                }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-                }
-
-                // Fixed Row: Action Circular Buttons (62.dp circles, 28.dp icons)
+                // Fixed Row: Action Circular Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 1. Mic Toggle (MicOff slash icon when muted, NO RED)
+                    // 1. Mic Toggle
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -339,7 +226,7 @@ fun ActiveCallScreen(
                         )
                     }
 
-                    // 2. Hold Toggle (White when active, NO RED)
+                    // 2. Hold Toggle
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -369,102 +256,108 @@ fun ActiveCallScreen(
                         )
                     }
 
-                    // 3. Audio Route / Speaker Button (62.dp circle)
-                    if (CallManager.isBluetoothAvailable) {
-                        // Bluetooth Connected Mode: Centered [Selected Icon + v] in circle
-                        val activeRouteIcon = when (CallManager.currentAudioRoute) {
-                            AudioRoute.BLUETOOTH -> Icons.Default.Bluetooth
-                            AudioRoute.SPEAKER -> Icons.Default.VolumeUp
-                            AudioRoute.PHONE -> Icons.Default.Phone
-                        }
-
-                        val activeLabel = when (CallManager.currentAudioRoute) {
-                            AudioRoute.BLUETOOTH -> CallManager.bluetoothDeviceName.take(12)
-                            AudioRoute.SPEAKER -> "Speaker"
-                            AudioRoute.PHONE -> "Phone"
-                        }
-
-                        val isButtonActive = isAudioRouteSelectorOpen || (CallManager.currentAudioRoute != AudioRoute.PHONE)
-
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(62.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isButtonActive) activeCircleBg else inactiveCircleBg)
-                                    .bounceClick(scaleDown = 0.88f) {
-                                        isAudioRouteSelectorOpen = !isAudioRouteSelectorOpen
-                                    },
-                                contentAlignment = Alignment.Center
+                    // 3. Audio Route Indicator / Speaker Toggle
+                    when {
+                        // Strict Priority #1: Wired Earphones Connected -> Black Circle, Headset Icon (Indicator only)
+                        AudioMan.isWiredConnected -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
+                                Box(
+                                    modifier = Modifier
+                                        .size(62.dp)
+                                        .clip(CircleShape)
+                                        .background(inactiveCircleBg),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = activeRouteIcon,
-                                        contentDescription = "Audio Route",
-                                        tint = if (isButtonActive) activeCircleTint else inactiveCircleTint,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "Expand",
-                                        tint = if (isButtonActive) activeCircleTint else inactiveCircleTint,
-                                        modifier = Modifier.size(16.dp)
+                                        imageVector = Icons.Default.Headset,
+                                        contentDescription = "Headphones",
+                                        tint = inactiveCircleTint,
+                                        modifier = Modifier.size(28.dp)
                                     )
                                 }
-                            }
-                            Text(
-                                text = activeLabel,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFFB0B3B8),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    } else {
-                        // Normal Speaker Button (Constant Waves via VolumeUp, White on active, NO RED)
-                        val isSpeakerActive = CallManager.isSpeakerOn
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(62.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isSpeakerActive) activeCircleBg else inactiveCircleBg)
-                                    .bounceClick(scaleDown = 0.88f) {
-                                        CallManager.toggleSpeaker(context)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.VolumeUp,
-                                    contentDescription = "Speaker",
-                                    tint = if (isSpeakerActive) activeCircleTint else inactiveCircleTint,
-                                    modifier = Modifier.size(28.dp)
+                                Text(
+                                    text = "Headphones",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFFB0B3B8),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            Text(
-                                text = "Speaker",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFFB0B3B8)
-                            )
+                        }
+
+                        // Priority #2: Bluetooth Headset Connected -> Black Circle, Bluetooth Icon (Indicator only)
+                        AudioMan.isBluetoothConnected -> {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(62.dp)
+                                        .clip(CircleShape)
+                                        .background(inactiveCircleBg),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bluetooth,
+                                        contentDescription = "Bluetooth",
+                                        tint = inactiveCircleTint,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "Bluetooth",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFFB0B3B8),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        // Normal Mode: Interactive Speaker Button (Earpiece default, White when Speaker active)
+                        else -> {
+                            val isSpeakerActive = AudioMan.isSpeakerOn
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(62.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isSpeakerActive) activeCircleBg else inactiveCircleBg)
+                                        .bounceClick(scaleDown = 0.88f) {
+                                            AudioMan.toggleSpeaker(context)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VolumeUp,
+                                        contentDescription = "Speaker",
+                                        tint = if (isSpeakerActive) activeCircleTint else inactiveCircleTint,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "Speaker",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFFB0B3B8)
+                                )
+                            }
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Centered Red Pill End Call Button (The ONLY red button)
+                // Centered Red Pill End Call Button
                 Box(
                     modifier = Modifier
                         .width(148.dp)
@@ -484,71 +377,6 @@ fun ActiveCallScreen(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AudioRouteRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF383A40)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-
-            Text(
-                text = title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        if (isSelected) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
-                tint = Color.Unspecified,
-                modifier = Modifier
-                    .size(22.dp)
-                    .graphicsLayer(alpha = 0.99f)
-                    .drawWithCache {
-                        val brush = Brush.horizontalGradient(listOf(Color(0xFFFF5E7E), Color(0xFFFF9966)))
-                        onDrawWithContent {
-                            drawContent()
-                            drawRect(brush, blendMode = BlendMode.SrcAtop)
-                        }
-                    }
-            )
         }
     }
 }
