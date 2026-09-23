@@ -46,8 +46,8 @@ import java.util.Locale
 
 /**
  * Pure Coordinator: Connects UI, AudioMan, AgoraCallEngine, and FirestoreCallService.
- * Implements WhatsApp Late-Join Architecture with Zero Cold-Start Pre-Warming,
- * Hardware Audio Separation via AudioMan, and Exact Caller Originator Tracking.
+ * Coordinates system-wide incoming call notifications (Heads-Up Banner + Full Screen Intent),
+ * late-join architecture, and precise call logs.
  */
 object CallManager {
     var isCallActive by mutableStateOf(false)
@@ -103,17 +103,23 @@ object CallManager {
                     activeCallerCode = if (caller.equals("kanu", ignoreCase = true)) 1 else 2
                     currentChannelName = channel
                     isIncomingCall = true
+
                     AgoraCallEngine.preWarm(context)
                     CallSounds.startIncomingRingtone(context)
+
+                    // Launches High-Priority Heads-Up Banner and wakes screen via Full-Screen Intent
+                    IncomingCallNotifier.show(context, incomingCallerName)
                 }
             },
             onCallAccepted = {
                 CallSounds.stopDialTone()
+                IncomingCallNotifier.cancel(context)
                 isConnecting = true
                 AgoraCallEngine.joinRoom(currentChannelName)
             },
             onCallConnected = {
                 CallSounds.releaseAll()
+                IncomingCallNotifier.cancel(context)
                 if (isCallActive) {
                     isPeerConnected = true
                     if (connectedAtTimestamp == 0L) {
@@ -123,6 +129,7 @@ object CallManager {
             },
             onCallEnded = {
                 CallSounds.releaseAll()
+                IncomingCallNotifier.cancel(context)
                 if (isCallActive) {
                     leaveCallSilently(context)
                 }
@@ -166,6 +173,7 @@ object CallManager {
     }
 
     fun acceptIncomingCall(context: Context) {
+        IncomingCallNotifier.cancel(context)
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
         isCallActive = true
@@ -179,6 +187,7 @@ object CallManager {
     }
 
     fun declineIncomingCall(context: Context) {
+        IncomingCallNotifier.cancel(context)
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
 
@@ -191,6 +200,7 @@ object CallManager {
     }
 
     fun endCall(context: Context) {
+        IncomingCallNotifier.cancel(context)
         CallSounds.releaseAll()
 
         if (isPeerConnected && connectedAtTimestamp > 0L) {
@@ -214,6 +224,7 @@ object CallManager {
     }
 
     fun resetAudioAndCallState(context: Context) {
+        IncomingCallNotifier.cancel(context)
         CallSounds.releaseAll()
         AudioMan.stop(context)
         AgoraCallEngine.leaveRoom()
@@ -229,6 +240,7 @@ object CallManager {
     }
 
     private fun leaveCallSilently(context: Context) {
+        IncomingCallNotifier.cancel(context)
         CallSounds.releaseAll()
         AudioMan.stop(context)
         AgoraCallEngine.leaveRoom()
@@ -275,7 +287,6 @@ fun CallScreen(onBack: () -> Unit) {
     }
 
     DisposableEffect(Unit) {
-        CallManager.startSignalingListener(context)
         val logsListener = CallManager.observeCallLogs { updatedList ->
             callLogs.clear()
             callLogs.addAll(updatedList)
