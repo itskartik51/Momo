@@ -16,7 +16,7 @@ import kotlin.random.Random
 
 /**
  * 100% Self-Contained Agora RTC Engine for VoIP Audio Streaming.
- * Pure streaming engine; all hardware audio routing is exclusively managed by AudioMan.
+ * Pure streaming engine; hardware audio routing is exclusively managed by AudioMan.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
