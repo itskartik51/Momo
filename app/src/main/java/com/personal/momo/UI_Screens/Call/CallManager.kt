@@ -3,6 +3,7 @@ package com.personal.momo.UI_Screens.Call
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -262,6 +263,11 @@ fun CallScreen(onBack: () -> Unit) {
     val callLogs = remember { mutableStateListOf<CallLogItem>() }
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
+
+    // Intercepts hardware back button/gesture to navigate one step back to Home Screen
+    BackHandler(enabled = !CallManager.isIncomingCall && !CallManager.isCallActive) {
+        onBack()
+    }
 
     var pendingCallAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
