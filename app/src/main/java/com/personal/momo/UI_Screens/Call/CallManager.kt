@@ -77,7 +77,6 @@ object CallManager {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var bluetoothDebounceRunnable: Runnable? = null
     private var audioDeviceCallback: AudioDeviceCallback? = null
-    private var ignoreAgoraRoutingUntil: Long = 0L
 
     init {
         AgoraCallEngine.onJoinSuccess = { _, _ -> }
@@ -99,22 +98,9 @@ object CallManager {
         }
 
         AgoraCallEngine.onAudioRouteChanged = { routing ->
-            if (System.currentTimeMillis() > ignoreAgoraRoutingUntil) {
-                when (routing) {
-                    5 -> {
-                        isBluetoothAvailable = true
-                        currentAudioRoute = AudioRoute.BLUETOOTH
-                        isSpeakerOn = false
-                    }
-                    3, 4 -> {
-                        currentAudioRoute = AudioRoute.SPEAKER
-                        isSpeakerOn = true
-                    }
-                    1 -> {
-                        currentAudioRoute = AudioRoute.PHONE
-                        isSpeakerOn = false
-                    }
-                }
+            // Update availability flag only; do not overwrite user-selected routes
+            if (routing == 5) {
+                isBluetoothAvailable = true
             }
         }
 
@@ -179,7 +165,6 @@ object CallManager {
     }
 
     fun selectAudioRoute(context: Context, route: AudioRoute) {
-        ignoreAgoraRoutingUntil = System.currentTimeMillis() + 1200L
         currentAudioRoute = route
         isSpeakerOn = (route == AudioRoute.SPEAKER)
         AgoraCallEngine.setAudioRoute(context, route)
@@ -344,7 +329,6 @@ object CallManager {
         isSpeakerOn = false
         connectedAtTimestamp = 0L
         latencyMs = 0
-        ignoreAgoraRoutingUntil = 0L
     }
 
     fun resetAudioAndCallState(context: Context) {
@@ -362,7 +346,6 @@ object CallManager {
         currentAudioRoute = AudioRoute.PHONE
         connectedAtTimestamp = 0L
         latencyMs = 0
-        ignoreAgoraRoutingUntil = 0L
     }
 
     private fun leaveCallSilently(context: Context) {
@@ -377,7 +360,6 @@ object CallManager {
         isSpeakerOn = false
         connectedAtTimestamp = 0L
         latencyMs = 0
-        ignoreAgoraRoutingUntil = 0L
     }
 
     fun observeCallLogs(onLogsUpdated: (List<CallLogItem>) -> Unit) =
