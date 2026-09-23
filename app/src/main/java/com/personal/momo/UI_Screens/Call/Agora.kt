@@ -25,7 +25,7 @@ enum class AudioRoute {
 
 /**
  * 100% Self-Contained Agora RTC & Hardware Audio Engine
- * Encapsulates Token generation, communication audio profiles, pre-warming, and device routing.
+ * Encapsulates Token generation, communication audio profiles, pre-warming, and clash-free device routing.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
@@ -239,38 +239,22 @@ object AgoraCallEngine {
 
         when (route) {
             AudioRoute.SPEAKER -> {
-                try {
-                    audioManager.stopBluetoothSco()
-                    @Suppress("DEPRECATION")
-                    audioManager.isBluetoothScoOn = false
-                } catch (_: Exception) {}
-
+                // Clear OS Lock: Prevent Earpiece trap
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     audioManager.clearCommunicationDevice()
-                    val speaker = audioManager.availableCommunicationDevices.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-                    }
-                    if (speaker != null) {
-                        audioManager.setCommunicationDevice(speaker)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        audioManager.isSpeakerphoneOn = true
-                    }
                 } else {
                     @Suppress("DEPRECATION")
                     audioManager.isSpeakerphoneOn = true
                 }
+                // Let Agora Native Engine securely handle the speaker routing (avoids 2 sec revert bug)
                 rtcEngine?.setEnableSpeakerphone(true)
             }
             AudioRoute.PHONE -> {
-                try {
-                    audioManager.stopBluetoothSco()
-                    @Suppress("DEPRECATION")
-                    audioManager.isBluetoothScoOn = false
-                } catch (_: Exception) {}
-
+                // Clear Agora speaker lock
+                rtcEngine?.setEnableSpeakerphone(false)
+                
+                // Set OS Lock: Force audio to physical earpiece
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioManager.clearCommunicationDevice()
                     val earpiece = audioManager.availableCommunicationDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                     }
@@ -284,33 +268,17 @@ object AgoraCallEngine {
                     @Suppress("DEPRECATION")
                     audioManager.isSpeakerphoneOn = false
                 }
-                rtcEngine?.setEnableSpeakerphone(false)
             }
             AudioRoute.BLUETOOTH -> {
+                // Clear Agora speaker lock
                 rtcEngine?.setEnableSpeakerphone(false)
+                
+                // Clear OS Lock: Free the OS to naturally default to connected Bluetooth hardware
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     audioManager.clearCommunicationDevice()
-                    val bt = audioManager.availableCommunicationDevices.firstOrNull {
-                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
-                    }
-                    if (bt != null) {
-                        audioManager.setCommunicationDevice(bt)
-                    } else {
-                        try {
-                            audioManager.startBluetoothSco()
-                            @Suppress("DEPRECATION")
-                            audioManager.isBluetoothScoOn = true
-                        } catch (_: Exception) {}
-                    }
                 } else {
                     @Suppress("DEPRECATION")
                     audioManager.isSpeakerphoneOn = false
-                    try {
-                        audioManager.startBluetoothSco()
-                        @Suppress("DEPRECATION")
-                        audioManager.isBluetoothScoOn = true
-                    } catch (_: Exception) {}
                 }
             }
         }
