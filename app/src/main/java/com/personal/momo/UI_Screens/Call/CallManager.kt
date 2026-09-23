@@ -53,7 +53,7 @@ import java.util.Locale
 /**
  * Pure Coordinator: Connects UI, AgoraCallEngine, and FirestoreCallService.
  * Implements WhatsApp Late-Join Architecture with Zero Cold-Start Pre-Warming,
- * Realtime Bluetooth Device Hardware Monitoring, Debounced Hotplugging, and Exact Caller Originator Tracking.
+ * Realtime Bluetooth & Wired Headset Monitoring, Debounced Hotplugging, and Exact Caller Originator Tracking.
  */
 object CallManager {
     var isCallActive by mutableStateOf(false)
@@ -69,6 +69,7 @@ object CallManager {
 
     var currentAudioRoute by mutableStateOf(AudioRoute.PHONE)
     var isBluetoothAvailable by mutableStateOf(false)
+    var isWiredHeadsetAvailable by mutableStateOf(false)
     var bluetoothDeviceName by mutableStateOf("Bluetooth")
 
     private var activeCallerCode: Int = 1
@@ -118,8 +119,12 @@ object CallManager {
                     bluetoothDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
                     bluetoothDebounceRunnable = Runnable {
                         refreshBluetoothState(context)
-                        if (isBluetoothAvailable && isCallActive) {
-                            selectAudioRoute(context, AudioRoute.BLUETOOTH)
+                        if (isCallActive) {
+                            if (isBluetoothAvailable) {
+                                selectAudioRoute(context, AudioRoute.BLUETOOTH)
+                            } else if (currentAudioRoute == AudioRoute.PHONE) {
+                                selectAudioRoute(context, AudioRoute.PHONE)
+                            }
                         }
                     }
                     mainHandler.postDelayed(bluetoothDebounceRunnable!!, 350L)
@@ -128,8 +133,12 @@ object CallManager {
                 override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
                     bluetoothDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
                     refreshBluetoothState(context)
-                    if (!isBluetoothAvailable && isCallActive && currentAudioRoute == AudioRoute.BLUETOOTH) {
-                        selectAudioRoute(context, AudioRoute.PHONE)
+                    if (isCallActive) {
+                        if (!isBluetoothAvailable && currentAudioRoute == AudioRoute.BLUETOOTH) {
+                            selectAudioRoute(context, AudioRoute.PHONE)
+                        } else if (currentAudioRoute == AudioRoute.PHONE) {
+                            selectAudioRoute(context, AudioRoute.PHONE)
+                        }
                     }
                 }
             }
@@ -153,6 +162,8 @@ object CallManager {
     fun refreshBluetoothState(context: Context) {
         val isBt = AgoraCallEngine.checkBluetoothConnected(context)
         isBluetoothAvailable = isBt
+        isWiredHeadsetAvailable = AgoraCallEngine.checkWiredHeadsetConnected(context)
+
         if (isBt) {
             bluetoothDeviceName = AgoraCallEngine.getConnectedBluetoothName(context)
         } else {
