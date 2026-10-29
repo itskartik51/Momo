@@ -62,7 +62,8 @@ object CallManager {
     var isMuted by mutableStateOf(false)
 
     private var activeCallerCode: Int = 1
-    private var connectedAtTimestamp: Long = 0L
+    var connectedAtTimestamp: Long = 0L
+    private var appContext: Context? = null
 
     init {
         AgoraCallEngine.onJoinSuccess = { _, _ -> }
@@ -70,9 +71,16 @@ object CallManager {
         AgoraCallEngine.onPeerJoined = {
             isConnecting = false
             isPeerConnected = true
-            connectedAtTimestamp = System.currentTimeMillis()
+            if (connectedAtTimestamp == 0L) {
+                connectedAtTimestamp = System.currentTimeMillis()
+            }
             CallSounds.stopDialTone()
             FirestoreCallService.updateCallStatus("connected")
+            appContext?.let {
+                try {
+                    CallService.update(it)
+                } catch (_: Exception) {}
+            }
         }
 
         AgoraCallEngine.onPeerOffline = { _, _ ->
@@ -91,7 +99,8 @@ object CallManager {
     fun toggleMute(context: Context? = null) {
         isMuted = !isMuted
         AgoraCallEngine.setMute(isMuted)
-        context?.let {
+        val ctx = context ?: appContext
+        ctx?.let {
             try {
                 CallService.update(it)
             } catch (_: Exception) {}
@@ -99,6 +108,7 @@ object CallManager {
     }
 
     fun startSignalingListener(context: Context) {
+        appContext = context.applicationContext
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
 
         FirestoreCallService.startSignalingListener(
@@ -120,17 +130,22 @@ object CallManager {
                 IncomingCallNotifier.cancel(context)
                 isConnecting = true
                 AgoraCallEngine.joinRoom(currentChannelName)
+                try {
+                    CallService.update(context)
+                } catch (_: Exception) {}
             },
             onCallConnected = {
                 CallSounds.releaseAll()
                 IncomingCallNotifier.cancel(context)
                 if (isCallActive) {
+                    isConnecting = false
                     isPeerConnected = true
                     if (connectedAtTimestamp == 0L) {
                         connectedAtTimestamp = System.currentTimeMillis()
                     }
-                    val partnerName = if (myId == "kanu") "Momo" else "Kanu"
-                    CallService.start(context, partnerName, connectedAtTimestamp)
+                    try {
+                        CallService.update(context)
+                    } catch (_: Exception) {}
                 }
             },
             onCallEnded = {
@@ -151,6 +166,7 @@ object CallManager {
     }
 
     fun startCall(context: Context, channelName: String = "momo_private_voice_room") {
+        appContext = context.applicationContext
         AgoraCallEngine.preWarm(context)
         isMuted = false
         latencyMs = 120
@@ -168,8 +184,8 @@ object CallManager {
         AudioMan.start(context)
         CallSounds.startDialTone()
 
-        // Start Ongoing Call Foreground Service to hold CPU WakeLock through screen-off
-        CallService.start(context, partnerDisplayName, System.currentTimeMillis())
+        // Start Ongoing Call Foreground Service in "Ringing..." state (Timer starts only when peer connects)
+        CallService.start(context, partnerDisplayName)
 
         FirestoreCallService.sendCallSignal(
             caller = myId,
@@ -185,6 +201,7 @@ object CallManager {
     }
 
     fun acceptIncomingCall(context: Context) {
+        appContext = context.applicationContext
         IncomingCallNotifier.cancel(context)
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
@@ -197,8 +214,8 @@ object CallManager {
         AgoraCallEngine.joinRoom(currentChannelName)
         FirestoreCallService.updateCallStatus("accepted")
 
-        // Start Ongoing Call Foreground Service to hold WakeLock
-        CallService.start(context, incomingCallerName, System.currentTimeMillis())
+        // Start Ongoing Call Foreground Service in "Connecting..." state until peer audio stream locks
+        CallService.start(context, incomingCallerName)
     }
 
     fun declineIncomingCall(context: Context) {
