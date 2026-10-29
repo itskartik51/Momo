@@ -3,23 +3,23 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="12dp"
-    android:paddingBottom="12dp">
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
 
-    <!-- Subheader: MOMO -->
+    <!-- Subheader: Strictly MOMO -->
     <TextView
         android:id="@+id/tv_notification_sub"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="MOMO"
-        android:textSize="11sp"
+        android:textSize="10sp"
         android:textStyle="bold"
         android:textColor="?android:attr/textColorSecondary"
         android:letterSpacing="0.08" />
 
-    <!-- Header Row: Caller Name (Left) + Chronometer (Right) -->
+    <!-- Header Row: Caller Name (Left) + Status/Chronometer (Right) -->
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -32,10 +32,24 @@
             android:layout_alignParentStart="true"
             android:layout_centerVertical="true"
             android:text="Kanu"
-            android:textSize="18sp"
+            android:textSize="17sp"
             android:textStyle="bold"
             android:textColor="?android:attr/textColorPrimary" />
 
+        <!-- Shown while Ringing / Connecting -->
+        <TextView
+            android:id="@+id/tv_call_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:text="Ringing..."
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#4CAF50"
+            android:visibility="visible" />
+
+        <!-- Shown only after Peer Connects -->
         <Chronometer
             android:id="@+id/chrono_call_timer"
             android:layout_width="wrap_content"
@@ -44,14 +58,15 @@
             android:layout_centerVertical="true"
             android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#4CAF50" />
+            android:textColor="#4CAF50"
+            android:visibility="gone" />
     </RelativeLayout>
 
-    <!-- Capsule Action Buttons -->
+    <!-- Bottom Capsule Action Buttons -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="42dp"
-        android:layout_marginTop="12dp"
+        android:layout_height="38dp"
+        android:layout_marginTop="8dp"
         android:orientation="horizontal"
         android:weightSum="3">
 
@@ -63,7 +78,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_capsule_neutral"
             android:scaleType="centerInside"
-            android:padding="9dp"
+            android:padding="8dp"
             android:contentDescription="Mic" />
 
         <!-- 2. Audio Route Capsule -->
@@ -76,7 +91,7 @@
             android:layout_marginEnd="10dp"
             android:background="@drawable/bg_capsule_neutral"
             android:scaleType="centerInside"
-            android:padding="9dp"
+            android:padding="8dp"
             android:contentDescription="Audio Route" />
 
         <!-- 3. End Call Capsule (Solid Red) -->
@@ -87,7 +102,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_capsule_red"
             android:scaleType="centerInside"
-            android:padding="9dp"
+            android:padding="8dp"
             android:contentDescription="End Call" />
     </LinearLayout>
 </LinearLayout>
