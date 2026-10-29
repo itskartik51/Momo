@@ -25,8 +25,7 @@ enum class CallAudioDevice {
  * 2. Bluetooth Headset (Active when Wired is not present)
  * 3. Normal Mode (Earpiece by default, toggled to Speaker only on explicit user click)
  *
- * Guarantees zero audio leakage by explicitly setting isSpeakerphoneOn = false
- * across all Android versions (API 26-35) whenever a headset or earpiece is active.
+ * Automatically notifies CallService on route transitions to keep notification capsules in sync.
  */
 object AudioMan {
     var currentDevice by mutableStateOf(CallAudioDevice.EARPIECE)
@@ -79,7 +78,6 @@ object AudioMan {
     }
 
     fun toggleSpeaker(context: Context) {
-        // Locked when a physical peripheral (Wired or BT) is active
         if (isWiredConnected || isBluetoothConnected) return
 
         isSpeakerManuallySelected = !isSpeakerManuallySelected
@@ -172,13 +170,17 @@ object AudioMan {
                 routeToEarpiece(audioManager)
             }
         }
+
+        // Keep notification route capsule in sync
+        try {
+            CallService.update(context)
+        } catch (_: Exception) {}
     }
 
     private fun routeToWired(audioManager: AudioManager) {
         currentDevice = CallAudioDevice.WIRED
         isSpeakerOn = false
 
-        // Unconditionally kill speakerphone flag across all Android OS versions
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
@@ -191,7 +193,6 @@ object AudioMan {
             if (target != null) {
                 audioManager.setCommunicationDevice(target)
             } else {
-                // USB DACs take up to 150ms to mount in availableCommunicationDevices
                 retryRunnable?.let { mainHandler.removeCallbacks(it) }
                 retryRunnable = Runnable {
                     val retryTarget = audioManager.availableCommunicationDevices.firstOrNull {
@@ -218,7 +219,6 @@ object AudioMan {
         currentDevice = CallAudioDevice.BLUETOOTH
         isSpeakerOn = false
 
-        // Unconditionally kill speakerphone flag across all Android OS versions
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
@@ -230,7 +230,6 @@ object AudioMan {
             if (target != null) {
                 audioManager.setCommunicationDevice(target)
             } else {
-                // Bluetooth SCO socket registration delay buffer
                 retryRunnable?.let { mainHandler.removeCallbacks(it) }
                 retryRunnable = Runnable {
                     val retryBt = audioManager.availableCommunicationDevices.firstOrNull {
@@ -279,7 +278,6 @@ object AudioMan {
         currentDevice = CallAudioDevice.EARPIECE
         isSpeakerOn = false
 
-        // Unconditionally kill speakerphone flag across all Android OS versions
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
