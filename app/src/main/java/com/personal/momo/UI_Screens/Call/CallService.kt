@@ -19,6 +19,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
+import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -30,7 +31,6 @@ class CallService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var callerDisplayName: String = "Momo"
-    private var callStartTimeRealtime: Long = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -43,11 +43,6 @@ class CallService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 callerDisplayName = intent.getStringExtra(EXTRA_CALLER_NAME) ?: "Momo"
-                val connectedTs = intent.getLongExtra(EXTRA_START_TIMESTAMP, 0L)
-                if (callStartTimeRealtime == 0L) {
-                    val timeSinceConnect = if (connectedTs > 0L) System.currentTimeMillis() - connectedTs else 0L
-                    callStartTimeRealtime = SystemClock.elapsedRealtime() - timeSinceConnect
-                }
 
                 createNotificationChannel()
                 val notification = buildCallNotification()
@@ -98,8 +93,21 @@ class CallService : Service() {
             setTextViewText(R.id.tv_notification_sub, "MOMO")
             setTextViewText(R.id.tv_caller_name, callerDisplayName)
 
-            // Hardware-driven chronometer (stays in perfect sync without manual wake timers)
-            setChronometer(R.id.chrono_call_timer, callStartTimeRealtime, null, true)
+            // Show "Ringing..." / "Connecting..." until peer connects; start live timer only upon connection
+            if (CallManager.isPeerConnected && CallManager.connectedAtTimestamp > 0L) {
+                val elapsedSinceConnect = (System.currentTimeMillis() - CallManager.connectedAtTimestamp).coerceAtLeast(0L)
+                val baseRealtime = SystemClock.elapsedRealtime() - elapsedSinceConnect
+
+                setViewVisibility(R.id.tv_call_status, View.GONE)
+                setViewVisibility(R.id.chrono_call_timer, View.VISIBLE)
+                setChronometer(R.id.chrono_call_timer, baseRealtime, null, true)
+            } else {
+                val statusText = if (CallManager.isConnecting) "Connecting..." else "Ringing..."
+                setViewVisibility(R.id.chrono_call_timer, View.GONE)
+                setViewVisibility(R.id.tv_call_status, View.VISIBLE)
+                setTextViewText(R.id.tv_call_status, statusText)
+                setChronometer(R.id.chrono_call_timer, SystemClock.elapsedRealtime(), null, false)
+            }
 
             val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
             val neutralIconColor = if (isDark) Color.WHITE else Color.parseColor("#212121")
@@ -140,14 +148,15 @@ class CallService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setCustomContentView(remoteViews)
             .setCustomBigContentView(remoteViews)
             .setContentIntent(contentPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setSilent(false)
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
@@ -169,11 +178,11 @@ class CallService : Service() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Ongoing Voice Calls",
-                NotificationManager.IMPORTANCE_LOW
+                "Active Voice Call Controls",
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Persistent in-call notification with live timer and quick controls"
-                setShowBadge(false)
+                description = "High-priority ongoing call bar with live controls"
+                setShowBadge(true)
                 setSound(null, null)
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
@@ -233,7 +242,7 @@ class CallService : Service() {
     }
 
     companion object {
-        const val CHANNEL_ID = "momo_ongoing_call_channel"
+        const val CHANNEL_ID = "momo_ongoing_call_v3"
         const val NOTIFICATION_ID = 9119
 
         const val ACTION_START = "com.personal.momo.action.START_CALL_SERVICE"
@@ -244,7 +253,6 @@ class CallService : Service() {
         const val ACTION_END_CALL = "com.personal.momo.action.END_CALL"
 
         const val EXTRA_CALLER_NAME = "extra_caller_name"
-        const val EXTRA_START_TIMESTAMP = "extra_start_timestamp"
 
         // Official Google Material Vector Paths (24x24 standard viewport)
         private const val PATH_MIC = "M12,14c1.66,0 3,-1.34 3,-3V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17.3,11c0,3 -2.54,5.1 -5.3,5.1S6.7,14 6.7,11H5c0,3.41 2.72,6.23 6,6.72V21h2v-3.28c3.28,-0.48 6,-3.3 6,-6.72h-1.7z"
@@ -254,11 +262,10 @@ class CallService : Service() {
         private const val PATH_BLUETOOTH = "M17.71,7.71L12,2h-1v7.59L6.41,5 5,6.41 10.59,12 5,17.59 6.41,19 11,14.41V22h1l5.71,-5.71 -4.3,-4.29 4.3,-4.29zM13,5.83l1.88,1.88L13,9.59V5.83zm1.88,10.46L13,18.17v-3.76l1.88,1.88z"
         private const val PATH_CALL_END = "M12,9c-1.6,0 -3.15,0.25 -4.6,0.72v3.1c0,0.39 -0.23,0.74 -0.56,0.9 -0.98,0.49 -1.87,1.12 -2.66,1.85 -0.18,0.18 -0.43,0.28 -0.7,0.28 -0.28,0 -0.53,-0.11 -0.71,-0.29L0.29,13.08c-0.18,-0.17 -0.29,-0.42 -0.29,-0.7 0,-0.28 0.11,-0.53 0.29,-0.71C3.34,8.78 7.46,7 12,7s8.66,1.78 11.71,4.67c0.18,0.18 0.29,0.43 0.29,0.71 0,0.28 -0.11,0.53 -0.29,0.71l-2.48,2.48c-0.18,0.18 -0.43,0.29 -0.71,0.29 -0.27,0 -0.52,-0.11 -0.7,-0.28 -0.79,-0.74 -1.69,-1.36 -2.67,-1.85 -0.33,-0.16 -0.56,-0.5 -0.56,-0.9v-3.1C15.15,9.25 13.6,9 12,9z"
 
-        fun start(context: Context, callerName: String, startTimestamp: Long) {
+        fun start(context: Context, callerName: String) {
             val intent = Intent(context, CallService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_CALLER_NAME, callerName)
-                putExtra(EXTRA_START_TIMESTAMP, startTimestamp)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
