@@ -47,7 +47,7 @@ import java.util.Locale
 
 /**
  * Pure Coordinator: Connects UI, AudioMan, AgoraCallEngine, and FirestoreCallService.
- * Coordinates system-wide incoming call notifications (Heads-Up Banner + Full Screen Intent),
+ * Coordinates system-wide incoming call notifications, Foreground Call Service with Wakelock,
  * late-join architecture, and precise call logs without audio echoes.
  */
 object CallManager {
@@ -88,9 +88,14 @@ object CallManager {
         }
     }
 
-    fun toggleMute() {
+    fun toggleMute(context: Context? = null) {
         isMuted = !isMuted
         AgoraCallEngine.setMute(isMuted)
+        context?.let {
+            try {
+                CallService.update(it)
+            } catch (_: Exception) {}
+        }
     }
 
     fun startSignalingListener(context: Context) {
@@ -107,7 +112,6 @@ object CallManager {
 
                     AgoraCallEngine.preWarm(context)
 
-                    // High-Priority Notification Channel plays native ringtone and wakes the locked screen
                     IncomingCallNotifier.show(context, incomingCallerName)
                 }
             },
@@ -125,11 +129,14 @@ object CallManager {
                     if (connectedAtTimestamp == 0L) {
                         connectedAtTimestamp = System.currentTimeMillis()
                     }
+                    val partnerName = if (myId == "kanu") "Momo" else "Kanu"
+                    CallService.start(context, partnerName, connectedAtTimestamp)
                 }
             },
             onCallEnded = {
                 CallSounds.releaseAll()
                 IncomingCallNotifier.cancel(context)
+                CallService.stop(context)
                 if (isCallActive) {
                     leaveCallSilently(context)
                 }
@@ -155,10 +162,14 @@ object CallManager {
 
         val myId = CacheManager.getAppUserId(context).lowercase(Locale.ROOT)
         val targetId = if (myId == "kanu") "momo" else "kanu"
+        val partnerDisplayName = if (myId == "kanu") "Momo" else "Kanu"
         activeCallerCode = if (myId == "kanu") 1 else 2
 
         AudioMan.start(context)
         CallSounds.startDialTone()
+
+        // Start Ongoing Call Foreground Service to hold CPU WakeLock through screen-off
+        CallService.start(context, partnerDisplayName, System.currentTimeMillis())
 
         FirestoreCallService.sendCallSignal(
             caller = myId,
@@ -168,6 +179,7 @@ object CallManager {
             onSuccess = {},
             onFailure = {
                 CallSounds.stopDialTone()
+                CallService.stop(context)
             }
         )
     }
@@ -184,10 +196,14 @@ object CallManager {
         AudioMan.start(context)
         AgoraCallEngine.joinRoom(currentChannelName)
         FirestoreCallService.updateCallStatus("accepted")
+
+        // Start Ongoing Call Foreground Service to hold WakeLock
+        CallService.start(context, incomingCallerName, System.currentTimeMillis())
     }
 
     fun declineIncomingCall(context: Context) {
         IncomingCallNotifier.cancel(context)
+        CallService.stop(context)
         CallSounds.stopIncomingRingtone()
         isIncomingCall = false
 
@@ -201,6 +217,7 @@ object CallManager {
 
     fun endCall(context: Context) {
         IncomingCallNotifier.cancel(context)
+        CallService.stop(context)
         CallSounds.releaseAll()
 
         if (isPeerConnected && connectedAtTimestamp > 0L) {
@@ -225,6 +242,7 @@ object CallManager {
 
     fun resetAudioAndCallState(context: Context) {
         IncomingCallNotifier.cancel(context)
+        CallService.stop(context)
         CallSounds.releaseAll()
         AudioMan.stop(context)
         AgoraCallEngine.leaveRoom()
@@ -241,6 +259,7 @@ object CallManager {
 
     private fun leaveCallSilently(context: Context) {
         IncomingCallNotifier.cancel(context)
+        CallService.stop(context)
         CallSounds.releaseAll()
         AudioMan.stop(context)
         AgoraCallEngine.leaveRoom()
@@ -264,7 +283,6 @@ fun CallScreen(onBack: () -> Unit) {
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
 
-    // Intercepts hardware back button/gesture to navigate one step back to Home Screen
     BackHandler(enabled = !CallManager.isIncomingCall && !CallManager.isCallActive) {
         onBack()
     }
