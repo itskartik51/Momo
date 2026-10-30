@@ -62,6 +62,7 @@ import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -107,6 +108,7 @@ fun ChatScreen(
     val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
     val myCode = ChatEngine.getMySenderCode()
 
+    val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
     val messagesList by ChatRepository.messagesFlow.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -133,13 +135,12 @@ fun ChatScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .navigationBarsPadding()
-            .imePadding()
     ) {
         ChatTopHeader(
             partnerName = partnerDisplayName,
             avatarUrl = avatarUrl,
-            isOnline = true,
+            inChat = partnerPresence.inChat,
+            lastSeen = partnerPresence.lastSeen,
             onBack = onBack
         )
 
@@ -161,22 +162,29 @@ fun ChatScreen(
             }
         }
 
-        ChatInputBar(
-            text = inputText,
-            onTextChanged = { inputText = it },
-            onSend = {
-                val cleanText = inputText.trim()
-                if (cleanText.isNotEmpty()) {
-                    ChatEngine.sendMessage(context, cleanText)
-                    inputText = ""
-                    coroutineScope.launch {
-                        if (messagesList.isNotEmpty()) {
-                            listState.animateScrollToItem(messagesList.size - 1)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            ChatInputBar(
+                text = inputText,
+                onTextChanged = { inputText = it },
+                onSend = {
+                    val cleanText = inputText.trim()
+                    if (cleanText.isNotEmpty()) {
+                        ChatEngine.sendMessage(context, cleanText)
+                        inputText = ""
+                        coroutineScope.launch {
+                            if (messagesList.isNotEmpty()) {
+                                listState.animateScrollToItem(messagesList.size - 1)
+                            }
                         }
                     }
                 }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -184,9 +192,16 @@ fun ChatScreen(
 private fun ChatTopHeader(
     partnerName: String,
     avatarUrl: String?,
-    isOnline: Boolean,
+    inChat: Boolean,
+    lastSeen: Long,
     onBack: () -> Unit
 ) {
+    val statusText = when {
+        inChat -> "Online"
+        lastSeen > 0L -> "Last seen ${formatLastSeenTime(lastSeen)}"
+        else -> "Offline"
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -246,21 +261,6 @@ private fun ChatTopHeader(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-
-                if (isOnline) {
-                    Box(
-                        modifier = Modifier
-                            .size(11.dp)
-                            .align(Alignment.BottomEnd)
-                            .clip(CircleShape)
-                            .background(Color(0xFF25D366))
-                            .border(
-                                width = 1.5.dp,
-                                color = MaterialTheme.colorScheme.surface,
-                                shape = CircleShape
-                            )
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -276,9 +276,9 @@ private fun ChatTopHeader(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = if (isOnline) "Online" else "Offline",
+                    text = statusText,
                     fontSize = 12.sp,
-                    color = if (isOnline)
+                    color = if (inChat)
                         Color(0xFF25D366)
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -509,6 +509,27 @@ private fun formatBubbleTime(timestamp: Long): String {
         )
         val formatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
         dt.format(formatter).lowercase(Locale.ENGLISH)
+    } catch (_: Exception) {
+        ""
+    }
+}
+
+private fun formatLastSeenTime(timestamp: Long): String {
+    if (timestamp <= 0L) return ""
+    return try {
+        val dt = LocalDateTime.ofInstant(
+            Instant.ofEpochMilli(timestamp),
+            ZoneId.systemDefault()
+        )
+        val today = LocalDate.now()
+        val targetDate = dt.toLocalDate()
+        val timeStr = dt.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH))
+
+        when (targetDate) {
+            today -> timeStr
+            today.minusDays(1) -> "yesterday at $timeStr"
+            else -> "${dt.format(DateTimeFormatter.ofPattern("dd MMM", Locale.ENGLISH))} at $timeStr"
+        }
     } catch (_: Exception) {
         ""
     }
