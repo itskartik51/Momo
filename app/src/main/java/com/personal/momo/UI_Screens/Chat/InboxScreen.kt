@@ -23,18 +23,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,39 +54,45 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
-enum class MessageDeliveryStatus {
-    NONE,
-    SENT,
-    DELIVERED,
-    READ
+private val InboxPendingClockIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "InboxPendingClock",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
 }
-
-data class SingleInboxChatState(
-    val lastMessage: String = "Tap to chat",
-    val timestamp: Long = System.currentTimeMillis(),
-    val isOutgoing: Boolean = false,
-    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.NONE,
-    val unreadCount: Int = 0
-)
 
 @Composable
 fun InboxScreen(
     onChatClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
-    val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
+    val messages by ChatRepository.messagesFlow.collectAsState()
 
-    var chatState by remember {
-        mutableStateOf(
-            SingleInboxChatState(
-                lastMessage = "Hey, message deliver test",
-                timestamp = System.currentTimeMillis(),
-                isOutgoing = false,
-                deliveryStatus = MessageDeliveryStatus.NONE,
-                unreadCount = 2
-            )
-        )
+    val isMomo = currentUserId.equals("Momo", ignoreCase = true)
+    val mySenderCode = if (isMomo) 2 else 1
+    val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
+
+    LaunchedEffect(Unit) {
+        ChatEngine.startEngine(context)
+    }
+
+    val lastMsg = messages.lastOrNull()
+    val lastMessageText = lastMsg?.text ?: "Tap to start chatting"
+    val lastTimestamp = lastMsg?.timestamp ?: 0L
+    val isOutgoing = lastMsg != null && lastMsg.senderId == mySenderCode
+    val deliveryStatus = lastMsg?.status ?: -1
+    val unreadCount = remember(messages, mySenderCode) {
+        messages.count { it.senderId != mySenderCode && it.status < 3 }
     }
 
     Column(
@@ -98,11 +105,11 @@ fun InboxScreen(
         InboxChatRow(
             partnerName = partnerDisplayName,
             avatarUrl = avatarUrl,
-            lastMessage = chatState.lastMessage,
-            timestamp = chatState.timestamp,
-            isOutgoing = chatState.isOutgoing,
-            deliveryStatus = chatState.deliveryStatus,
-            unreadCount = chatState.unreadCount,
+            lastMessage = lastMessageText,
+            timestamp = lastTimestamp,
+            isOutgoing = isOutgoing,
+            deliveryStatus = deliveryStatus,
+            unreadCount = unreadCount,
             onClick = onChatClick
         )
     }
@@ -115,7 +122,7 @@ private fun InboxChatRow(
     lastMessage: String,
     timestamp: Long,
     isOutgoing: Boolean,
-    deliveryStatus: MessageDeliveryStatus,
+    deliveryStatus: Int,
     unreadCount: Int,
     onClick: () -> Unit
 ) {
@@ -126,7 +133,7 @@ private fun InboxChatRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .bounceClick(scaleDown = 0.96f) {
+            .bounceClick(scaleDown = 0.94f) {
                 onClick()
             },
         color = MaterialTheme.colorScheme.background
@@ -190,7 +197,7 @@ private fun InboxChatRow(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isOutgoing) {
+                    if (isOutgoing && deliveryStatus in 0..3) {
                         MessageStatusTicks(status = deliveryStatus)
                         Spacer(modifier = Modifier.width(4.dp))
                     }
@@ -216,15 +223,17 @@ private fun InboxChatRow(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = formattedTime,
-                    fontSize = 12.sp,
-                    fontWeight = if (unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (unreadCount > 0)
-                        MomoRedLight
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
+                if (formattedTime.isNotEmpty()) {
+                    Text(
+                        text = formattedTime,
+                        fontSize = 12.sp,
+                        fontWeight = if (unreadCount > 0) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (unreadCount > 0)
+                            MomoRedLight
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -254,9 +263,17 @@ private fun InboxChatRow(
 }
 
 @Composable
-private fun MessageStatusTicks(status: MessageDeliveryStatus) {
+private fun MessageStatusTicks(status: Int) {
     when (status) {
-        MessageDeliveryStatus.SENT -> {
+        0 -> {
+            Icon(
+                imageVector = InboxPendingClockIcon,
+                contentDescription = "Pending",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        1 -> {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Sent",
@@ -264,7 +281,7 @@ private fun MessageStatusTicks(status: MessageDeliveryStatus) {
                 modifier = Modifier.size(15.dp)
             )
         }
-        MessageDeliveryStatus.DELIVERED -> {
+        2 -> {
             Box(
                 modifier = Modifier.width(19.dp),
                 contentAlignment = Alignment.CenterStart
@@ -285,7 +302,7 @@ private fun MessageStatusTicks(status: MessageDeliveryStatus) {
                 )
             }
         }
-        MessageDeliveryStatus.READ -> {
+        3 -> {
             val blueTickColor = Color(0xFF34B7F1)
             Box(
                 modifier = Modifier.width(19.dp),
@@ -307,7 +324,6 @@ private fun MessageStatusTicks(status: MessageDeliveryStatus) {
                 )
             }
         }
-        MessageDeliveryStatus.NONE -> {}
     }
 }
 
