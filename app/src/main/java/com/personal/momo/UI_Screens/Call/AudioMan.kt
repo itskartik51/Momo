@@ -25,7 +25,7 @@ enum class CallAudioDevice {
  * 2. Bluetooth Headset (Active when Wired is not present)
  * 3. Normal Mode (Earpiece by default, toggled to Speaker only on explicit user click)
  *
- * Automatically notifies CallService on route transitions to keep notification capsules in sync.
+ * Synchronized with AgoraCallEngine to prevent auto-reverting back to earpiece after 1 second.
  */
 object AudioMan {
     var currentDevice by mutableStateOf(CallAudioDevice.EARPIECE)
@@ -52,6 +52,7 @@ object AudioMan {
         unregisterCallback(context)
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         try {
+            AgoraCallEngine.setSpeakerphone(false)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 audioManager.clearCommunicationDevice()
             }
@@ -181,6 +182,8 @@ object AudioMan {
         currentDevice = CallAudioDevice.WIRED
         isSpeakerOn = false
 
+        AgoraCallEngine.setSpeakerphone(false)
+
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
@@ -219,6 +222,8 @@ object AudioMan {
         currentDevice = CallAudioDevice.BLUETOOTH
         isSpeakerOn = false
 
+        AgoraCallEngine.setSpeakerphone(false)
+
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
 
@@ -255,6 +260,8 @@ object AudioMan {
         currentDevice = CallAudioDevice.SPEAKER
         isSpeakerOn = true
 
+        AgoraCallEngine.setSpeakerphone(true)
+
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = true
 
@@ -277,6 +284,8 @@ object AudioMan {
     private fun routeToEarpiece(audioManager: AudioManager) {
         currentDevice = CallAudioDevice.EARPIECE
         isSpeakerOn = false
+
+        AgoraCallEngine.setSpeakerphone(false)
 
         @Suppress("DEPRECATION")
         audioManager.isSpeakerphoneOn = false
