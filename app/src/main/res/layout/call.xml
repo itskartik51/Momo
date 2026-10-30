@@ -5,25 +5,13 @@
     android:orientation="vertical"
     android:paddingStart="14dp"
     android:paddingEnd="14dp"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp">
-
-    <!-- Subheader: Strictly MOMO -->
-    <TextView
-        android:id="@+id/tv_notification_sub"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="MOMO"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        android:textColor="?android:attr/textColorSecondary"
-        android:letterSpacing="0.08" />
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
 
     <!-- Header Row: Caller Name (Left) + Status/Chronometer (Right) -->
     <RelativeLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp">
+        android:layout_height="wrap_content">
 
         <TextView
             android:id="@+id/tv_caller_name"
@@ -34,7 +22,7 @@
             android:text="Kanu"
             android:textSize="17sp"
             android:textStyle="bold"
-            android:textColor="?android:attr/textColorPrimary" />
+            android:textColor="#FFFFFF" />
 
         <!-- Shown while Ringing / Connecting -->
         <TextView
@@ -65,7 +53,7 @@
     <!-- Bottom Capsule Action Buttons -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="38dp"
+        android:layout_height="36dp"
         android:layout_marginTop="8dp"
         android:orientation="horizontal"
         android:weightSum="3">
@@ -78,7 +66,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_capsule_neutral"
             android:scaleType="centerInside"
-            android:padding="8dp"
+            android:padding="7dp"
             android:contentDescription="Mic" />
 
         <!-- 2. Audio Route Capsule -->
@@ -91,7 +79,7 @@
             android:layout_marginEnd="10dp"
             android:background="@drawable/bg_capsule_neutral"
             android:scaleType="centerInside"
-            android:padding="8dp"
+            android:padding="7dp"
             android:contentDescription="Audio Route" />
 
         <!-- 3. End Call Capsule (Solid Red) -->
@@ -102,7 +90,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_capsule_red"
             android:scaleType="centerInside"
-            android:padding="8dp"
+            android:padding="7dp"
             android:contentDescription="End Call" />
     </LinearLayout>
 </LinearLayout>
