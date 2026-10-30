@@ -69,7 +69,6 @@ import com.personal.momo.R
 import com.personal.momo.UI_Screens.Calendar.MomoCalendar
 import com.personal.momo.UI_Screens.Calendar.MomoEventsCalculator
 import com.personal.momo.UI_Screens.Calendar.MonthEventsAgendaCard
-import com.personal.momo.UI_Screens.Call.CallScreen
 import com.personal.momo.UI_Screens.Finder.FinderScreen
 import com.personal.momo.UI_Screens.Notifications.MomoNotificationEngine
 import com.personal.momo.UI_Screens.Notifications.NotificationAlarmReceiver
@@ -103,7 +102,7 @@ private enum class HomeScreenDestination {
     MENU,
     NOTIFICATIONS,
     FINDER,
-    CALL
+    WINDOW
 }
 
 @Composable
@@ -112,7 +111,7 @@ fun HomeScreen() {
     var isMenuOpen by remember { mutableStateOf(false) }
     var isNotificationsOpen by remember { mutableStateOf(false) }
     var isFinderOpen by remember { mutableStateOf(false) }
-    var isCallOpen by remember { mutableStateOf(false) }
+    var isWindowOpen by remember { mutableStateOf(false) }
     var isUpdateAvailable by remember { mutableStateOf(false) }
     var currentVisibleMonth by remember { mutableStateOf(YearMonth.now()) }
 
@@ -193,7 +192,7 @@ fun HomeScreen() {
     }
 
     val currentDestination = when {
-        isCallOpen -> HomeScreenDestination.CALL
+        isWindowOpen -> HomeScreenDestination.WINDOW
         isFinderOpen && isFinderEnabled -> HomeScreenDestination.FINDER
         isNotificationsOpen -> HomeScreenDestination.NOTIFICATIONS
         isMenuOpen -> HomeScreenDestination.MENU
@@ -224,9 +223,9 @@ fun HomeScreen() {
         label = "HomeScreenDestinationTransition"
     ) { destination ->
         when (destination) {
-            HomeScreenDestination.CALL -> {
-                CallScreen(
-                    onBack = { isCallOpen = false }
+            HomeScreenDestination.WINDOW -> {
+                WindowScreen(
+                    onBack = { isWindowOpen = false }
                 )
             }
 
@@ -264,7 +263,7 @@ fun HomeScreen() {
                             hasUnreadNotifications = hasUnreadNotifications,
                             isFinderEnabled = isFinderEnabled,
                             onMomoClick = {
-                                isCallOpen = true
+                                isWindowOpen = true
                             },
                             onFinderClick = {
                                 isFinderOpen = true
