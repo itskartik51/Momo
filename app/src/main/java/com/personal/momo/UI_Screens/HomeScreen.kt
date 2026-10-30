@@ -42,6 +42,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -326,6 +328,9 @@ private fun HomeHeader(
     onNotificationsClick: () -> Unit,
     onMenuClick: () -> Unit
 ) {
+    var tapCount by remember { mutableIntStateOf(0) }
+    var lastTapTimestamp by remember { mutableLongStateOf(0L) }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -386,7 +391,19 @@ private fun HomeHeader(
                         letterSpacing = 0.5.sp,
                         style = TextStyle(brush = MomoPrimaryGradient),
                         modifier = Modifier.bounceClick(scaleDown = 0.94f) {
-                            onMomoClick()
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastTapTimestamp <= 600L) {
+                                tapCount++
+                            } else {
+                                tapCount = 1
+                            }
+                            lastTapTimestamp = currentTime
+
+                            if (tapCount >= 3) {
+                                tapCount = 0
+                                lastTapTimestamp = 0L
+                                onMomoClick()
+                            }
                         }
                     )
                 }
