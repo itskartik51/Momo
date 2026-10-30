@@ -183,7 +183,11 @@ object CacheManager {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         }
-        return prefs?.getString(KEY_APP_USER_ID, "Kanu") ?: "Kanu"
+        val storedUserId = prefs?.getString(KEY_APP_USER_ID, "Kanu") ?: "Kanu"
+        if (_appUserIdFlow.value != storedUserId) {
+            _appUserIdFlow.value = storedUserId
+        }
+        return storedUserId
     }
 
     fun setAppUserId(context: Context, userId: String) {
