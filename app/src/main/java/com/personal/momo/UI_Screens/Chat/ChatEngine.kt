@@ -5,13 +5,22 @@ import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
 import com.personal.momo.Cache.CacheManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
+
+data class PartnerPresence(
+    val inChat: Boolean = false,
+    val lastSeen: Long = 0L
+)
 
 object ChatEngine {
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -19,6 +28,9 @@ object ChatEngine {
 
     private var isEngineRunning = false
     private var isChatScreenActive = false
+
+    private val _partnerPresenceFlow = MutableStateFlow(PartnerPresence())
+    val partnerPresenceFlow: StateFlow<PartnerPresence> = _partnerPresenceFlow.asStateFlow()
 
     // Numeric mapping: 1 for Kanu, 2 for Momo
     fun getMySenderCode(): Int {
@@ -37,16 +49,66 @@ object ChatEngine {
 
         engineScope.launch {
             ChatRepository.init(appContext)
+            setupPresence()
+            listenToPartnerPresence()
             listenForIncomingMessages(appContext)
             listenForReceipts(appContext)
             listenForNetworkReconnect(appContext)
         }
     }
 
+    private fun setupPresence() {
+        val myCode = getMySenderCode()
+        val presenceRef = database.reference
+            .child("momo_chat")
+            .child("presence")
+            .child(myCode.toString())
+
+        val disconnectUpdates = mapOf<String, Any>(
+            "inChat" to false,
+            "lastSeen" to ServerValue.TIMESTAMP
+        )
+        presenceRef.onDisconnect().updateChildren(disconnectUpdates)
+    }
+
+    private fun listenToPartnerPresence() {
+        val partnerCode = getPartnerSenderCode()
+        val partnerPresenceRef = database.reference
+            .child("momo_chat")
+            .child("presence")
+            .child(partnerCode.toString())
+
+        partnerPresenceRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val inChat = snapshot.child("inChat").getValue(Boolean::class.java) ?: false
+                val lastSeen = snapshot.child("lastSeen").getValue(Long::class.java) ?: 0L
+                _partnerPresenceFlow.value = PartnerPresence(
+                    inChat = inChat,
+                    lastSeen = lastSeen
+                )
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
     fun setChatScreenActive(context: Context, active: Boolean) {
         isChatScreenActive = active
+        val myCode = getMySenderCode()
+        val presenceRef = database.reference
+            .child("momo_chat")
+            .child("presence")
+            .child(myCode.toString())
+
         if (active) {
+            presenceRef.child("inChat").setValue(true)
             markChatAsRead(context.applicationContext)
+        } else {
+            val updates = mapOf<String, Any>(
+                "inChat" to false,
+                "lastSeen" to System.currentTimeMillis()
+            )
+            presenceRef.updateChildren(updates)
         }
     }
 
@@ -196,6 +258,16 @@ object ChatEngine {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val isConnected = snapshot.getValue(Boolean::class.java) ?: false
                 if (isConnected) {
+                    setupPresence()
+                    if (isChatScreenActive) {
+                        val myCode = getMySenderCode()
+                        database.reference
+                            .child("momo_chat")
+                            .child("presence")
+                            .child(myCode.toString())
+                            .child("inChat")
+                            .setValue(true)
+                    }
                     retryPendingMessages(context)
                 }
             }
