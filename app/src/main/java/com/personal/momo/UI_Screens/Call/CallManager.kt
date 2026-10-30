@@ -77,6 +77,7 @@ object CallManager {
             CallSounds.stopDialTone()
             FirestoreCallService.updateCallStatus("connected")
             appContext?.let {
+                AudioMan.refreshAndRoute(it)
                 try {
                     CallService.update(it)
                 } catch (_: Exception) {}
@@ -143,6 +144,7 @@ object CallManager {
                     if (connectedAtTimestamp == 0L) {
                         connectedAtTimestamp = System.currentTimeMillis()
                     }
+                    AudioMan.refreshAndRoute(context)
                     try {
                         CallService.update(context)
                     } catch (_: Exception) {}
@@ -184,7 +186,6 @@ object CallManager {
         AudioMan.start(context)
         CallSounds.startDialTone()
 
-        // Start Ongoing Call Foreground Service in "Ringing..." state (Timer starts only when peer connects)
         CallService.start(context, partnerDisplayName)
 
         FirestoreCallService.sendCallSignal(
@@ -214,7 +215,6 @@ object CallManager {
         AgoraCallEngine.joinRoom(currentChannelName)
         FirestoreCallService.updateCallStatus("accepted")
 
-        // Start Ongoing Call Foreground Service in "Connecting..." state until peer audio stream locks
         CallService.start(context, incomingCallerName)
     }
 
