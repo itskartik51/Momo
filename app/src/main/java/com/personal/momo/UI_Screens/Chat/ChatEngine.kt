@@ -31,25 +31,27 @@ object ChatEngine {
     }
 
     fun startEngine(context: Context) {
+        val appContext = context.applicationContext
         if (isEngineRunning) return
         isEngineRunning = true
 
         engineScope.launch {
-            ChatRepository.init(context)
-            listenForIncomingMessages(context)
-            listenForReceipts(context)
-            listenForNetworkReconnect(context)
+            ChatRepository.init(appContext)
+            listenForIncomingMessages(appContext)
+            listenForReceipts(appContext)
+            listenForNetworkReconnect(appContext)
         }
     }
 
     fun setChatScreenActive(context: Context, active: Boolean) {
         isChatScreenActive = active
         if (active) {
-            markChatAsRead(context)
+            markChatAsRead(context.applicationContext)
         }
     }
 
     fun sendMessage(context: Context, text: String) {
+        val appContext = context.applicationContext
         val cleanText = text.trim()
         if (cleanText.isEmpty()) return
 
@@ -63,15 +65,12 @@ object ChatEngine {
             senderId = myCode,
             text = cleanText,
             timestamp = timestamp,
-            status = 0 // Pending (Clock icon)
+            status = 0 // 0: Pending (Clock icon)
         )
 
         engineScope.launch {
-            // Step 1: Save locally as Pending
-            ChatRepository.saveMessage(context, pendingMessage)
-
-            // Step 2: Push to partner's incoming queue
-            pushToFirebaseQueue(context, pendingMessage, partnerCode)
+            ChatRepository.saveMessage(appContext, pendingMessage)
+            pushToFirebaseQueue(appContext, pendingMessage, partnerCode)
         }
     }
 
@@ -81,7 +80,7 @@ object ChatEngine {
             "send" to message.senderId,
             "text" to message.text,
             "time" to message.timestamp,
-            "status" to 1 // Cloud state: Sent
+            "status" to 1 // 1: Sent
         )
 
         val queueRef = database.reference
@@ -92,7 +91,6 @@ object ChatEngine {
 
         queueRef.setValue(payload).addOnSuccessListener {
             engineScope.launch {
-                // Step 3: Upgrade to Sent (1: Single Tick)
                 ChatRepository.updateMessageStatus(context, message.id, 1)
             }
         }
@@ -110,7 +108,7 @@ object ChatEngine {
                 val messageId = snapshot.child("id").getValue(String::class.java) ?: snapshot.key ?: return
                 val senderCode = snapshot.child("send").getValue(Long::class.java)?.toInt() ?: getPartnerSenderCode()
                 val text = snapshot.child("text").getValue(String::class.java) ?: ""
-                val timestamp = snapshot.child("time").getValue(Long::class.java) ?: System.currentTimeMillis()
+                val timestamp = snapshot.child("time").getValue(Long::class.java)?.toLong() ?: System.currentTimeMillis()
 
                 val initialDeliveryStatus = if (isChatScreenActive) 3 else 2
 
@@ -123,13 +121,8 @@ object ChatEngine {
                 )
 
                 engineScope.launch {
-                    // 1. Deduplicate & Save locally
                     ChatRepository.saveMessage(context, incomingMessage)
-
-                    // 2. Remove from RTDB temporary queue (Zero cloud footprint)
                     snapshot.ref.removeValue()
-
-                    // 3. Send receipt back to sender (2: Delivered or 3: Read)
                     sendReceipt(senderCode, messageId, initialDeliveryStatus)
                 }
             }
@@ -154,10 +147,7 @@ object ChatEngine {
                 val newStatus = snapshot.getValue(Long::class.java)?.toInt() ?: 2
 
                 engineScope.launch {
-                    // Update tick in local JSON
                     ChatRepository.updateMessageStatus(context, messageId, newStatus)
-
-                    // Clean up receipt node
                     snapshot.ref.removeValue()
                 }
             }
@@ -179,11 +169,12 @@ object ChatEngine {
     }
 
     fun markChatAsRead(context: Context) {
+        val appContext = context.applicationContext
         val myCode = getMySenderCode()
         val partnerCode = getPartnerSenderCode()
 
         engineScope.launch {
-            val readMessageIds = ChatRepository.markIncomingMessagesAsRead(context, myCode)
+            val readMessageIds = ChatRepository.markIncomingMessagesAsRead(appContext, myCode)
             for (msgId in readMessageIds) {
                 sendReceipt(partnerCode, msgId, 3)
             }
