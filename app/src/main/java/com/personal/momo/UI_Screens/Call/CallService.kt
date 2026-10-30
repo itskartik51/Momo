@@ -90,8 +90,14 @@ class CallService : Service() {
 
     private fun buildCallNotification(): Notification {
         val remoteViews = RemoteViews(packageName, R.layout.call).apply {
-            setTextViewText(R.id.tv_notification_sub, "MOMO")
             setTextViewText(R.id.tv_caller_name, callerDisplayName)
+
+            // Dynamic Pure White Caller Name in Dark Mode
+            val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            val neutralIconColor = if (isDark) Color.WHITE else Color.parseColor("#212121")
+            val darkActiveIconTint = Color.parseColor("#1E1F22")
+
+            setTextColor(R.id.tv_caller_name, neutralIconColor)
 
             // Show "Ringing..." / "Connecting..." until peer connects; start live timer only upon connection
             if (CallManager.isPeerConnected && CallManager.connectedAtTimestamp > 0L) {
@@ -109,33 +115,40 @@ class CallService : Service() {
                 setChronometer(R.id.chrono_call_timer, SystemClock.elapsedRealtime(), null, false)
             }
 
-            val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-            val neutralIconColor = if (isDark) Color.WHITE else Color.parseColor("#212121")
-
-            // 1. Dynamic Official Material Mic Icon
+            // 1. Mic State: White capsule + Dark icon when Muted (matching CallScreen.kt)
             val isMuted = CallManager.isMuted
+            val micBgRes = if (isMuted) R.drawable.bg_capsule_active else R.drawable.bg_capsule_neutral
+            val micTint = if (isMuted) darkActiveIconTint else neutralIconColor
             val micPath = if (isMuted) PATH_MIC_OFF else PATH_MIC
-            setImageViewBitmap(R.id.btn_capsule_mic, createIconBitmap(micPath, neutralIconColor))
 
-            // 2. Dynamic Official Material Audio Route Icon
+            setInt(R.id.btn_capsule_mic, "setBackgroundResource", micBgRes)
+            setImageViewBitmap(R.id.btn_capsule_mic, createIconBitmap(micPath, micTint))
+
+            // 2. Audio Route State: White capsule + Dark icon when Speaker is ON (matching CallScreen.kt)
+            val isSpeakerActive = AudioMan.isSpeakerOn && !AudioMan.isWiredConnected && !AudioMan.isBluetoothConnected
+            val speakerBgRes = if (isSpeakerActive) R.drawable.bg_capsule_active else R.drawable.bg_capsule_neutral
+            val speakerTint = if (isSpeakerActive) darkActiveIconTint else neutralIconColor
+
             val routePath = when {
                 AudioMan.isWiredConnected -> PATH_HEADSET
                 AudioMan.isBluetoothConnected -> PATH_BLUETOOTH
-                AudioMan.isSpeakerOn -> PATH_SPEAKER
                 else -> PATH_SPEAKER
             }
-            setImageViewBitmap(R.id.btn_capsule_speaker, createIconBitmap(routePath, neutralIconColor))
 
-            // 3. Dynamic Official Material Call End Icon (Pure White over Red Background)
+            setInt(R.id.btn_capsule_speaker, "setBackgroundResource", speakerBgRes)
+            setImageViewBitmap(R.id.btn_capsule_speaker, createIconBitmap(routePath, speakerTint))
+
+            // 3. Call End Action: Solid Red Capsule with White Icon
+            setInt(R.id.btn_capsule_end, "setBackgroundResource", R.drawable.bg_capsule_red)
             setImageViewBitmap(R.id.btn_capsule_end, createIconBitmap(PATH_CALL_END, Color.WHITE))
 
-            // Button Click Pending Intents
+            // Interactive Button Pending Intents
             setOnClickPendingIntent(R.id.btn_capsule_mic, createServicePendingIntent(ACTION_TOGGLE_MUTE, 401))
             setOnClickPendingIntent(R.id.btn_capsule_speaker, createServicePendingIntent(ACTION_TOGGLE_SPEAKER, 402))
             setOnClickPendingIntent(R.id.btn_capsule_end, createServicePendingIntent(ACTION_END_CALL, 403))
         }
 
-        // Tapping card body opens MainActivity directly to ActiveCallScreen
+        // Tap card body opens MainActivity directly to ActiveCallScreen
         val contentIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -153,10 +166,10 @@ class CallService : Service() {
             .setContentIntent(contentPendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setSilent(false)
+            .setSilent(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
@@ -179,9 +192,9 @@ class CallService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Active Voice Call Controls",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "High-priority ongoing call bar with live controls"
+                description = "Ongoing call bar with live controls"
                 setShowBadge(true)
                 setSound(null, null)
                 enableVibration(false)
@@ -223,7 +236,7 @@ class CallService : Service() {
         super.onDestroy()
     }
 
-    private fun createIconBitmap(pathData: String, fillColor: Int, sizeDp: Int = 24): Bitmap {
+    private fun createIconBitmap(pathData: String, fillColor: Int, sizeDp: Int = 22): Bitmap {
         val density = resources.displayMetrics.density
         val sizePx = (sizeDp * density).toInt()
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
@@ -242,7 +255,7 @@ class CallService : Service() {
     }
 
     companion object {
-        const val CHANNEL_ID = "momo_ongoing_call_v3"
+        const val CHANNEL_ID = "momo_ongoing_call_v4"
         const val NOTIFICATION_ID = 9119
 
         const val ACTION_START = "com.personal.momo.action.START_CALL_SERVICE"
@@ -254,7 +267,6 @@ class CallService : Service() {
 
         const val EXTRA_CALLER_NAME = "extra_caller_name"
 
-        // Official Google Material Vector Paths (24x24 standard viewport)
         private const val PATH_MIC = "M12,14c1.66,0 3,-1.34 3,-3V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17.3,11c0,3 -2.54,5.1 -5.3,5.1S6.7,14 6.7,11H5c0,3.41 2.72,6.23 6,6.72V21h2v-3.28c3.28,-0.48 6,-3.3 6,-6.72h-1.7z"
         private const val PATH_MIC_OFF = "M19,11h-1.7c0,0.74 -0.16,1.43 -0.43,2.05l1.23,1.23c0.56,-0.98 0.9,-2.09 0.9,-3.28zm-4.02,0.17L15,11.02V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v0.18L10.82,7l4.16,4.17zM4.27,3L3,4.27l6.01,6.01V11c0,1.66 1.33,3 2.99,3 0.22,0 0.44,-0.03 0.65,-0.08l1.66,1.66c-0.71,0.33 -1.5,0.52 -2.31,0.52 -2.76,0 -5.3,-2.1 -5.3,-5.1H5c0,3.41 2.72,6.23 6,6.72V21h2v-3.28c0.91,-0.13 1.77,-0.45 2.54,-0.9L19.73,21 21,19.73 4.27,3z"
         private const val PATH_SPEAKER = "M3,9v6h4l5,5V4L7,9H3zm13.5,3c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02zM14,3.23v2.06c2.89,0.86 5,3.54 5,6.71s-2.11,5.85 -5,6.71v2.06c4.01,-0.91 7,-4.49 7,-8.77s-2.99,-7.86 -7,-8.77z"
