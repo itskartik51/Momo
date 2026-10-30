@@ -1,10 +1,9 @@
 package com.personal.momo.UI_Screens.Chat
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,13 +34,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +49,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,7 +58,6 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -96,61 +94,58 @@ private val SendIcon: ImageVector by lazy {
     ).build()
 }
 
-data class ChatMessageItem(
-    val id: String = System.currentTimeMillis().toString(),
-    val text: String,
-    val timestamp: Long = System.currentTimeMillis(),
-    val isOutgoing: Boolean,
-    val deliveryStatus: MessageDeliveryStatus = MessageDeliveryStatus.SENT
-)
+private val BubblePendingClockIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "BubblePendingClock",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
 
 @Composable
 fun ChatScreen(
-    onBack: () -> Unit = {},
-    onSendMessage: (String) -> Unit = {}
+    onBack: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
-    val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
+    val messages by ChatRepository.messagesFlow.collectAsState()
+
+    val isMomo = currentUserId.equals("Momo", ignoreCase = true)
+    val mySenderCode = if (isMomo) 2 else 1
+    val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
 
-    // Standalone sample chat messages for instant layout preview
-    val messagesList = remember {
-        mutableStateListOf(
-            ChatMessageItem(
-                id = "1",
-                text = "Hey! Did you reach safely?",
-                timestamp = System.currentTimeMillis() - 1000 * 60 * 15,
-                isOutgoing = false
-            ),
-            ChatMessageItem(
-                id = "2",
-                text = "Yes, just reached 5 mins ago. Setting up everything.",
-                timestamp = System.currentTimeMillis() - 1000 * 60 * 10,
-                isOutgoing = true,
-                deliveryStatus = MessageDeliveryStatus.READ
-            ),
-            ChatMessageItem(
-                id = "3",
-                text = "Awesome! Let me know once you are free.",
-                timestamp = System.currentTimeMillis() - 1000 * 60 * 5,
-                isOutgoing = false
-            )
-        )
+    // Manage active screen state for instant Read Receipts (3: Blue Tick)
+    DisposableEffect(Unit) {
+        ChatEngine.startEngine(context)
+        ChatEngine.setChatScreenActive(context, true)
+        onDispose {
+            ChatEngine.setChatScreenActive(context, false)
+        }
     }
 
-    // Hardware back navigation handler
+    // Hardware back navigation handler (One step back to InboxScreen)
     BackHandler {
         onBack()
     }
 
-    // Auto-scroll to latest message
-    LaunchedEffect(messagesList.size) {
-        if (messagesList.isNotEmpty()) {
-            listState.animateScrollToItem(messagesList.size - 1)
+    // Auto-scroll to latest message and mark any live incoming messages as read
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+            if (messages.any { it.senderId != mySenderCode && it.status < 3 }) {
+                ChatEngine.markChatAsRead(context)
+            }
         }
     }
 
@@ -179,8 +174,11 @@ fun ChatScreen(
             contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(messagesList, key = { it.id }) { message ->
-                MessageBubbleRow(message = message)
+            items(messages, key = { it.id }) { message ->
+                MessageBubbleRow(
+                    message = message,
+                    isOutgoing = (message.senderId == mySenderCode)
+                )
             }
         }
 
@@ -191,19 +189,8 @@ fun ChatScreen(
             onSend = {
                 val cleanText = inputText.trim()
                 if (cleanText.isNotEmpty()) {
-                    val newMsg = ChatMessageItem(
-                        id = System.currentTimeMillis().toString(),
-                        text = cleanText,
-                        timestamp = System.currentTimeMillis(),
-                        isOutgoing = true,
-                        deliveryStatus = MessageDeliveryStatus.SENT
-                    )
-                    messagesList.add(newMsg)
-                    onSendMessage(cleanText)
+                    ChatEngine.sendMessage(context, cleanText)
                     inputText = ""
-                    coroutineScope.launch {
-                        listState.animateScrollToItem(messagesList.size - 1)
-                    }
                 }
             }
         )
@@ -322,8 +309,11 @@ private fun ChatTopHeader(
 }
 
 @Composable
-private fun MessageBubbleRow(message: ChatMessageItem) {
-    val bubbleShape = if (message.isOutgoing) {
+private fun MessageBubbleRow(
+    message: ChatMessage,
+    isOutgoing: Boolean
+) {
+    val bubbleShape = if (isOutgoing) {
         RoundedCornerShape(
             topStart = 16.dp,
             topEnd = 4.dp,
@@ -345,16 +335,16 @@ private fun MessageBubbleRow(message: ChatMessageItem) {
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isOutgoing) Arrangement.End else Arrangement.Start
+        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
     ) {
         Surface(
             modifier = Modifier.widthIn(max = 280.dp),
             shape = bubbleShape,
-            color = if (message.isOutgoing)
+            color = if (isOutgoing)
                 MaterialTheme.colorScheme.surfaceVariant
             else
                 MaterialTheme.colorScheme.surface,
-            border = if (message.isOutgoing) null else androidx.compose.foundation.BorderStroke(
+            border = if (isOutgoing) null else BorderStroke(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
             ),
@@ -383,8 +373,8 @@ private fun MessageBubbleRow(message: ChatMessageItem) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
 
-                    if (message.isOutgoing) {
-                        BubbleStatusTicks(status = message.deliveryStatus)
+                    if (isOutgoing) {
+                        BubbleStatusTicks(status = message.status)
                     }
                 }
             }
@@ -393,9 +383,17 @@ private fun MessageBubbleRow(message: ChatMessageItem) {
 }
 
 @Composable
-private fun BubbleStatusTicks(status: MessageDeliveryStatus) {
+private fun BubbleStatusTicks(status: Int) {
     when (status) {
-        MessageDeliveryStatus.SENT -> {
+        0 -> {
+            Icon(
+                imageVector = BubblePendingClockIcon,
+                contentDescription = "Pending",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(12.dp)
+            )
+        }
+        1 -> {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Sent",
@@ -403,7 +401,7 @@ private fun BubbleStatusTicks(status: MessageDeliveryStatus) {
                 modifier = Modifier.size(13.dp)
             )
         }
-        MessageDeliveryStatus.DELIVERED -> {
+        2 -> {
             Box(
                 modifier = Modifier.width(17.dp),
                 contentAlignment = Alignment.CenterStart
@@ -424,7 +422,7 @@ private fun BubbleStatusTicks(status: MessageDeliveryStatus) {
                 )
             }
         }
-        MessageDeliveryStatus.READ -> {
+        3 -> {
             val blueTickColor = Color(0xFF34B7F1)
             Box(
                 modifier = Modifier.width(17.dp),
@@ -446,7 +444,6 @@ private fun BubbleStatusTicks(status: MessageDeliveryStatus) {
                 )
             }
         }
-        MessageDeliveryStatus.NONE -> {}
     }
 }
 
