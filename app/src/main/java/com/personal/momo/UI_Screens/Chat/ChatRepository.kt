@@ -40,13 +40,13 @@ object ChatRepository {
 
     suspend fun init(context: Context) {
         if (isInitialized) return
-        loadMessages(context)
+        loadMessages(context.applicationContext)
         isInitialized = true
     }
 
     suspend fun loadMessages(context: Context): List<ChatMessage> = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val file = File(context.filesDir, FILE_NAME)
+            val file = File(context.applicationContext.filesDir, FILE_NAME)
             if (!file.exists()) {
                 _messagesFlow.value = emptyList()
                 return@withLock emptyList()
@@ -92,12 +92,14 @@ object ChatRepository {
             val existingIndex = currentList.indexOfFirst { it.id == message.id }
 
             if (existingIndex >= 0) {
-                currentList[existingIndex] = message
+                val existing = currentList[existingIndex]
+                val resolvedStatus = maxOf(existing.status, message.status)
+                currentList[existingIndex] = message.copy(status = resolvedStatus)
             } else {
                 currentList.add(message)
             }
 
-            writeMessagesToFile(context, currentList)
+            writeMessagesToFile(context.applicationContext, currentList)
             _messagesFlow.value = currentList
         }
     }
@@ -109,10 +111,9 @@ object ChatRepository {
 
             if (index >= 0) {
                 val existing = currentList[index]
-                // Only move status forward (0 -> 1 -> 2 -> 3)
                 if (newStatus > existing.status) {
                     currentList[index] = existing.copy(status = newStatus)
-                    writeMessagesToFile(context, currentList)
+                    writeMessagesToFile(context.applicationContext, currentList)
                     _messagesFlow.value = currentList
                 }
             }
@@ -139,7 +140,7 @@ object ChatRepository {
             }
 
             if (hasModifications) {
-                writeMessagesToFile(context, currentList)
+                writeMessagesToFile(context.applicationContext, currentList)
                 _messagesFlow.value = currentList
             }
             updatedMessageIds
