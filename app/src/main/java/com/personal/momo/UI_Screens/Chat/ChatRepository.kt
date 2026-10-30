@@ -36,58 +36,71 @@ object ChatRepository {
     private val _messagesFlow = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messagesFlow: StateFlow<List<ChatMessage>> = _messagesFlow.asStateFlow()
 
+    @Volatile
     private var isInitialized = false
 
     suspend fun init(context: Context) {
         if (isInitialized) return
         loadMessages(context.applicationContext)
-        isInitialized = true
+    }
+
+    private fun ensureLoadedLocked(context: Context) {
+        if (isInitialized) return
+        val file = File(context.applicationContext.filesDir, FILE_NAME)
+        if (!file.exists()) {
+            _messagesFlow.value = emptyList()
+            isInitialized = true
+            return
+        }
+
+        try {
+            val content = file.readText().trim()
+            if (content.isEmpty() || content == "[]") {
+                _messagesFlow.value = emptyList()
+                isInitialized = true
+                return
+            }
+
+            val jsonArray = JSONArray(content)
+            val list = ArrayList<ChatMessage>(jsonArray.length())
+
+            for (i in 0 until jsonArray.length()) {
+                val tuple = jsonArray.optJSONArray(i) ?: continue
+                if (tuple.length() >= 5) {
+                    list.add(
+                        ChatMessage(
+                            id = tuple.optString(0, ""),
+                            senderId = tuple.optInt(1, 1),
+                            text = tuple.optString(2, ""),
+                            timestamp = tuple.optLong(3, 0L),
+                            status = tuple.optInt(4, 0)
+                        )
+                    )
+                }
+            }
+
+            list.sortBy { it.timestamp }
+            _messagesFlow.value = list
+            isInitialized = true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            isInitialized = true
+        }
     }
 
     suspend fun loadMessages(context: Context): List<ChatMessage> = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val file = File(context.applicationContext.filesDir, FILE_NAME)
-            if (!file.exists()) {
-                _messagesFlow.value = emptyList()
-                return@withLock emptyList()
-            }
-
-            try {
-                val content = file.readText().trim()
-                if (content.isEmpty() || content == "[]") {
-                    _messagesFlow.value = emptyList()
-                    return@withLock emptyList()
-                }
-
-                val jsonArray = JSONArray(content)
-                val list = ArrayList<ChatMessage>(jsonArray.length())
-
-                for (i in 0 until jsonArray.length()) {
-                    val tuple = jsonArray.optJSONArray(i) ?: continue
-                    if (tuple.length() >= 5) {
-                        list.add(
-                            ChatMessage(
-                                id = tuple.optString(0, ""),
-                                senderId = tuple.optInt(1, 1),
-                                text = tuple.optString(2, ""),
-                                timestamp = tuple.optLong(3, 0L),
-                                status = tuple.optInt(4, 0)
-                            )
-                        )
-                    }
-                }
-
-                _messagesFlow.value = list
-                list
-            } catch (e: Exception) {
-                e.printStackTrace()
-                emptyList()
-            }
+            isInitialized = false
+            ensureLoadedLocked(context.applicationContext)
+            _messagesFlow.value
         }
     }
 
     suspend fun saveMessage(context: Context, message: ChatMessage) = withContext(Dispatchers.IO) {
         mutex.withLock {
+            val appContext = context.applicationContext
+            ensureLoadedLocked(appContext)
+
             val currentList = _messagesFlow.value.toMutableList()
             val existingIndex = currentList.indexOfFirst { it.id == message.id }
 
@@ -99,13 +112,17 @@ object ChatRepository {
                 currentList.add(message)
             }
 
-            writeMessagesToFile(context.applicationContext, currentList)
+            currentList.sortBy { it.timestamp }
+            writeMessagesToFile(appContext, currentList)
             _messagesFlow.value = currentList
         }
     }
 
-    suspend fun updateMessageStatus(context: Context, messageId: String, newStatus: Int) = withContext(Dispatchers.IO) {
+    suspend fun updateMessageStatus(context: Context, messageId: String, newStatus: Int): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
+            val appContext = context.applicationContext
+            ensureLoadedLocked(appContext)
+
             val currentList = _messagesFlow.value.toMutableList()
             val index = currentList.indexOfFirst { it.id == messageId }
 
@@ -113,19 +130,27 @@ object ChatRepository {
                 val existing = currentList[index]
                 if (newStatus > existing.status) {
                     currentList[index] = existing.copy(status = newStatus)
-                    writeMessagesToFile(context.applicationContext, currentList)
+                    writeMessagesToFile(appContext, currentList)
                     _messagesFlow.value = currentList
                 }
+                true
+            } else {
+                false
             }
         }
     }
 
     suspend fun getPendingMessages(): List<ChatMessage> = withContext(Dispatchers.IO) {
-        _messagesFlow.value.filter { it.status == 0 }
+        mutex.withLock {
+            _messagesFlow.value.filter { it.status == 0 }
+        }
     }
 
     suspend fun markIncomingMessagesAsRead(context: Context, mySenderId: Int): List<String> = withContext(Dispatchers.IO) {
         mutex.withLock {
+            val appContext = context.applicationContext
+            ensureLoadedLocked(appContext)
+
             val currentList = _messagesFlow.value.toMutableList()
             val updatedMessageIds = mutableListOf<String>()
             var hasModifications = false
@@ -140,7 +165,7 @@ object ChatRepository {
             }
 
             if (hasModifications) {
-                writeMessagesToFile(context.applicationContext, currentList)
+                writeMessagesToFile(appContext, currentList)
                 _messagesFlow.value = currentList
             }
             updatedMessageIds
