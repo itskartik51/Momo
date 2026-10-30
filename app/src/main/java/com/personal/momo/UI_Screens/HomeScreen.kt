@@ -484,4 +484,30 @@ private fun HomeHeader(
                             modifier = Modifier
                                 .width(18.dp)
                                 .height(2.5.dp)
-                                .clip(RoundedCornerShape(1.5
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(18.dp)
+                                .height(2.5.dp)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                        )
+                    }
+
+                    if (isUpdateAvailable) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .align(Alignment.TopEnd)
+                                .offset(x = (-4).dp, y = 4.dp)
+                                .clip(CircleShape)
+                                .background(brush = MomoPrimaryGradient)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
