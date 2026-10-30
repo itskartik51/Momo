@@ -7,23 +7,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -33,16 +22,11 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.personal.momo.Cache.CacheManager
-import com.personal.momo.UI_Screens.bounceClick
 import java.util.Locale
 
 /**
@@ -364,7 +348,6 @@ fun CallScreen(onBack: () -> Unit) {
                 partnerName = partnerDisplayName,
                 currentUserId = currentUserId,
                 callLogs = callLogs,
-                onBack = onBack,
                 onStartCall = {
                     executeWithMicPermission {
                         CallManager.startCall(context)
@@ -387,7 +370,6 @@ private fun CallHubView(
     partnerName: String,
     currentUserId: String,
     callLogs: List<CallLogItem>,
-    onBack: () -> Unit,
     onStartCall: () -> Unit,
     onResetCall: () -> Unit
 ) {
@@ -395,65 +377,24 @@ private fun CallHubView(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 20.dp)
     ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 2.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .bounceClick(scaleDown = 0.94f) { onBack() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+        Spacer(modifier = Modifier.height(18.dp))
 
-                Spacer(modifier = Modifier.width(12.dp))
+        DialerCard(
+            avatarUrl = avatarUrl,
+            partnerName = partnerName,
+            onStartCall = onStartCall,
+            onResetCall = onResetCall
+        )
 
-                Text(
-                    text = "Call",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
+        Spacer(modifier = Modifier.height(24.dp))
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp)
-        ) {
-            Spacer(modifier = Modifier.height(18.dp))
-
-            DialerCard(
-                avatarUrl = avatarUrl,
-                partnerName = partnerName,
-                onStartCall = onStartCall,
-                onResetCall = onResetCall
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            CallLogSection(
-                callLogs = callLogs,
-                currentUserId = currentUserId,
-                partnerName = partnerName,
-                modifier = Modifier.weight(1f)
-            )
-        }
+        CallLogSection(
+            callLogs = callLogs,
+            currentUserId = currentUserId,
+            partnerName = partnerName,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
