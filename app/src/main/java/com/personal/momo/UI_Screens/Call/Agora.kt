@@ -16,7 +16,7 @@ import kotlin.random.Random
 
 /**
  * 100% Self-Contained Agora RTC Engine for VoIP Audio Streaming.
- * Pure streaming engine; hardware audio routing is exclusively managed by AudioMan.
+ * Hardware audio routing is synchronized with AudioMan to prevent audio overrides.
  */
 object AgoraCallEngine {
     private const val AGORA_APP_ID = "8eb2889c463d4389af35fd64113508bc"
@@ -163,5 +163,11 @@ object AgoraCallEngine {
 
     fun setMute(isMuted: Boolean) {
         rtcEngine?.muteLocalAudioStream(isMuted)
+    }
+
+    fun setSpeakerphone(enabled: Boolean) {
+        try {
+            rtcEngine?.setEnableSpeakerphone(enabled)
+        } catch (_: Exception) {}
     }
 }
