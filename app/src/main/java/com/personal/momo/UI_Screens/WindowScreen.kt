@@ -79,10 +79,7 @@ fun WindowScreen(
     } else {
         if (isInChatDetail) {
             ChatScreen(
-                onBack = { isInChatDetail = false },
-                onSendMessage = { text ->
-                    ChatEngine.sendMessage(context, text)
-                }
+                onBack = { isInChatDetail = false }
             )
         } else {
             Column(
