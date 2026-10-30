@@ -23,18 +23,26 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.Call.CallManager
 import com.personal.momo.UI_Screens.Call.CallScreen
+import com.personal.momo.UI_Screens.Chat.ChatEngine
+import com.personal.momo.UI_Screens.Chat.ChatScreen
+import com.personal.momo.UI_Screens.Chat.InboxScreen
 import kotlinx.coroutines.launch
 
 /**
@@ -48,25 +56,44 @@ import kotlinx.coroutines.launch
 fun WindowScreen(
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { 2 }
     )
 
-    // Logical multi-step Back Navigation: Call Tab -> Chat Tab -> HomeScreen
+    var isChatOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        ChatEngine.startEngine(context)
+    }
+
+    // Logical multi-step Back Navigation: ChatScreen -> Inbox/Call Tab -> Chat Tab -> HomeScreen
     BackHandler(enabled = !CallManager.isIncomingCall && !CallManager.isCallActive) {
-        if (pagerState.currentPage != 0) {
-            coroutineScope.launch {
-                pagerState.animateScrollToPage(0)
+        when {
+            isChatOpen -> {
+                isChatOpen = false
             }
-        } else {
-            onBack()
+            pagerState.currentPage != 0 -> {
+                coroutineScope.launch {
+                    pagerState.animateScrollToPage(0)
+                }
+            }
+            else -> {
+                onBack()
+            }
         }
     }
 
     if (CallManager.isIncomingCall || CallManager.isCallActive) {
         CallScreen(onBack = onBack)
+    } else if (isChatOpen) {
+        ChatScreen(
+            onBack = {
+                isChatOpen = false
+            }
+        )
     } else {
         Column(
             modifier = Modifier
@@ -89,126 +116,4 @@ fun WindowScreen(
                         .padding(4.dp)
                 ) {
                     val segmentWidth = maxWidth / 2
-                    val animatedPosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
-
-                    // Smooth Sliding Pill Indicator using centralized MomoPrimaryGradient
-                    Box(
-                        modifier = Modifier
-                            .offset {
-                                IntOffset(
-                                    x = (animatedPosition * segmentWidth.toPx()).toInt(),
-                                    y = 0
-                                )
-                            }
-                            .width(segmentWidth)
-                            .fillMaxHeight()
-                            .clip(CircleShape)
-                            .background(MomoPrimaryGradient)
-                    )
-
-                    // Tab Action Row
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val isChatActive = pagerState.currentPage == 0
-                        val chatTextColor by animateColorAsState(
-                            targetValue = if (isChatActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                            animationSpec = tween(durationMillis = 200),
-                            label = "ChatTextColor"
-                        )
-
-                        val isCallActive = pagerState.currentPage == 1
-                        val callTextColor by animateColorAsState(
-                            targetValue = if (isCallActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                            animationSpec = tween(durationMillis = 200),
-                            label = "CallTextColor"
-                        )
-
-                        // Left Tab: Chat
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(CircleShape)
-                                .bounceClick(scaleDown = 0.94f) {
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(0)
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Chat",
-                                fontSize = 14.sp,
-                                fontWeight = if (isChatActive) FontWeight.Bold else FontWeight.Medium,
-                                color = chatTextColor
-                            )
-                        }
-
-                        // Right Tab: Call
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(CircleShape)
-                                .bounceClick(scaleDown = 0.94f) {
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(1)
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Call",
-                                fontSize = 14.sp,
-                                fontWeight = if (isCallActive) FontWeight.Bold else FontWeight.Medium,
-                                color = callTextColor
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Finger Swipable Viewport for Chat & Call Screens
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) { page ->
-                when (page) {
-                    0 -> {
-                        ChatPlaceholderSection()
-                    }
-                    1 -> {
-                        CallScreen(
-                            onBack = {
-                                coroutineScope.launch {
-                                    pagerState.animateScrollToPage(0)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatPlaceholderSection() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "No messages yet",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
-    }
-}
+                    val animatedPosition = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f,
