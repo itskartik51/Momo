@@ -52,10 +52,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
@@ -103,10 +106,13 @@ fun ChatScreen(
     onBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
-    val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
-    val myCode = ChatEngine.getMySenderCode()
+
+    val isMomo = currentUserId.equals("Momo", ignoreCase = true)
+    val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
+    val myCode = if (isMomo) 2 else 1
 
     val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
     val messagesList by ChatRepository.messagesFlow.collectAsState()
@@ -114,14 +120,35 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
 
-    DisposableEffect(Unit) {
-        ChatEngine.setChatScreenActive(context, true)
+    DisposableEffect(lifecycleOwner) {
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            ChatEngine.setChatScreenActive(context, true)
+        }
+
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    ChatEngine.setChatScreenActive(context, true)
+                }
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP,
+                Lifecycle.Event.ON_DESTROY -> {
+                    ChatEngine.setChatScreenActive(context, false)
+                }
+                else -> {}
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             ChatEngine.setChatScreenActive(context, false)
         }
     }
 
     BackHandler {
+        ChatEngine.setChatScreenActive(context, false)
         onBack()
     }
 
@@ -141,7 +168,10 @@ fun ChatScreen(
             avatarUrl = avatarUrl,
             inChat = partnerPresence.inChat,
             lastSeen = partnerPresence.lastSeen,
-            onBack = onBack
+            onBack = {
+                ChatEngine.setChatScreenActive(context, false)
+                onBack()
+            }
         )
 
         LazyColumn(
