@@ -396,7 +396,14 @@ private fun HomeHeader(
                             indication = null
                         ) {
                             val currentTime = System.currentTimeMillis()
-                            if (currentTime - lastTapTimestamp <= 350L) {
+                            val timeDiff = currentTime - lastTapTimestamp
+
+                            // Reject fast hardware/digitizer jitter (< 120ms) from single touch press
+                            if (lastTapTimestamp != 0L && timeDiff < 120L) {
+                                return@clickable
+                            }
+
+                            if (timeDiff <= 500L) {
                                 tapCount++
                             } else {
                                 tapCount = 1
