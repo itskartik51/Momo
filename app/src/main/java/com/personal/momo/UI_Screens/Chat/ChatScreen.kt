@@ -1,7 +1,6 @@
 package com.personal.momo.UI_Screens.Chat
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -29,6 +27,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +58,7 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -94,21 +95,6 @@ private val SendIcon: ImageVector by lazy {
     ).build()
 }
 
-private val BubblePendingClockIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "BubblePendingClock",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).addPath(
-        pathData = PathParser().parsePathString(
-            "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
-        ).toNodes(),
-        fill = SolidColor(Color.White)
-    ).build()
-}
-
 @Composable
 fun ChatScreen(
     onBack: () -> Unit = {}
@@ -116,36 +102,28 @@ fun ChatScreen(
     val context = LocalContext.current
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
-    val messages by ChatRepository.messagesFlow.collectAsState()
+    val partnerDisplayName = if (currentUserId.equals("Momo", ignoreCase = true)) "Kanu" else "Momo"
+    val myCode = ChatEngine.getMySenderCode()
 
-    val isMomo = currentUserId.equals("Momo", ignoreCase = true)
-    val mySenderCode = if (isMomo) 2 else 1
-    val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
-
+    val messagesList by ChatRepository.messagesFlow.collectAsState()
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
 
-    // Manage active screen state for instant Read Receipts (3: Blue Tick)
     DisposableEffect(Unit) {
-        ChatEngine.startEngine(context)
         ChatEngine.setChatScreenActive(context, true)
         onDispose {
             ChatEngine.setChatScreenActive(context, false)
         }
     }
 
-    // Hardware back navigation handler (One step back to InboxScreen)
     BackHandler {
         onBack()
     }
 
-    // Auto-scroll to latest message and mark any live incoming messages as read
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
-            if (messages.any { it.senderId != mySenderCode && it.status < 3 }) {
-                ChatEngine.markChatAsRead(context)
-            }
+    LaunchedEffect(messagesList.size) {
+        if (messagesList.isNotEmpty()) {
+            listState.animateScrollToItem(messagesList.size - 1)
         }
     }
 
@@ -156,7 +134,6 @@ fun ChatScreen(
             .navigationBarsPadding()
             .imePadding()
     ) {
-        // Top Header
         ChatTopHeader(
             partnerName = partnerDisplayName,
             avatarUrl = avatarUrl,
@@ -164,7 +141,6 @@ fun ChatScreen(
             onBack = onBack
         )
 
-        // Messages Canvas
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -174,15 +150,15 @@ fun ChatScreen(
             contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(messages, key = { it.id }) { message ->
+            items(messagesList, key = { it.id }) { message ->
+                val isOutgoing = message.senderId == myCode
                 MessageBubbleRow(
                     message = message,
-                    isOutgoing = (message.senderId == mySenderCode)
+                    isOutgoing = isOutgoing
                 )
             }
         }
 
-        // Bottom Typing Bar
         ChatInputBar(
             text = inputText,
             onTextChanged = { inputText = it },
@@ -191,6 +167,11 @@ fun ChatScreen(
                 if (cleanText.isNotEmpty()) {
                     ChatEngine.sendMessage(context, cleanText)
                     inputText = ""
+                    coroutineScope.launch {
+                        if (messagesList.isNotEmpty()) {
+                            listState.animateScrollToItem(messagesList.size - 1)
+                        }
+                    }
                 }
             }
         )
@@ -215,7 +196,6 @@ private fun ChatTopHeader(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Back Action Button
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -235,7 +215,6 @@ private fun ChatTopHeader(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Partner Avatar with Presence Indicator
             Box(
                 modifier = Modifier
                     .size(42.dp)
@@ -284,7 +263,6 @@ private fun ChatTopHeader(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Name & Status Text
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.Center
@@ -309,10 +287,7 @@ private fun ChatTopHeader(
 }
 
 @Composable
-private fun MessageBubbleRow(
-    message: ChatMessage,
-    isOutgoing: Boolean
-) {
+private fun MessageBubbleRow(message: ChatMessage, isOutgoing: Boolean) {
     val bubbleShape = if (isOutgoing) {
         RoundedCornerShape(
             topStart = 16.dp,
@@ -344,7 +319,7 @@ private fun MessageBubbleRow(
                 MaterialTheme.colorScheme.surfaceVariant
             else
                 MaterialTheme.colorScheme.surface,
-            border = if (isOutgoing) null else BorderStroke(
+            border = if (isOutgoing) null else androidx.compose.foundation.BorderStroke(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
             ),
@@ -387,10 +362,10 @@ private fun BubbleStatusTicks(status: Int) {
     when (status) {
         0 -> {
             Icon(
-                imageVector = BubblePendingClockIcon,
+                imageVector = Icons.Outlined.Schedule,
                 contentDescription = "Pending",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(13.dp)
             )
         }
         1 -> {
@@ -464,7 +439,6 @@ private fun ChatInputBar(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Text Input Box
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -501,7 +475,6 @@ private fun ChatInputBar(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Rounded Send Button
             Box(
                 modifier = Modifier
                     .size(44.dp)
