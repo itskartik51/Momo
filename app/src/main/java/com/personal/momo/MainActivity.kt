@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.ChatSync.ChatSyncService
 import com.personal.momo.Proximity.ProximityLocationService
 import com.personal.momo.UI_Screens.Call.ActiveCallScreen
 import com.personal.momo.UI_Screens.Call.CallManager
@@ -70,6 +71,9 @@ class MainActivity : FragmentActivity() {
 
         // Global Call Listener
         CallManager.startSignalingListener(applicationContext)
+
+        // Background Chat Sync Service
+        ChatSyncService.startService(applicationContext)
 
         configureLockScreenVisibility()
         handleIncomingIntent(intent)
