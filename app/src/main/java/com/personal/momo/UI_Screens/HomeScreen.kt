@@ -16,6 +16,8 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -389,9 +391,12 @@ private fun HomeHeader(
                         fontSize = 20.sp,
                         letterSpacing = 0.5.sp,
                         style = TextStyle(brush = MomoPrimaryGradient),
-                        modifier = Modifier.bounceClick(scaleDown = 0.94f) {
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
                             val currentTime = System.currentTimeMillis()
-                            if (currentTime - lastTapTimestamp <= 600L) {
+                            if (currentTime - lastTapTimestamp <= 350L) {
                                 tapCount++
                             } else {
                                 tapCount = 1
@@ -479,30 +484,4 @@ private fun HomeHeader(
                             modifier = Modifier
                                 .width(18.dp)
                                 .height(2.5.dp)
-                                .clip(RoundedCornerShape(1.5.dp))
-                                .background(MaterialTheme.colorScheme.onSurfaceVariant)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .width(18.dp)
-                                .height(2.5.dp)
-                                .clip(RoundedCornerShape(1.5.dp))
-                                .background(MaterialTheme.colorScheme.onSurfaceVariant)
-                        )
-                    }
-
-                    if (isUpdateAvailable) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .align(Alignment.TopEnd)
-                                .offset(x = (-4).dp, y = 4.dp)
-                                .clip(CircleShape)
-                                .background(brush = MomoPrimaryGradient)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
+                                .clip(RoundedCornerShape(1.5
