@@ -1,8 +1,10 @@
 package com.personal.momo.UI_Screens.Chat
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
@@ -61,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
+import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
@@ -71,6 +74,7 @@ import kotlin.math.roundToInt
 
 private val AquaMintColor = Color(0xFF43CEA2)
 private val DarkQuotedSurfaceColor = Color(0xFF171922)
+private val HighlightFlashColor = Color(0x2825D366)
 
 private val ReplyIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -92,12 +96,14 @@ internal fun MessageBubbleRow(
     message: ChatMessage,
     isOutgoing: Boolean,
     isSelected: Boolean,
+    isHighlighted: Boolean,
     isSelectionMode: Boolean,
     isLastInGroup: Boolean,
     myCode: Int,
     partnerDisplayName: String,
     onToggleSelect: (String) -> Unit,
-    onSwipeToReply: (ChatMessage) -> Unit
+    onSwipeToReply: (ChatMessage) -> Unit,
+    onReplyClick: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -143,14 +149,22 @@ internal fun MessageBubbleRow(
         formatBubbleTime(message.timestamp)
     }
 
+    val rowBackgroundColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> HighlightFlashColor
+            isHighlighted -> HighlightFlashColor
+            else -> Color.Transparent
+        },
+        animationSpec = tween(durationMillis = if (isHighlighted) 120 else 600),
+        label = "rowHighlightAnimation"
+    )
+
     val bottomSpacing = if (isLastInGroup) 5.dp else 2.dp
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                if (isSelected) Color(0x2825D366) else Color.Transparent
-            )
+            .background(rowBackgroundColor)
             .pointerInput(message.id, isSelectionMode) {
                 detectTapGestures(
                     onLongPress = {
@@ -244,7 +258,8 @@ internal fun MessageBubbleRow(
                             isLastInGroup = isLastInGroup,
                             formattedTime = formattedTime,
                             myCode = myCode,
-                            partnerDisplayName = partnerDisplayName
+                            partnerDisplayName = partnerDisplayName,
+                            onReplyClick = onReplyClick
                         )
                     }
                 }
@@ -260,7 +275,8 @@ private fun BubbleMessageContent(
     isLastInGroup: Boolean,
     formattedTime: String,
     myCode: Int,
-    partnerDisplayName: String
+    partnerDisplayName: String,
+    onReplyClick: (String) -> Unit
 ) {
     var textLayoutResult by remember(message.id, message.text) {
         mutableStateOf<TextLayoutResult?>(null)
@@ -278,11 +294,13 @@ private fun BubbleMessageContent(
         content = {
             if (hasReply) {
                 QuotedReplySnippet(
+                    replyToId = message.replyToId,
                     replyToText = message.replyToText ?: "",
                     replyToSenderId = message.replyToSenderId,
                     myCode = myCode,
                     partnerDisplayName = partnerDisplayName,
-                    isOutgoing = isOutgoing
+                    isOutgoing = isOutgoing,
+                    onReplyClick = onReplyClick
                 )
             }
 
@@ -425,11 +443,13 @@ private fun BubbleMessageContent(
 
 @Composable
 private fun QuotedReplySnippet(
+    replyToId: String?,
     replyToText: String,
     replyToSenderId: Int?,
     myCode: Int,
     partnerDisplayName: String,
-    isOutgoing: Boolean
+    isOutgoing: Boolean,
+    onReplyClick: (String) -> Unit
 ) {
     val isReplyFromMe = replyToSenderId == myCode
     val accentColor = if (isReplyFromMe) MomoRedLight else AquaMintColor
@@ -445,6 +465,11 @@ private fun QuotedReplySnippet(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(containerBg)
+            .bounceClick(scaleDown = 0.96f) {
+                if (!replyToId.isNullOrEmpty()) {
+                    onReplyClick(replyToId)
+                }
+            }
             .height(IntrinsicSize.Min)
     ) {
         Box(
