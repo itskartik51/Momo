@@ -607,21 +607,24 @@ private fun MessageBubbleRow(
                                 if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
                             )
                             .padding(start = 11.dp, end = 9.dp, top = 5.dp, bottom = 5.dp),
-                        verticalAlignment = Alignment.Bottom
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = message.text,
                             fontSize = 14.5.sp,
                             color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 19.5.sp
+                            lineHeight = 19.5.sp,
+                            modifier = Modifier.align(Alignment.CenterVertically)
                         )
 
                         Spacer(modifier = Modifier.width(6.dp))
 
                         Row(
+                            modifier = Modifier
+                                .align(Alignment.Bottom)
+                                .padding(bottom = 1.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            modifier = Modifier.padding(bottom = 1.dp)
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
                         ) {
                             Text(
                                 text = formattedTime,
