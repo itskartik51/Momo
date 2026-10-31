@@ -2,7 +2,11 @@ package com.personal.momo.UI_Screens.Chat
 
 import android.app.Activity
 import android.graphics.drawable.ColorDrawable
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +59,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
@@ -63,6 +68,7 @@ import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -144,6 +150,63 @@ fun ChatScreen(
     var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
     var showDeleteDialog by remember { mutableStateOf(false) }
+
+    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            val photoUri = tempCameraUri
+            if (photoUri != null) {
+                val caption = inputText.trim()
+                ChatEngine.sendMediaMessage(
+                    context = context,
+                    mediaUri = photoUri,
+                    mediaType = 1,
+                    caption = caption,
+                    replyToId = replyingToMessage?.id,
+                    replyToText = replyingToMessage?.text,
+                    replyToSenderId = replyingToMessage?.senderId
+                )
+                inputText = ""
+                replyingToMessage = null
+                coroutineScope.launch {
+                    if (reversedMessages.isNotEmpty()) {
+                        listState.animateScrollToItem(0)
+                    }
+                }
+            }
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val mimeType = context.contentResolver.getType(uri) ?: ""
+            val isVideo = mimeType.startsWith("video", ignoreCase = true)
+            val mediaType = if (isVideo) 2 else 1
+            val caption = inputText.trim()
+
+            ChatEngine.sendMediaMessage(
+                context = context,
+                mediaUri = uri,
+                mediaType = mediaType,
+                caption = caption,
+                replyToId = replyingToMessage?.id,
+                replyToText = replyingToMessage?.text,
+                replyToSenderId = replyingToMessage?.senderId
+            )
+            inputText = ""
+            replyingToMessage = null
+            coroutineScope.launch {
+                if (reversedMessages.isNotEmpty()) {
+                    listState.animateScrollToItem(0)
+                }
+            }
+        }
+    }
 
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
@@ -340,6 +403,24 @@ fun ChatScreen(
                 onCancelReply = { replyingToMessage = null },
                 myCode = myCode,
                 partnerDisplayName = partnerDisplayName,
+                onCameraClick = {
+                    val cacheFolder = File(context.cacheDir, "camera_captures").apply {
+                        if (!exists()) mkdirs()
+                    }
+                    val photoFile = File(cacheFolder, "CAM_${System.currentTimeMillis()}.jpg")
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.provider",
+                        photoFile
+                    )
+                    tempCameraUri = uri
+                    cameraLauncher.launch(uri)
+                },
+                onGalleryClick = {
+                    galleryLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                    )
+                },
                 onSend = {
                     val cleanText = inputText.trim()
                     if (cleanText.isNotEmpty()) {
