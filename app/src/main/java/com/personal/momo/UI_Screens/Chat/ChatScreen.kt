@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
@@ -56,10 +55,12 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -544,10 +545,6 @@ private fun MessageBubbleRow(
         formatBubbleTime(message.timestamp)
     }
 
-    val isShortMessage = remember(message.text) {
-        !message.text.contains('\n') && message.text.length <= 26
-    }
-
     val bottomSpacing = if (isLastInGroup) 6.dp else 2.dp
 
     Box(
@@ -585,97 +582,128 @@ private fun MessageBubbleRow(
                 ),
                 shadowElevation = 1.dp
             ) {
-                if (!isLastInGroup) {
-                    Column(
-                        modifier = Modifier
-                            .then(
-                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                            )
-                            .padding(horizontal = 11.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            text = message.text,
-                            fontSize = 14.5.sp,
-                            color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 19.5.sp
+                Box(
+                    modifier = Modifier
+                        .then(
+                            if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
                         )
-                    }
-                } else if (isShortMessage) {
-                    Row(
-                        modifier = Modifier
-                            .then(
-                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                            )
-                            .padding(start = 11.dp, end = 9.dp, top = 5.dp, bottom = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = message.text,
-                            fontSize = 14.5.sp,
-                            color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 19.5.sp,
-                            modifier = Modifier.align(Alignment.CenterVertically)
+                        .padding(
+                            start = 10.dp,
+                            end = if (isLastInGroup) 8.dp else 10.dp,
+                            top = 5.dp,
+                            bottom = if (isLastInGroup) 4.dp else 5.dp
                         )
+                ) {
+                    BubbleMessageContent(
+                        message = message,
+                        isOutgoing = isOutgoing,
+                        isLastInGroup = isLastInGroup,
+                        formattedTime = formattedTime
+                    )
+                }
+            }
+        }
+    }
+}
 
-                        Spacer(modifier = Modifier.width(6.dp))
+@Composable
+private fun BubbleMessageContent(
+    message: ChatMessage,
+    isOutgoing: Boolean,
+    isLastInGroup: Boolean,
+    formattedTime: String
+) {
+    var textLayoutResult by remember(message.id, message.text) {
+        mutableStateOf<TextLayoutResult?>(null)
+    }
 
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.Bottom)
-                                .padding(bottom = 1.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Text(
-                                text = formattedTime,
-                                fontSize = 10.sp,
-                                color = if (isOutgoing)
-                                    Color.White.copy(alpha = 0.82f)
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
+    val textColor = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface
+    val timeColor = if (isOutgoing)
+        Color.White.copy(alpha = 0.82f)
+    else
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
 
-                            if (isOutgoing) {
-                                BubbleStatusTicks(status = message.status)
-                            }
-                        }
+    Layout(
+        content = {
+            Text(
+                text = message.text,
+                fontSize = 14.5.sp,
+                color = textColor,
+                lineHeight = 19.5.sp,
+                onTextLayout = { textLayoutResult = it }
+            )
+
+            if (isLastInGroup) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = formattedTime,
+                        fontSize = 10.sp,
+                        color = timeColor
+                    )
+
+                    if (isOutgoing) {
+                        BubbleStatusTicks(status = message.status)
                     }
+                }
+            }
+        }
+    ) { measurables, constraints ->
+        val textPlaceable = measurables[0].measure(constraints)
+
+        if (!isLastInGroup || measurables.size < 2) {
+            layout(textPlaceable.width, textPlaceable.height) {
+                textPlaceable.placeRelative(0, 0)
+            }
+        } else {
+            val timePlaceable = measurables[1].measure(
+                constraints.copy(minWidth = 0, minHeight = 0)
+            )
+
+            val horizontalGap = 8.dp.roundToPx()
+            val lineCount = textLayoutResult?.lineCount ?: 1
+            val lastLine = lineCount - 1
+            val lastLineWidth = textLayoutResult?.let {
+                it.getLineRight(lastLine) - it.getLineLeft(lastLine)
+            } ?: textPlaceable.width.toFloat()
+
+            val canFitInline = (lastLineWidth + horizontalGap + timePlaceable.width) <= constraints.maxWidth
+
+            if (canFitInline) {
+                val totalWidth = maxOf(
+                    textPlaceable.width,
+                    (lastLineWidth + horizontalGap + timePlaceable.width).toInt()
+                )
+                val totalHeight = if (lineCount == 1) {
+                    maxOf(textPlaceable.height, timePlaceable.height)
                 } else {
-                    Column(
-                        modifier = Modifier
-                            .then(
-                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                            )
-                            .padding(start = 11.dp, end = 10.dp, top = 5.dp, bottom = 4.dp)
-                    ) {
-                        Text(
-                            text = message.text,
-                            fontSize = 14.5.sp,
-                            color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 19.5.sp
-                        )
+                    textPlaceable.height
+                }
 
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Row(
-                            modifier = Modifier.align(Alignment.End),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp)
-                        ) {
-                            Text(
-                                text = formattedTime,
-                                fontSize = 10.sp,
-                                color = if (isOutgoing)
-                                    Color.White.copy(alpha = 0.82f)
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-
-                            if (isOutgoing) {
-                                BubbleStatusTicks(status = message.status)
-                            }
-                        }
+                layout(totalWidth, totalHeight) {
+                    val textY = if (lineCount == 1) {
+                        (totalHeight - textPlaceable.height) / 2
+                    } else {
+                        0
                     }
+                    textPlaceable.placeRelative(0, textY)
+
+                    val timeX = totalWidth - timePlaceable.width
+                    val timeY = totalHeight - timePlaceable.height
+                    timePlaceable.placeRelative(timeX, timeY)
+                }
+            } else {
+                val verticalGap = 2.dp.roundToPx()
+                val totalWidth = maxOf(textPlaceable.width, timePlaceable.width)
+                val totalHeight = textPlaceable.height + verticalGap + timePlaceable.height
+
+                layout(totalWidth, totalHeight) {
+                    textPlaceable.placeRelative(0, 0)
+                    val timeX = totalWidth - timePlaceable.width
+                    val timeY = textPlaceable.height + verticalGap
+                    timePlaceable.placeRelative(timeX, timeY)
                 }
             }
         }
