@@ -60,6 +60,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.bounceClick
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -135,6 +137,9 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
+    var highlightTimerJob by remember { mutableStateOf<Job?>(null) }
 
     var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
@@ -265,6 +270,7 @@ fun ChatScreen(
             itemsIndexed(reversedMessages, key = { _, message -> message.id }) { index, message ->
                 val isOutgoing = message.senderId == myCode
                 val isSelected = selectedMessageIds.contains(message.id)
+                val isHighlighted = message.id == highlightedMessageId
 
                 val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
                 val isNextSameGroup = nextChronologicalMsg != null &&
@@ -276,6 +282,7 @@ fun ChatScreen(
                     message = message,
                     isOutgoing = isOutgoing,
                     isSelected = isSelected,
+                    isHighlighted = isHighlighted,
                     isSelectionMode = isSelectionMode,
                     isLastInGroup = isLastInGroup,
                     myCode = myCode,
@@ -289,6 +296,22 @@ fun ChatScreen(
                     },
                     onSwipeToReply = { targetMsg ->
                         replyingToMessage = targetMsg
+                    },
+                    onReplyClick = { targetReplyId ->
+                        val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
+                        if (targetIndex >= 0) {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(targetIndex)
+                            }
+                            highlightTimerJob?.cancel()
+                            highlightedMessageId = targetReplyId
+                            highlightTimerJob = coroutineScope.launch {
+                                delay(1200L)
+                                if (highlightedMessageId == targetReplyId) {
+                                    highlightedMessageId = null
+                                }
+                            }
+                        }
                     }
                 )
             }
