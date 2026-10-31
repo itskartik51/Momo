@@ -300,9 +300,19 @@ fun ChatScreen(
                     onReplyClick = { targetReplyId ->
                         val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
                         if (targetIndex >= 0) {
-                            coroutineScope.launch {
-                                listState.animateScrollToItem(targetIndex)
+                            val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
+
+                            if (!isAlreadyVisible) {
+                                coroutineScope.launch {
+                                    val viewportHeight = listState.layoutInfo.viewportSize.height
+                                    val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
+                                    listState.animateScrollToItem(
+                                        index = targetIndex,
+                                        scrollOffset = centerOffset
+                                    )
+                                }
                             }
+
                             highlightTimerJob?.cancel()
                             highlightedMessageId = targetReplyId
                             highlightTimerJob = coroutineScope.launch {
