@@ -11,8 +11,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -205,7 +207,7 @@ private fun ReplyPreviewBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         color = DarkInputSurfaceColor,
         border = BorderStroke(
             width = 1.dp,
@@ -215,21 +217,22 @@ private fun ReplyPreviewBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .width(3.5.dp)
-                    .height(36.dp)
-                    .clip(CircleShape)
+                    .width(4.dp)
+                    .fillMaxHeight()
                     .background(accentColor)
             )
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 7.dp),
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
@@ -262,6 +265,7 @@ private fun ReplyPreviewBar(
 
             Box(
                 modifier = Modifier
+                    .padding(end = 8.dp)
                     .size(28.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.94f) {
