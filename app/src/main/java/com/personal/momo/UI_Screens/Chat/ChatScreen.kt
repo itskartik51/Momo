@@ -143,11 +143,14 @@ fun ChatScreen(
     val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
     val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
 
-    val backgroundColor = MaterialTheme.colorScheme.background
+    val bgColor = MaterialTheme.colorScheme.background
     SideEffect {
-        (context as? Activity)?.window?.setBackgroundDrawable(
-            ColorDrawable(backgroundColor.toArgb())
-        )
+        val window = (context as? Activity)?.window
+        if (window != null) {
+            val colorInt = bgColor.toArgb()
+            window.setBackgroundDrawable(ColorDrawable(colorInt))
+            window.decorView.setBackgroundColor(colorInt)
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -218,7 +221,7 @@ fun ChatScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(backgroundColor)
+            .background(bgColor)
     ) {
         if (isSelectionMode) {
             SelectionTopHeader(
@@ -251,7 +254,6 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .background(backgroundColor)
                 .clipToBounds(),
             contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp),
             verticalArrangement = Arrangement.Bottom
@@ -286,7 +288,6 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(backgroundColor)
                 .padding(bottom = bottomInsetDp)
         ) {
             ChatInputBar(
@@ -491,20 +492,6 @@ private fun ChatTopHeader(
                 )
             }
         }
-    }
-}
-
-private fun isSameMinute(t1: Long, t2: Long): Boolean {
-    if (t1 <= 0L || t2 <= 0L) return false
-    return try {
-        val dt1 = LocalDateTime.ofInstant(Instant.ofEpochMilli(t1), ZoneId.systemDefault())
-        val dt2 = LocalDateTime.ofInstant(Instant.ofEpochMilli(t2), ZoneId.systemDefault())
-        dt1.year == dt2.year &&
-            dt1.dayOfYear == dt2.dayOfYear &&
-            dt1.hour == dt2.hour &&
-            dt1.minute == dt2.minute
-    } catch (_: Exception) {
-        false
     }
 }
 
