@@ -14,16 +14,21 @@ import java.io.File
 
 /**
  * Message Model based on Ultra-Compact Tuple Format:
- * [id, send, text, time, status, replyToId?, replyToText?, replyToSenderId?]
+ * [id, send, text, time, status, replyToId?, replyToText?, replyToSenderId?, mediaType?, fileId?, cryptoKey?, cryptoIv?, localPath?]
  *
- * Index 0 -> id: String (UUID)
- * Index 1 -> senderId: Int (1: Kanu, 2: Momo)
- * Index 2 -> text: String (Message content)
- * Index 3 -> timestamp: Long (Epoch ms)
- * Index 4 -> status: Int (0: Pending, 1: Sent, 2: Delivered, 3: Read)
- * Index 5 -> replyToId: String? (Optional replied message ID)
- * Index 6 -> replyToText: String? (Optional replied message text)
- * Index 7 -> replyToSenderId: Int? (Optional replied sender code)
+ * Index 0  -> id: String (UUID)
+ * Index 1  -> senderId: Int (1: Kanu, 2: Momo)
+ * Index 2  -> text: String (Message content / Media caption)
+ * Index 3  -> timestamp: Long (Epoch ms)
+ * Index 4  -> status: Int (0: Pending, 1: Sent, 2: Delivered, 3: Read)
+ * Index 5  -> replyToId: String? (Optional replied message ID)
+ * Index 6  -> replyToText: String? (Optional replied message text)
+ * Index 7  -> replyToSenderId: Int? (Optional replied sender code)
+ * Index 8  -> mediaType: Int (0: Plain Text, 1: Image, 2: Video)
+ * Index 9  -> fileId: String? (Encrypted file identifier in Firebase Storage)
+ * Index 10 -> cryptoKey: String? (Base64 AES-256 encryption key)
+ * Index 11 -> cryptoIv: String? (Base64 GCM IV)
+ * Index 12 -> localPath: String? (Local decrypted file name in chat_media)
  */
 data class ChatMessage(
     val id: String,
@@ -33,7 +38,12 @@ data class ChatMessage(
     val status: Int,
     val replyToId: String? = null,
     val replyToText: String? = null,
-    val replyToSenderId: Int? = null
+    val replyToSenderId: Int? = null,
+    val mediaType: Int = 0,
+    val fileId: String? = null,
+    val cryptoKey: String? = null,
+    val cryptoIv: String? = null,
+    val localPath: String? = null
 )
 
 object ChatRepository {
@@ -86,6 +96,26 @@ object ChatRepository {
                         tuple.optInt(7).takeIf { it > 0 }
                     } else null
 
+                    val mediaType = if (tuple.length() > 8 && !tuple.isNull(8)) {
+                        tuple.optInt(8, 0)
+                    } else 0
+
+                    val fileId = if (tuple.length() > 9 && !tuple.isNull(9)) {
+                        tuple.optString(9).takeIf { it.isNotEmpty() }
+                    } else null
+
+                    val cryptoKey = if (tuple.length() > 10 && !tuple.isNull(10)) {
+                        tuple.optString(10).takeIf { it.isNotEmpty() }
+                    } else null
+
+                    val cryptoIv = if (tuple.length() > 11 && !tuple.isNull(11)) {
+                        tuple.optString(11).takeIf { it.isNotEmpty() }
+                    } else null
+
+                    val localPath = if (tuple.length() > 12 && !tuple.isNull(12)) {
+                        tuple.optString(12).takeIf { it.isNotEmpty() }
+                    } else null
+
                     list.add(
                         ChatMessage(
                             id = tuple.optString(0, ""),
@@ -95,7 +125,12 @@ object ChatRepository {
                             status = tuple.optInt(4, 0),
                             replyToId = replyToId,
                             replyToText = replyToText,
-                            replyToSenderId = replyToSenderId
+                            replyToSenderId = replyToSenderId,
+                            mediaType = mediaType,
+                            fileId = fileId,
+                            cryptoKey = cryptoKey,
+                            cryptoIv = cryptoIv,
+                            localPath = localPath
                         )
                     )
                 }
@@ -220,10 +255,21 @@ object ChatRepository {
                 tuple.put(msg.timestamp)
                 tuple.put(msg.status)
 
-                if (!msg.replyToId.isNullOrEmpty() || !msg.replyToText.isNullOrEmpty() || msg.replyToSenderId != null) {
+                val hasReply = !msg.replyToId.isNullOrEmpty() || !msg.replyToText.isNullOrEmpty() || msg.replyToSenderId != null
+                val hasMedia = msg.mediaType > 0 || !msg.fileId.isNullOrEmpty() || !msg.localPath.isNullOrEmpty()
+
+                if (hasReply || hasMedia) {
                     tuple.put(msg.replyToId ?: JSONObject.NULL)
                     tuple.put(msg.replyToText ?: JSONObject.NULL)
                     tuple.put(msg.replyToSenderId ?: JSONObject.NULL)
+
+                    if (hasMedia) {
+                        tuple.put(msg.mediaType)
+                        tuple.put(msg.fileId ?: JSONObject.NULL)
+                        tuple.put(msg.cryptoKey ?: JSONObject.NULL)
+                        tuple.put(msg.cryptoIv ?: JSONObject.NULL)
+                        tuple.put(msg.localPath ?: JSONObject.NULL)
+                    }
                 }
 
                 rootArray.put(tuple)
