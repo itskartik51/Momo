@@ -9,24 +9,31 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
 /**
  * Message Model based on Ultra-Compact Tuple Format:
- * [id, send, text, time, status]
+ * [id, send, text, time, status, replyToId?, replyToText?, replyToSenderId?]
  *
  * Index 0 -> id: String (UUID)
  * Index 1 -> senderId: Int (1: Kanu, 2: Momo)
  * Index 2 -> text: String (Message content)
  * Index 3 -> timestamp: Long (Epoch ms)
  * Index 4 -> status: Int (0: Pending, 1: Sent, 2: Delivered, 3: Read)
+ * Index 5 -> replyToId: String? (Optional replied message ID)
+ * Index 6 -> replyToText: String? (Optional replied message text)
+ * Index 7 -> replyToSenderId: Int? (Optional replied sender code)
  */
 data class ChatMessage(
     val id: String,
     val senderId: Int,
     val text: String,
     val timestamp: Long,
-    val status: Int
+    val status: Int,
+    val replyToId: String? = null,
+    val replyToText: String? = null,
+    val replyToSenderId: Int? = null
 )
 
 object ChatRepository {
@@ -67,13 +74,28 @@ object ChatRepository {
             for (i in 0 until jsonArray.length()) {
                 val tuple = jsonArray.optJSONArray(i) ?: continue
                 if (tuple.length() >= 5) {
+                    val replyToId = if (tuple.length() > 5 && !tuple.isNull(5)) {
+                        tuple.optString(5).takeIf { it.isNotEmpty() }
+                    } else null
+
+                    val replyToText = if (tuple.length() > 6 && !tuple.isNull(6)) {
+                        tuple.optString(6).takeIf { it.isNotEmpty() }
+                    } else null
+
+                    val replyToSenderId = if (tuple.length() > 7 && !tuple.isNull(7)) {
+                        tuple.optInt(7).takeIf { it > 0 }
+                    } else null
+
                     list.add(
                         ChatMessage(
                             id = tuple.optString(0, ""),
                             senderId = tuple.optInt(1, 1),
                             text = tuple.optString(2, ""),
                             timestamp = tuple.optLong(3, 0L),
-                            status = tuple.optInt(4, 0)
+                            status = tuple.optInt(4, 0),
+                            replyToId = replyToId,
+                            replyToText = replyToText,
+                            replyToSenderId = replyToSenderId
                         )
                     )
                 }
@@ -197,6 +219,13 @@ object ChatRepository {
                 tuple.put(msg.text)
                 tuple.put(msg.timestamp)
                 tuple.put(msg.status)
+
+                if (!msg.replyToId.isNullOrEmpty() || !msg.replyToText.isNullOrEmpty() || msg.replyToSenderId != null) {
+                    tuple.put(msg.replyToId ?: JSONObject.NULL)
+                    tuple.put(msg.replyToText ?: JSONObject.NULL)
+                    tuple.put(msg.replyToSenderId ?: JSONObject.NULL)
+                }
+
                 rootArray.put(tuple)
             }
 
