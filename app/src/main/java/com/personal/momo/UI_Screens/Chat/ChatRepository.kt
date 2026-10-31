@@ -140,6 +140,21 @@ object ChatRepository {
         }
     }
 
+    suspend fun deleteMessages(context: Context, messageIds: Set<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val appContext = context.applicationContext
+            ensureLoadedLocked(appContext)
+
+            val currentList = _messagesFlow.value.toMutableList()
+            val wasRemoved = currentList.removeAll { it.id in messageIds }
+
+            if (wasRemoved) {
+                writeMessagesToFile(appContext, currentList)
+                _messagesFlow.value = currentList
+            }
+        }
+    }
+
     suspend fun getPendingMessages(): List<ChatMessage> = withContext(Dispatchers.IO) {
         mutex.withLock {
             _messagesFlow.value.filter { it.status == 0 }
