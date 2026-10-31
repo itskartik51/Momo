@@ -59,8 +59,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
-import com.personal.momo.UI_Screens.MomoRedLight
-import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDateTime
@@ -160,6 +158,10 @@ internal fun MessageBubbleRow(
 
     val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.dp
 
+    val hasReply = !message.replyToText.isNullOrBlank()
+    val pureEmojiCount = remember(message.text) { getPureEmojiCount(message.text) }
+    val isFloatingEmoji = !hasReply && (pureEmojiCount in 1..3)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -218,7 +220,11 @@ internal fun MessageBubbleRow(
             Icon(
                 imageVector = ReplyIcon,
                 contentDescription = "Reply",
-                tint = if (isTriggered) MomoRedLight else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                tint = if (isTriggered) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                },
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -238,31 +244,102 @@ internal fun MessageBubbleRow(
             horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                modifier = Modifier.widthIn(max = 290.dp),
-                shape = bubbleShape,
-                color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
-                border = if (isOutgoing) null else BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                ),
-                shadowElevation = 1.dp
-            ) {
-                Box(
-                    modifier = Modifier.then(
-                        if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                    )
+            if (isFloatingEmoji) {
+                FloatingEmojiContent(
+                    text = message.text.trim(),
+                    emojiCount = pureEmojiCount,
+                    isOutgoing = isOutgoing,
+                    formattedTime = formattedTime,
+                    status = message.status
+                )
+            } else {
+                Surface(
+                    modifier = Modifier.widthIn(max = 290.dp),
+                    shape = bubbleShape,
+                    color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
+                    border = if (isOutgoing) null else BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                    ),
+                    shadowElevation = 1.dp
                 ) {
-                    BubbleMessageContent(
-                        message = message,
-                        isOutgoing = isOutgoing,
-                        isLastInGroup = isLastInGroup,
-                        formattedTime = formattedTime,
-                        myCode = myCode,
-                        partnerDisplayName = partnerDisplayName,
-                        onReplyClick = onReplyClick
-                    )
+                    Box(
+                        modifier = Modifier.then(
+                            if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                        )
+                    ) {
+                        BubbleMessageContent(
+                            message = message,
+                            isOutgoing = isOutgoing,
+                            isLastInGroup = isLastInGroup,
+                            formattedTime = formattedTime,
+                            myCode = myCode,
+                            partnerDisplayName = partnerDisplayName,
+                            onReplyClick = onReplyClick
+                        )
+                    }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloatingEmojiContent(
+    text: String,
+    emojiCount: Int,
+    isOutgoing: Boolean,
+    formattedTime: String,
+    status: Int
+) {
+    val emojiFontSize = when (emojiCount) {
+        1 -> 48.sp
+        2 -> 34.sp
+        else -> 26.sp
+    }
+    val emojiLineHeight = when (emojiCount) {
+        1 -> 54.sp
+        2 -> 40.sp
+        else -> 32.sp
+    }
+
+    Column(
+        horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = text,
+            fontSize = emojiFontSize,
+            lineHeight = emojiLineHeight,
+            style = TextStyle(
+                platformStyle = PlatformTextStyle(includeFontPadding = false)
+            )
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    if (isOutgoing) Color(0xFF2B0914).copy(alpha = 0.70f)
+                    else Color.Black.copy(alpha = 0.45f)
+                )
+                .padding(horizontal = 6.5.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.5.dp)
+        ) {
+            Text(
+                text = formattedTime,
+                fontSize = 10.5.sp,
+                color = Color.White.copy(alpha = 0.90f),
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                )
+            )
+
+            if (isOutgoing) {
+                BubbleStatusTicks(status = status)
             }
         }
     }
@@ -465,10 +542,14 @@ private fun QuotedReplySnippet(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(containerBg)
-            .bounceClick(scaleDown = 0.96f) {
-                if (!replyToId.isNullOrEmpty()) {
-                    onReplyClick(replyToId)
-                }
+            .pointerInput(replyToId) {
+                detectTapGestures(
+                    onTap = {
+                        if (!replyToId.isNullOrEmpty()) {
+                            onReplyClick(replyToId)
+                        }
+                    }
+                )
             }
             .height(IntrinsicSize.Min)
     ) {
@@ -578,6 +659,77 @@ private fun BubbleStatusTicks(status: Int) {
             }
         }
     }
+}
+
+private fun isEmojiCodePoint(cp: Int): Boolean {
+    return (cp in 0x1F600..0x1F64F) ||
+        (cp in 0x1F300..0x1F5FF) ||
+        (cp in 0x1F680..0x1F6FF) ||
+        (cp in 0x1F700..0x1F77F) ||
+        (cp in 0x1F780..0x1F7FF) ||
+        (cp in 0x1F800..0x1F8FF) ||
+        (cp in 0x1F900..0x1F9FF) ||
+        (cp in 0x1FA00..0x1FA6F) ||
+        (cp in 0x1FA70..0x1FAFF) ||
+        (cp in 0x2600..0x26FF) ||
+        (cp in 0x2700..0x27BF) ||
+        (cp in 0x2300..0x23FF) ||
+        (cp in 0x2B50..0x2B55) ||
+        (cp in 0x203C..0x2049) ||
+        (cp in 0x2194..0x21AA) ||
+        (cp in 0x2934..0x2935) ||
+        (cp in 0x3297..0x3299) ||
+        (cp in 0x1F1E6..0x1F1FF)
+}
+
+private fun isEmojiModifierOrJoiner(cp: Int): Boolean {
+    return cp == 0x200D ||
+        (cp in 0xFE00..0xFE0F) ||
+        (cp in 0x1F3FB..0x1F3FF) ||
+        (cp in 0xE0020..0xE007F) ||
+        cp == 0x20E3
+}
+
+private fun getPureEmojiCount(text: String): Int {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return 0
+    var count = 0
+    var i = 0
+    val len = trimmed.length
+    while (i < len) {
+        val cp = trimmed.codePointAt(i)
+        val charCount = Character.charCount(cp)
+
+        if (Character.isWhitespace(cp)) {
+            i += charCount
+            continue
+        }
+
+        if (!isEmojiCodePoint(cp)) {
+            return 0
+        }
+
+        count++
+        i += charCount
+
+        while (i < len) {
+            val nextCp = trimmed.codePointAt(i)
+            val nextCharCount = Character.charCount(nextCp)
+            if (isEmojiModifierOrJoiner(nextCp)) {
+                i += nextCharCount
+                if (nextCp == 0x200D && i < len) {
+                    val joinedCp = trimmed.codePointAt(i)
+                    i += Character.charCount(joinedCp)
+                }
+            } else if (nextCp in 0x1F1E6..0x1F1FF && cp in 0x1F1E6..0x1F1FF) {
+                i += nextCharCount
+                break
+            } else {
+                break
+            }
+        }
+    }
+    return count
 }
 
 internal fun isSameMinute(t1: Long, t2: Long): Boolean {
