@@ -73,8 +73,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private val AquaMintColor = Color(0xFF43CEA2)
-private val GlowingPinkAccent = Color(0xFFFFA0B4)
-private val OutgoingVelvetWineBg = Color(0xFF2B0914)
+private val GlowingPinkAccent = Color(0xFFFFC2D1)
+private val OutgoingDeepRoseBg = Color(0xFF5E081E).copy(alpha = 0.42f)
 private val HighlightFlashColor = Color(0x2825D366)
 
 private val ReplyIcon: ImageVector by lazy {
@@ -457,7 +457,7 @@ private fun QuotedReplySnippet(
     val senderTitle = if (isReplyFromMe) "You" else partnerDisplayName
 
     val containerBg = if (isOutgoing) {
-        OutgoingVelvetWineBg
+        OutgoingDeepRoseBg
     } else {
         Color.Black.copy(alpha = 0.28f)
     }
