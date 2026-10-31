@@ -56,7 +56,6 @@ import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
 
-private val AquaMintColor = Color(0xFF43CEA2)
 private val DarkInputSurfaceColor = Color(0xFF171922)
 private val DarkInputBorderColor = Color(0xFF262936)
 
