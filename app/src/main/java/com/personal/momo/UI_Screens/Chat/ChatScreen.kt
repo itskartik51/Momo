@@ -1,10 +1,10 @@
 package com.personal.momo.UI_Screens.Chat
 
+import android.app.Activity
+import android.graphics.drawable.ColorDrawable
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,23 +14,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,19 +45,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,7 +59,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
-import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -90,21 +78,6 @@ private val ArrowBackIcon: ImageVector by lazy {
     ).addPath(
         pathData = PathParser().parsePathString(
             "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
-        ).toNodes(),
-        fill = SolidColor(Color.White)
-    ).build()
-}
-
-private val SendIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "Send",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).addPath(
-        pathData = PathParser().parsePathString(
-            "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -156,6 +129,8 @@ fun ChatScreen(
 
     val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
     val messagesList by ChatRepository.messagesFlow.collectAsState()
+    val reversedMessages = remember(messagesList) { messagesList.asReversed() }
+
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
@@ -167,6 +142,13 @@ fun ChatScreen(
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
     val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
+
+    val backgroundColor = MaterialTheme.colorScheme.background
+    SideEffect {
+        (context as? Activity)?.window?.setBackgroundDrawable(
+            ColorDrawable(backgroundColor.toArgb())
+        )
+    }
 
     DisposableEffect(lifecycleOwner) {
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
@@ -212,13 +194,7 @@ fun ChatScreen(
 
     LaunchedEffect(messagesList.size) {
         if (messagesList.isNotEmpty() && !isSelectionMode) {
-            listState.animateScrollToItem(messagesList.size - 1)
-        }
-    }
-
-    LaunchedEffect(imeBottom) {
-        if (imeBottom > 0 && messagesList.isNotEmpty() && !isSelectionMode) {
-            listState.animateScrollToItem(messagesList.size - 1)
+            listState.animateScrollToItem(0)
         }
     }
 
@@ -242,7 +218,7 @@ fun ChatScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(backgroundColor)
     ) {
         if (isSelectionMode) {
             SelectionTopHeader(
@@ -271,21 +247,23 @@ fun ChatScreen(
 
         LazyColumn(
             state = listState,
+            reverseLayout = true,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .background(backgroundColor)
                 .clipToBounds(),
             contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+            verticalArrangement = Arrangement.Bottom
         ) {
-            itemsIndexed(messagesList, key = { _, message -> message.id }) { index, message ->
+            itemsIndexed(reversedMessages, key = { _, message -> message.id }) { index, message ->
                 val isOutgoing = message.senderId == myCode
                 val isSelected = selectedMessageIds.contains(message.id)
 
-                val nextMsg = messagesList.getOrNull(index + 1)
-                val isNextSameGroup = nextMsg != null &&
-                    nextMsg.senderId == message.senderId &&
-                    isSameMinute(message.timestamp, nextMsg.timestamp)
+                val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
+                val isNextSameGroup = nextChronologicalMsg != null &&
+                    nextChronologicalMsg.senderId == message.senderId &&
+                    isSameMinute(message.timestamp, nextChronologicalMsg.timestamp)
                 val isLastInGroup = !isNextSameGroup
 
                 MessageBubbleRow(
@@ -308,6 +286,7 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(backgroundColor)
                 .padding(bottom = bottomInsetDp)
         ) {
             ChatInputBar(
@@ -319,8 +298,8 @@ fun ChatScreen(
                         ChatEngine.sendMessage(context, cleanText)
                         inputText = ""
                         coroutineScope.launch {
-                            if (messagesList.isNotEmpty()) {
-                                listState.animateScrollToItem(messagesList.size - 1)
+                            if (reversedMessages.isNotEmpty()) {
+                                listState.animateScrollToItem(0)
                             }
                         }
                     }
@@ -515,343 +494,6 @@ private fun ChatTopHeader(
     }
 }
 
-@Composable
-private fun MessageBubbleRow(
-    message: ChatMessage,
-    isOutgoing: Boolean,
-    isSelected: Boolean,
-    isSelectionMode: Boolean,
-    isLastInGroup: Boolean,
-    onToggleSelect: (String) -> Unit
-) {
-    val haptic = LocalHapticFeedback.current
-
-    val bubbleShape = if (isOutgoing) {
-        RoundedCornerShape(
-            topStart = 16.dp,
-            topEnd = 4.dp,
-            bottomStart = 16.dp,
-            bottomEnd = if (isLastInGroup) 16.dp else 4.dp
-        )
-    } else {
-        RoundedCornerShape(
-            topStart = 4.dp,
-            topEnd = 16.dp,
-            bottomStart = if (isLastInGroup) 16.dp else 4.dp,
-            bottomEnd = 16.dp
-        )
-    }
-
-    val formattedTime = remember(message.timestamp) {
-        formatBubbleTime(message.timestamp)
-    }
-
-    val bottomSpacing = if (isLastInGroup) 6.dp else 2.dp
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (isSelected) Color(0x2825D366) else Color.Transparent
-            )
-            .pointerInput(message.id, isSelectionMode) {
-                detectTapGestures(
-                    onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onToggleSelect(message.id)
-                    },
-                    onTap = {
-                        if (isSelectionMode) {
-                            onToggleSelect(message.id)
-                        }
-                    }
-                )
-            }
-            .padding(start = 12.dp, end = 12.dp, top = 1.dp, bottom = bottomSpacing)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
-        ) {
-            Surface(
-                modifier = Modifier.widthIn(max = 290.dp),
-                shape = bubbleShape,
-                color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
-                border = if (isOutgoing) null else BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                ),
-                shadowElevation = 1.dp
-            ) {
-                Box(
-                    modifier = Modifier.then(
-                        if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                    )
-                ) {
-                    BubbleMessageContent(
-                        message = message,
-                        isOutgoing = isOutgoing,
-                        isLastInGroup = isLastInGroup,
-                        formattedTime = formattedTime
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BubbleMessageContent(
-    message: ChatMessage,
-    isOutgoing: Boolean,
-    isLastInGroup: Boolean,
-    formattedTime: String
-) {
-    var textLayoutResult by remember(message.id, message.text) {
-        mutableStateOf<TextLayoutResult?>(null)
-    }
-
-    val textColor = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface
-    val timeColor = if (isOutgoing)
-        Color.White.copy(alpha = 0.62f)
-    else
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-
-    Layout(
-        content = {
-            Text(
-                text = message.text,
-                fontSize = 14.5.sp,
-                color = textColor,
-                lineHeight = 19.sp,
-                style = TextStyle(
-                    platformStyle = PlatformTextStyle(includeFontPadding = false)
-                ),
-                onTextLayout = { textLayoutResult = it }
-            )
-
-            if (isLastInGroup) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
-                ) {
-                    Text(
-                        text = formattedTime,
-                        fontSize = 9.5.sp,
-                        color = timeColor,
-                        style = TextStyle(
-                            platformStyle = PlatformTextStyle(includeFontPadding = false)
-                        )
-                    )
-
-                    if (isOutgoing) {
-                        BubbleStatusTicks(status = message.status)
-                    }
-                }
-            }
-        }
-    ) { measurables, constraints ->
-        val padStart = 11.dp.roundToPx()
-        val padEnd = 11.dp.roundToPx()
-        val padTop = 6.dp.roundToPx()
-        val padBottom = 6.dp.roundToPx()
-
-        val timePadEnd = 7.dp.roundToPx()
-        val timePadBottom = 2.dp.roundToPx()
-        val horizontalGap = 7.dp.roundToPx()
-
-        val maxTextWidth = (constraints.maxWidth - padStart - padEnd).coerceAtLeast(0)
-        val textPlaceable = measurables[0].measure(
-            constraints.copy(minWidth = 0, maxWidth = maxTextWidth, minHeight = 0)
-        )
-
-        if (!isLastInGroup || measurables.size < 2) {
-            val totalWidth = padStart + textPlaceable.width + padEnd
-            val totalHeight = padTop + textPlaceable.height + padBottom
-
-            layout(totalWidth, totalHeight) {
-                textPlaceable.placeRelative(padStart, padTop)
-            }
-        } else {
-            val timePlaceable = measurables[1].measure(
-                constraints.copy(minWidth = 0, minHeight = 0)
-            )
-
-            val lineCount = textLayoutResult?.lineCount ?: 1
-            val lastLine = lineCount - 1
-            val lastLineRight = textLayoutResult?.getLineRight(lastLine)?.toInt() ?: textPlaceable.width
-
-            val inlineWidthNeeded = padStart + lastLineRight + horizontalGap + timePlaceable.width + timePadEnd
-            val canFitInline = inlineWidthNeeded <= constraints.maxWidth
-
-            if (canFitInline) {
-                val baseBubbleWidth = padStart + textPlaceable.width + padEnd
-                val totalWidth = maxOf(baseBubbleWidth, inlineWidthNeeded)
-                val totalHeight = padTop + textPlaceable.height + padBottom
-
-                layout(totalWidth, totalHeight) {
-                    textPlaceable.placeRelative(padStart, padTop)
-
-                    val timeX = totalWidth - timePlaceable.width - timePadEnd
-                    val timeY = totalHeight - timePlaceable.height - timePadBottom
-                    timePlaceable.placeRelative(timeX, timeY)
-                }
-            } else {
-                val baseBubbleWidth = padStart + textPlaceable.width + padEnd
-                val minTimeWidth = padStart + timePlaceable.width + timePadEnd
-                val totalWidth = maxOf(baseBubbleWidth, minTimeWidth)
-                val extraBottomSpace = (timePlaceable.height - (padBottom - timePadBottom)).coerceAtLeast(0) + 2.dp.roundToPx()
-                val totalHeight = padTop + textPlaceable.height + padBottom + extraBottomSpace
-
-                layout(totalWidth, totalHeight) {
-                    textPlaceable.placeRelative(padStart, padTop)
-
-                    val timeX = totalWidth - timePlaceable.width - timePadEnd
-                    val timeY = totalHeight - timePlaceable.height - timePadBottom
-                    timePlaceable.placeRelative(timeX, timeY)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BubbleStatusTicks(status: Int) {
-    val defaultTickColor = Color.White.copy(alpha = 0.68f)
-    val blueTickColor = Color(0xFF34B7F1)
-
-    when (status) {
-        0 -> {
-            Icon(
-                imageVector = Icons.Outlined.Schedule,
-                contentDescription = "Pending",
-                tint = defaultTickColor,
-                modifier = Modifier.size(12.dp)
-            )
-        }
-        1 -> {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Sent",
-                tint = defaultTickColor,
-                modifier = Modifier.size(12.dp)
-            )
-        }
-        2 -> {
-            Box(
-                modifier = Modifier.width(15.5.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Delivered",
-                    tint = defaultTickColor,
-                    modifier = Modifier.size(12.dp)
-                )
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = defaultTickColor,
-                    modifier = Modifier
-                        .padding(start = 3.5.dp)
-                        .size(12.dp)
-                )
-            }
-        }
-        3 -> {
-            Box(
-                modifier = Modifier.width(15.5.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Read",
-                    tint = blueTickColor,
-                    modifier = Modifier.size(12.dp)
-                )
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = blueTickColor,
-                    modifier = Modifier
-                        .padding(start = 3.5.dp)
-                        .size(12.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatInputBar(
-    text: String,
-    onTextChanged: (String) -> Unit,
-    onSend: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = 44.dp, max = 110.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(22.dp)
-                )
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            if (text.isEmpty()) {
-                Text(
-                    text = "Message...",
-                    fontSize = 14.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-            }
-
-            BasicTextField(
-                value = text,
-                onValueChange = onTextChanged,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = TextStyle(
-                    fontSize = 14.5.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(MomoPrimaryGradient)
-                .bounceClick(scaleDown = 0.94f) {
-                    onSend()
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = SendIcon,
-                contentDescription = "Send",
-                tint = Color.White,
-                modifier = Modifier
-                    .size(19.dp)
-                    .padding(start = 2.dp)
-            )
-        }
-    }
-}
-
 private fun isSameMinute(t1: Long, t2: Long): Boolean {
     if (t1 <= 0L || t2 <= 0L) return false
     return try {
@@ -863,20 +505,6 @@ private fun isSameMinute(t1: Long, t2: Long): Boolean {
             dt1.minute == dt2.minute
     } catch (_: Exception) {
         false
-    }
-}
-
-private fun formatBubbleTime(timestamp: Long): String {
-    if (timestamp <= 0L) return ""
-    return try {
-        val dt = LocalDateTime.ofInstant(
-            Instant.ofEpochMilli(timestamp),
-            ZoneId.systemDefault()
-        )
-        val formatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
-        dt.format(formatter).lowercase(Locale.ENGLISH)
-    } catch (_: Exception) {
-        ""
     }
 }
 
