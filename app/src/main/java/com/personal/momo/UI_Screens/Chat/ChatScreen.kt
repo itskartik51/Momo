@@ -108,6 +108,36 @@ private val SendIcon: ImageVector by lazy {
     ).build()
 }
 
+private val CopyIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "ContentCopy",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val DeleteIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "DeleteOutline",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
 @Composable
 fun ChatScreen(
     onBack: () -> Unit = {}
@@ -130,6 +160,7 @@ fun ChatScreen(
 
     var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
@@ -163,11 +194,17 @@ fun ChatScreen(
     }
 
     BackHandler {
-        if (isSelectionMode) {
-            selectedMessageIds = emptySet()
-        } else {
-            ChatEngine.setChatScreenActive(context, false)
-            onBack()
+        when {
+            showDeleteDialog -> {
+                showDeleteDialog = false
+            }
+            isSelectionMode -> {
+                selectedMessageIds = emptySet()
+            }
+            else -> {
+                ChatEngine.setChatScreenActive(context, false)
+                onBack()
+            }
         }
     }
 
@@ -183,6 +220,23 @@ fun ChatScreen(
         }
     }
 
+    if (showDeleteDialog) {
+        DeleteMessagesDialog(
+            selectedCount = selectedMessageIds.size,
+            onDismiss = {
+                showDeleteDialog = false
+            },
+            onConfirmDelete = {
+                val targets = selectedMessageIds
+                selectedMessageIds = emptySet()
+                showDeleteDialog = false
+                coroutineScope.launch {
+                    ChatRepository.deleteMessages(context, targets)
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -191,7 +245,14 @@ fun ChatScreen(
         if (isSelectionMode) {
             SelectionTopHeader(
                 selectedCount = selectedMessageIds.size,
-                onClearSelection = { selectedMessageIds = emptySet() }
+                onClearSelection = { selectedMessageIds = emptySet() },
+                onCopy = {
+                    ChatTool.copyMessagesToClipboard(context, messagesList, selectedMessageIds)
+                    selectedMessageIds = emptySet()
+                },
+                onDelete = {
+                    showDeleteDialog = true
+                }
             )
         } else {
             ChatTopHeader(
@@ -263,7 +324,9 @@ fun ChatScreen(
 @Composable
 private fun SelectionTopHeader(
     selectedCount: Int,
-    onClearSelection: () -> Unit
+    onClearSelection: () -> Unit,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -301,6 +364,44 @@ private fun SelectionTopHeader(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .bounceClick(scaleDown = 0.94f) {
+                        onCopy()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CopyIcon,
+                    contentDescription = "Copy Messages",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(21.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .bounceClick(scaleDown = 0.94f) {
+                        onDelete()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = DeleteIcon,
+                    contentDescription = "Delete Messages",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }
