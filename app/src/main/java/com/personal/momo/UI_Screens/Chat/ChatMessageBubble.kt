@@ -73,7 +73,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private val AquaMintColor = Color(0xFF43CEA2)
-private val DarkQuotedSurfaceColor = Color(0xFF171922)
+private val GlowingPinkAccent = Color(0xFFFFA0B4)
 private val HighlightFlashColor = Color(0x2825D366)
 
 private val ReplyIcon: ImageVector by lazy {
@@ -452,11 +452,11 @@ private fun QuotedReplySnippet(
     onReplyClick: (String) -> Unit
 ) {
     val isReplyFromMe = replyToSenderId == myCode
-    val accentColor = if (isReplyFromMe) MomoRedLight else AquaMintColor
+    val accentColor = if (isReplyFromMe) GlowingPinkAccent else AquaMintColor
     val senderTitle = if (isReplyFromMe) "You" else partnerDisplayName
 
     val containerBg = if (isOutgoing) {
-        DarkQuotedSurfaceColor
+        Color.Black.copy(alpha = 0.22f)
     } else {
         Color.Black.copy(alpha = 0.28f)
     }
@@ -465,7 +465,7 @@ private fun QuotedReplySnippet(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(containerBg)
-            .bounceClick(scaleDown = 0.96f) {
+            .bounceClick(scaleDown = 0.94f) {
                 if (!replyToId.isNullOrEmpty()) {
                     onReplyClick(replyToId)
                 }
@@ -474,7 +474,7 @@ private fun QuotedReplySnippet(
     ) {
         Box(
             modifier = Modifier
-                .width(3.5.dp)
+                .width(4.dp)
                 .fillMaxHeight()
                 .background(accentColor)
         )
@@ -503,7 +503,7 @@ private fun QuotedReplySnippet(
                 fontSize = 12.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = Color.White.copy(alpha = 0.82f),
+                color = Color.White.copy(alpha = 0.85f),
                 lineHeight = 16.sp,
                 style = TextStyle(
                     platformStyle = PlatformTextStyle(includeFontPadding = false)
