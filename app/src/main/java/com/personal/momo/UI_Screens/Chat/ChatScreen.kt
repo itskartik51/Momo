@@ -4,18 +4,20 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,8 +52,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -106,6 +112,7 @@ fun ChatScreen(
     onBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
@@ -119,6 +126,13 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
+
+    var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
+    val isSelectionMode = selectedMessageIds.isNotEmpty()
+
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
+    val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
 
     DisposableEffect(lifecycleOwner) {
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
@@ -148,12 +162,22 @@ fun ChatScreen(
     }
 
     BackHandler {
-        ChatEngine.setChatScreenActive(context, false)
-        onBack()
+        if (isSelectionMode) {
+            selectedMessageIds = emptySet()
+        } else {
+            ChatEngine.setChatScreenActive(context, false)
+            onBack()
+        }
     }
 
     LaunchedEffect(messagesList.size) {
-        if (messagesList.isNotEmpty()) {
+        if (messagesList.isNotEmpty() && !isSelectionMode) {
+            listState.animateScrollToItem(messagesList.size - 1)
+        }
+    }
+
+    LaunchedEffect(imeBottom) {
+        if (imeBottom > 0 && messagesList.isNotEmpty() && !isSelectionMode) {
             listState.animateScrollToItem(messagesList.size - 1)
         }
     }
@@ -163,31 +187,48 @@ fun ChatScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        ChatTopHeader(
-            partnerName = partnerDisplayName,
-            avatarUrl = avatarUrl,
-            inChat = partnerPresence.inChat,
-            lastSeen = partnerPresence.lastSeen,
-            onBack = {
-                ChatEngine.setChatScreenActive(context, false)
-                onBack()
-            }
-        )
+        if (isSelectionMode) {
+            SelectionTopHeader(
+                selectedCount = selectedMessageIds.size,
+                onClearSelection = { selectedMessageIds = emptySet() }
+            )
+        } else {
+            ChatTopHeader(
+                partnerName = partnerDisplayName,
+                avatarUrl = avatarUrl,
+                inChat = partnerPresence.inChat,
+                lastSeen = partnerPresence.lastSeen,
+                onBack = {
+                    ChatEngine.setChatScreenActive(context, false)
+                    onBack()
+                }
+            )
+        }
 
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = 14.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .weight(1f),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             items(messagesList, key = { it.id }) { message ->
                 val isOutgoing = message.senderId == myCode
+                val isSelected = selectedMessageIds.contains(message.id)
+
                 MessageBubbleRow(
                     message = message,
-                    isOutgoing = isOutgoing
+                    isOutgoing = isOutgoing,
+                    isSelected = isSelected,
+                    isSelectionMode = isSelectionMode,
+                    onToggleSelect = { id ->
+                        selectedMessageIds = if (selectedMessageIds.contains(id)) {
+                            selectedMessageIds - id
+                        } else {
+                            selectedMessageIds + id
+                        }
+                    }
                 )
             }
         }
@@ -195,8 +236,7 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
+                .padding(bottom = bottomInsetDp)
         ) {
             ChatInputBar(
                 text = inputText,
@@ -213,6 +253,51 @@ fun ChatScreen(
                         }
                     }
                 }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SelectionTopHeader(
+    selectedCount: Int,
+    onClearSelection: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 3.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .bounceClick(scaleDown = 0.94f) {
+                        onClearSelection()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = ArrowBackIcon,
+                    contentDescription = "Cancel Selection",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Text(
+                text = "$selectedCount",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }
@@ -319,7 +404,15 @@ private fun ChatTopHeader(
 }
 
 @Composable
-private fun MessageBubbleRow(message: ChatMessage, isOutgoing: Boolean) {
+private fun MessageBubbleRow(
+    message: ChatMessage,
+    isOutgoing: Boolean,
+    isSelected: Boolean,
+    isSelectionMode: Boolean,
+    onToggleSelect: (String) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+
     val bubbleShape = if (isOutgoing) {
         RoundedCornerShape(
             topStart = 16.dp,
@@ -340,48 +433,70 @@ private fun MessageBubbleRow(message: ChatMessage, isOutgoing: Boolean) {
         formatBubbleTime(message.timestamp)
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
-    ) {
-        Surface(
-            modifier = Modifier.widthIn(max = 280.dp),
-            shape = bubbleShape,
-            color = if (isOutgoing)
-                MaterialTheme.colorScheme.surfaceVariant
-            else
-                MaterialTheme.colorScheme.surface,
-            border = if (isOutgoing) null else BorderStroke(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-            ),
-            shadowElevation = 1.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = message.text,
-                    fontSize = 14.5.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 20.sp
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (isSelected) Color(0x2825D366) else Color.Transparent
+            )
+            .pointerInput(message.id, isSelectionMode) {
+                detectTapGestures(
+                    onLongPress = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onToggleSelect(message.id)
+                    },
+                    onTap = {
+                        if (isSelectionMode) {
+                            onToggleSelect(message.id)
+                        }
+                    }
                 )
-
-                Spacer(modifier = Modifier.height(3.dp))
-
-                Row(
-                    modifier = Modifier.align(Alignment.End),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+            }
+            .padding(horizontal = 14.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
+        ) {
+            Surface(
+                modifier = Modifier.widthIn(max = 280.dp),
+                shape = bubbleShape,
+                color = if (isOutgoing)
+                    MaterialTheme.colorScheme.surfaceVariant
+                else
+                    MaterialTheme.colorScheme.surface,
+                border = if (isOutgoing) null else BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                ),
+                shadowElevation = 1.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
-                        text = formattedTime,
-                        fontSize = 10.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        text = message.text,
+                        fontSize = 14.5.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 20.sp
                     )
 
-                    if (isOutgoing) {
-                        BubbleStatusTicks(status = message.status)
+                    Spacer(modifier = Modifier.height(3.dp))
+
+                    Row(
+                        modifier = Modifier.align(Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = formattedTime,
+                            fontSize = 10.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+
+                        if (isOutgoing) {
+                            BubbleStatusTicks(status = message.status)
+                        }
                     }
                 }
             }
