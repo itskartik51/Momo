@@ -273,10 +273,10 @@ fun ChatScreen(
                 val isHighlighted = message.id == highlightedMessageId
 
                 val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
-                val isNextSameGroup = nextChronologicalMsg != null &&
-                    nextChronologicalMsg.senderId == message.senderId &&
-                    isSameMinute(message.timestamp, nextChronologicalMsg.timestamp)
+                val isNextSameSender = nextChronologicalMsg != null && nextChronologicalMsg.senderId == message.senderId
+                val isNextSameGroup = isNextSameSender && isSameMinute(message.timestamp, nextChronologicalMsg.timestamp)
                 val isLastInGroup = !isNextSameGroup
+                val isLastInSenderGroup = !isNextSameSender
 
                 MessageBubbleRow(
                     message = message,
@@ -285,6 +285,7 @@ fun ChatScreen(
                     isHighlighted = isHighlighted,
                     isSelectionMode = isSelectionMode,
                     isLastInGroup = isLastInGroup,
+                    isLastInSenderGroup = isLastInSenderGroup,
                     myCode = myCode,
                     partnerDisplayName = partnerDisplayName,
                     onToggleSelect = { id ->
