@@ -134,6 +134,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
+    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
@@ -187,6 +188,9 @@ fun ChatScreen(
             }
             isSelectionMode -> {
                 selectedMessageIds = emptySet()
+            }
+            replyingToMessage != null -> {
+                replyingToMessage = null
             }
             else -> {
                 ChatEngine.setChatScreenActive(context, false)
@@ -274,12 +278,17 @@ fun ChatScreen(
                     isSelected = isSelected,
                     isSelectionMode = isSelectionMode,
                     isLastInGroup = isLastInGroup,
+                    myCode = myCode,
+                    partnerDisplayName = partnerDisplayName,
                     onToggleSelect = { id ->
                         selectedMessageIds = if (selectedMessageIds.contains(id)) {
                             selectedMessageIds - id
                         } else {
                             selectedMessageIds + id
                         }
+                    },
+                    onSwipeToReply = { targetMsg ->
+                        replyingToMessage = targetMsg
                     }
                 )
             }
@@ -293,11 +302,22 @@ fun ChatScreen(
             ChatInputBar(
                 text = inputText,
                 onTextChanged = { inputText = it },
+                replyingToMessage = replyingToMessage,
+                onCancelReply = { replyingToMessage = null },
+                myCode = myCode,
+                partnerDisplayName = partnerDisplayName,
                 onSend = {
                     val cleanText = inputText.trim()
                     if (cleanText.isNotEmpty()) {
-                        ChatEngine.sendMessage(context, cleanText)
+                        ChatEngine.sendMessage(
+                            context = context,
+                            text = cleanText,
+                            replyToId = replyingToMessage?.id,
+                            replyToText = replyingToMessage?.text,
+                            replyToSenderId = replyingToMessage?.senderId
+                        )
                         inputText = ""
+                        replyingToMessage = null
                         coroutineScope.launch {
                             if (reversedMessages.isNotEmpty()) {
                                 listState.animateScrollToItem(0)
