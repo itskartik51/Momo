@@ -564,10 +564,7 @@ private fun MessageBubbleRow(
             Surface(
                 modifier = Modifier.widthIn(max = 280.dp),
                 shape = bubbleShape,
-                color = if (isOutgoing)
-                    MaterialTheme.colorScheme.surfaceVariant
-                else
-                    MaterialTheme.colorScheme.surface,
+                color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
                 border = if (isOutgoing) null else BorderStroke(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
@@ -575,12 +572,20 @@ private fun MessageBubbleRow(
                 shadowElevation = 1.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    modifier = Modifier
+                        .then(
+                            if (isOutgoing) {
+                                Modifier.background(MomoPrimaryGradient)
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
                         text = message.text,
                         fontSize = 14.5.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
                         lineHeight = 20.sp
                     )
 
@@ -594,7 +599,10 @@ private fun MessageBubbleRow(
                         Text(
                             text = formattedTime,
                             fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            color = if (isOutgoing)
+                                Color.White.copy(alpha = 0.82f)
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
 
                         if (isOutgoing) {
@@ -609,12 +617,15 @@ private fun MessageBubbleRow(
 
 @Composable
 private fun BubbleStatusTicks(status: Int) {
+    val defaultTickColor = Color.White.copy(alpha = 0.85f)
+    val blueTickColor = Color(0xFF34B7F1)
+
     when (status) {
         0 -> {
             Icon(
                 imageVector = Icons.Outlined.Schedule,
                 contentDescription = "Pending",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                tint = defaultTickColor,
                 modifier = Modifier.size(13.dp)
             )
         }
@@ -622,7 +633,7 @@ private fun BubbleStatusTicks(status: Int) {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Sent",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                tint = defaultTickColor,
                 modifier = Modifier.size(13.dp)
             )
         }
@@ -634,13 +645,13 @@ private fun BubbleStatusTicks(status: Int) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Delivered",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    tint = defaultTickColor,
                     modifier = Modifier.size(13.dp)
                 )
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    tint = defaultTickColor,
                     modifier = Modifier
                         .padding(start = 4.dp)
                         .size(13.dp)
@@ -648,7 +659,6 @@ private fun BubbleStatusTicks(status: Int) {
             }
         }
         3 -> {
-            val blueTickColor = Color(0xFF34B7F1)
             Box(
                 modifier = Modifier.width(17.dp),
                 contentAlignment = Alignment.CenterStart
