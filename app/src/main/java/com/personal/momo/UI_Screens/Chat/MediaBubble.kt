@@ -160,8 +160,8 @@ internal fun MediaBubbleMessageContent(
 
         val mediaClipShape = if (hasCaption) {
             RoundedCornerShape(
-                topStart = bubbleShape.topStart,
-                topEnd = bubbleShape.topEnd,
+                topStart = if (isOutgoing) 8.dp else 2.dp,
+                topEnd = if (isOutgoing) 2.dp else 8.dp,
                 bottomStart = 4.dp,
                 bottomEnd = 4.dp
             )
