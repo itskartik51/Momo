@@ -60,6 +60,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -583,16 +584,9 @@ private fun MessageBubbleRow(
                 shadowElevation = 1.dp
             ) {
                 Box(
-                    modifier = Modifier
-                        .then(
-                            if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                        )
-                        .padding(
-                            start = 10.dp,
-                            end = if (isLastInGroup) 8.dp else 10.dp,
-                            top = 5.dp,
-                            bottom = if (isLastInGroup) 4.dp else 5.dp
-                        )
+                    modifier = Modifier.then(
+                        if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                    )
                 ) {
                     BubbleMessageContent(
                         message = message,
@@ -619,9 +613,9 @@ private fun BubbleMessageContent(
 
     val textColor = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface
     val timeColor = if (isOutgoing)
-        Color.White.copy(alpha = 0.82f)
+        Color.White.copy(alpha = 0.62f)
     else
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
 
     Layout(
         content = {
@@ -629,19 +623,25 @@ private fun BubbleMessageContent(
                 text = message.text,
                 fontSize = 14.5.sp,
                 color = textColor,
-                lineHeight = 19.5.sp,
+                lineHeight = 19.sp,
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                ),
                 onTextLayout = { textLayoutResult = it }
             )
 
             if (isLastInGroup) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(2.5.dp)
                 ) {
                     Text(
                         text = formattedTime,
-                        fontSize = 10.sp,
-                        color = timeColor
+                        fontSize = 9.5.sp,
+                        color = timeColor,
+                        style = TextStyle(
+                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                        )
                     )
 
                     if (isOutgoing) {
@@ -651,58 +651,63 @@ private fun BubbleMessageContent(
             }
         }
     ) { measurables, constraints ->
-        val textPlaceable = measurables[0].measure(constraints)
+        val padStart = 11.dp.roundToPx()
+        val padEnd = 11.dp.roundToPx()
+        val padTop = 6.dp.roundToPx()
+        val padBottom = 6.dp.roundToPx()
+
+        val timePadEnd = 7.dp.roundToPx()
+        val timePadBottom = 2.dp.roundToPx()
+        val horizontalGap = 7.dp.roundToPx()
+
+        val maxTextWidth = (constraints.maxWidth - padStart - padEnd).coerceAtLeast(0)
+        val textPlaceable = measurables[0].measure(
+            constraints.copy(minWidth = 0, maxWidth = maxTextWidth, minHeight = 0)
+        )
 
         if (!isLastInGroup || measurables.size < 2) {
-            layout(textPlaceable.width, textPlaceable.height) {
-                textPlaceable.placeRelative(0, 0)
+            val totalWidth = padStart + textPlaceable.width + padEnd
+            val totalHeight = padTop + textPlaceable.height + padBottom
+
+            layout(totalWidth, totalHeight) {
+                textPlaceable.placeRelative(padStart, padTop)
             }
         } else {
             val timePlaceable = measurables[1].measure(
                 constraints.copy(minWidth = 0, minHeight = 0)
             )
 
-            val horizontalGap = 8.dp.roundToPx()
             val lineCount = textLayoutResult?.lineCount ?: 1
             val lastLine = lineCount - 1
-            val lastLineWidth = textLayoutResult?.let {
-                it.getLineRight(lastLine) - it.getLineLeft(lastLine)
-            } ?: textPlaceable.width.toFloat()
+            val lastLineRight = textLayoutResult?.getLineRight(lastLine)?.toInt() ?: textPlaceable.width
 
-            val canFitInline = (lastLineWidth + horizontalGap + timePlaceable.width) <= constraints.maxWidth
+            val inlineWidthNeeded = padStart + lastLineRight + horizontalGap + timePlaceable.width + timePadEnd
+            val canFitInline = inlineWidthNeeded <= constraints.maxWidth
 
             if (canFitInline) {
-                val totalWidth = maxOf(
-                    textPlaceable.width,
-                    (lastLineWidth + horizontalGap + timePlaceable.width).toInt()
-                )
-                val totalHeight = if (lineCount == 1) {
-                    maxOf(textPlaceable.height, timePlaceable.height)
-                } else {
-                    textPlaceable.height
-                }
+                val baseBubbleWidth = padStart + textPlaceable.width + padEnd
+                val totalWidth = maxOf(baseBubbleWidth, inlineWidthNeeded)
+                val totalHeight = padTop + textPlaceable.height + padBottom
 
                 layout(totalWidth, totalHeight) {
-                    val textY = if (lineCount == 1) {
-                        (totalHeight - textPlaceable.height) / 2
-                    } else {
-                        0
-                    }
-                    textPlaceable.placeRelative(0, textY)
+                    textPlaceable.placeRelative(padStart, padTop)
 
-                    val timeX = totalWidth - timePlaceable.width
-                    val timeY = totalHeight - timePlaceable.height
+                    val timeX = totalWidth - timePlaceable.width - timePadEnd
+                    val timeY = totalHeight - timePlaceable.height - timePadBottom
                     timePlaceable.placeRelative(timeX, timeY)
                 }
             } else {
-                val verticalGap = 2.dp.roundToPx()
-                val totalWidth = maxOf(textPlaceable.width, timePlaceable.width)
-                val totalHeight = textPlaceable.height + verticalGap + timePlaceable.height
+                val baseBubbleWidth = padStart + textPlaceable.width + padEnd
+                val minTimeWidth = padStart + timePlaceable.width + timePadEnd
+                val totalWidth = maxOf(baseBubbleWidth, minTimeWidth)
+                val extraBottomSpace = (timePlaceable.height - (padBottom - timePadBottom)).coerceAtLeast(0) + 2.dp.roundToPx()
+                val totalHeight = padTop + textPlaceable.height + padBottom + extraBottomSpace
 
                 layout(totalWidth, totalHeight) {
-                    textPlaceable.placeRelative(0, 0)
-                    val timeX = totalWidth - timePlaceable.width
-                    val timeY = textPlaceable.height + verticalGap
+                    textPlaceable.placeRelative(padStart, padTop)
+
+                    val timeX = totalWidth - timePlaceable.width - timePadEnd
+                    val timeY = totalHeight - timePlaceable.height - timePadBottom
                     timePlaceable.placeRelative(timeX, timeY)
                 }
             }
@@ -712,7 +717,7 @@ private fun BubbleMessageContent(
 
 @Composable
 private fun BubbleStatusTicks(status: Int) {
-    val defaultTickColor = Color.White.copy(alpha = 0.85f)
+    val defaultTickColor = Color.White.copy(alpha = 0.68f)
     val blueTickColor = Color(0xFF34B7F1)
 
     when (status) {
@@ -721,7 +726,7 @@ private fun BubbleStatusTicks(status: Int) {
                 imageVector = Icons.Outlined.Schedule,
                 contentDescription = "Pending",
                 tint = defaultTickColor,
-                modifier = Modifier.size(13.dp)
+                modifier = Modifier.size(12.dp)
             )
         }
         1 -> {
@@ -729,48 +734,48 @@ private fun BubbleStatusTicks(status: Int) {
                 imageVector = Icons.Default.Check,
                 contentDescription = "Sent",
                 tint = defaultTickColor,
-                modifier = Modifier.size(13.dp)
+                modifier = Modifier.size(12.dp)
             )
         }
         2 -> {
             Box(
-                modifier = Modifier.width(17.dp),
+                modifier = Modifier.width(15.5.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Delivered",
                     tint = defaultTickColor,
-                    modifier = Modifier.size(13.dp)
+                    modifier = Modifier.size(12.dp)
                 )
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = defaultTickColor,
                     modifier = Modifier
-                        .padding(start = 4.dp)
-                        .size(13.dp)
+                        .padding(start = 3.5.dp)
+                        .size(12.dp)
                 )
             }
         }
         3 -> {
             Box(
-                modifier = Modifier.width(17.dp),
+                modifier = Modifier.width(15.5.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Read",
                     tint = blueTickColor,
-                    modifier = Modifier.size(13.dp)
+                    modifier = Modifier.size(12.dp)
                 )
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = blueTickColor,
                     modifier = Modifier
-                        .padding(start = 4.dp)
-                        .size(13.dp)
+                        .padding(start = 3.5.dp)
+                        .size(12.dp)
                 )
             }
         }
