@@ -97,6 +97,7 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-database-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
 
     // Google Play Services Location for Proximity Tracking
     implementation("com.google.android.gms:play-services-location:21.3.0")
