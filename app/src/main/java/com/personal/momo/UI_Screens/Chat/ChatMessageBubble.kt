@@ -324,7 +324,7 @@ private fun BubbleMessageContent(
         val timePadEnd = 7.dp.roundToPx()
         val timePadBottom = 2.dp.roundToPx()
         val horizontalGap = 7.dp.roundToPx()
-        val quoteSpacing = 4.dp.roundToPx()
+        val quoteSpacing = 5.dp.roundToPx()
 
         val maxContentWidth = (constraints.maxWidth - padStart - padEnd).coerceAtLeast(0)
 
@@ -332,10 +332,6 @@ private fun BubbleMessageContent(
         val quoteMeasurable = if (hasReply) measurables[mIndex++] else null
         val textMeasurable = measurables[mIndex++]
         val timeMeasurable = if (isLastInGroup && measurables.size > mIndex) measurables[mIndex] else null
-
-        val unconstrainedQuotePlaceable = quoteMeasurable?.measure(
-            constraints.copy(minWidth = 0, maxWidth = maxContentWidth, minHeight = 0)
-        )
 
         val textPlaceable = textMeasurable.measure(
             constraints.copy(minWidth = 0, maxWidth = maxContentWidth, minHeight = 0)
@@ -349,67 +345,66 @@ private fun BubbleMessageContent(
         val lastLine = lineCount - 1
         val lastLineRight = textLayoutResult?.getLineRight(lastLine)?.toInt() ?: textPlaceable.width
 
-        val quoteWidth = unconstrainedQuotePlaceable?.width ?: 0
-        val quoteHeight = if (unconstrainedQuotePlaceable != null) unconstrainedQuotePlaceable.height + quoteSpacing else 0
+        val timeWidth = timePlaceable?.width ?: 0
+        val timeHeight = timePlaceable?.height ?: 0
+
+        val inlineWidthNeeded = padStart + lastLineRight + horizontalGap + timeWidth + timePadEnd
+        val canFitInline = timePlaceable == null || inlineWidthNeeded <= constraints.maxWidth
+
+        val textAndContentWidth = if (canFitInline) {
+            maxOf(textPlaceable.width, (inlineWidthNeeded - padStart - padEnd).coerceAtLeast(0))
+        } else {
+            maxOf(textPlaceable.width, (timeWidth + timePadEnd - padEnd).coerceAtLeast(0))
+        }
+
+        val quotePlaceable = quoteMeasurable?.measure(
+            constraints.copy(
+                minWidth = minOf(textAndContentWidth, maxContentWidth),
+                maxWidth = maxContentWidth,
+                minHeight = 0
+            )
+        )
+
+        val quoteWidth = quotePlaceable?.width ?: 0
+        val quoteHeight = if (quotePlaceable != null) quotePlaceable.height + quoteSpacing else 0
+
+        val finalContentWidth = maxOf(textAndContentWidth, quoteWidth)
+        val baseBubbleWidth = padStart + finalContentWidth + padEnd
 
         if (timePlaceable == null) {
-            val contentWidth = maxOf(quoteWidth, textPlaceable.width)
-            val totalWidth = padStart + contentWidth + padEnd
+            val totalWidth = baseBubbleWidth
             val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom
 
-            val finalQuotePlaceable = quoteMeasurable?.measure(
-                constraints.copy(minWidth = contentWidth, maxWidth = contentWidth)
-            ) ?: unconstrainedQuotePlaceable
-
             layout(totalWidth, totalHeight) {
-                finalQuotePlaceable?.placeRelative(padStart, padTop)
+                quotePlaceable?.placeRelative(padStart, padTop)
                 textPlaceable.placeRelative(padStart, padTop + quoteHeight)
             }
+        } else if (canFitInline) {
+            val totalWidth = maxOf(baseBubbleWidth, inlineWidthNeeded)
+            val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom
+
+            layout(totalWidth, totalHeight) {
+                quotePlaceable?.placeRelative(padStart, padTop)
+                textPlaceable.placeRelative(padStart, padTop + quoteHeight)
+
+                val timeX = totalWidth - timeWidth - timePadEnd
+                val timeY = totalHeight - timeHeight - timePadBottom
+                timePlaceable.placeRelative(timeX, timeY)
+            }
         } else {
-            val inlineWidthNeeded = padStart + lastLineRight + horizontalGap + timePlaceable.width + timePadEnd
-            val canFitInline = inlineWidthNeeded <= constraints.maxWidth
+            val minTimeWidth = padStart + timeWidth + timePadEnd
+            val totalWidth = maxOf(baseBubbleWidth, minTimeWidth)
 
-            if (canFitInline) {
-                val baseContentWidth = maxOf(quoteWidth, textPlaceable.width)
-                val baseBubbleWidth = padStart + baseContentWidth + padEnd
-                val totalWidth = maxOf(baseBubbleWidth, inlineWidthNeeded)
-                val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom
+            val extraBottomSpace = (timeHeight - (padBottom - timePadBottom)).coerceAtLeast(0) + 2.dp.roundToPx()
+            val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom + extraBottomSpace
 
-                val finalContentWidth = (totalWidth - padStart - padEnd).coerceAtLeast(0)
-                val finalQuotePlaceable = quoteMeasurable?.measure(
-                    constraints.copy(minWidth = finalContentWidth, maxWidth = finalContentWidth)
-                ) ?: unconstrainedQuotePlaceable
+            layout(totalWidth, totalHeight) {
+                quotePlaceable?.placeRelative(padStart, padTop)
+                textPlaceable.placeRelative(padStart, padTop + quoteHeight)
 
-                layout(totalWidth, totalHeight) {
-                    finalQuotePlaceable?.placeRelative(padStart, padTop)
-                    textPlaceable.placeRelative(padStart, padTop + quoteHeight)
-
-                    val timeX = totalWidth - timePlaceable.width - timePadEnd
-                    val timeY = totalHeight - timePlaceable.height - timePadBottom
-                    timePlaceable.placeRelative(timeX, timeY)
-                }
-            } else {
-                val baseContentWidth = maxOf(quoteWidth, textPlaceable.width)
-                val baseBubbleWidth = padStart + baseContentWidth + padEnd
-                val minTimeWidth = padStart + timePlaceable.width + timePadEnd
-                val totalWidth = maxOf(baseBubbleWidth, minTimeWidth)
-
-                val extraBottomSpace = (timePlaceable.height - (padBottom - timePadBottom)).coerceAtLeast(0) + 2.dp.roundToPx()
-                val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom + extraBottomSpace
-
-                val finalContentWidth = (totalWidth - padStart - padEnd).coerceAtLeast(0)
-                val finalQuotePlaceable = quoteMeasurable?.measure(
-                    constraints.copy(minWidth = finalContentWidth, maxWidth = finalContentWidth)
-                ) ?: unconstrainedQuotePlaceable
-
-                layout(totalWidth, totalHeight) {
-                    finalQuotePlaceable?.placeRelative(padStart, padTop)
-                    textPlaceable.placeRelative(padStart, padTop + quoteHeight)
-
-                    val timeX = totalWidth - timePlaceable.width - timePadEnd
-                    val timeY = totalHeight - timePlaceable.height - timePadBottom
-                    timePlaceable.placeRelative(timeX, timeY)
-                }
+                val timeX = totalWidth - timeWidth - timePadEnd
+                val timeY = totalHeight - timeHeight - timePadBottom
+                timePlaceable.placeRelative(timeX, timeY)
             }
         }
     }
@@ -435,7 +430,6 @@ private fun QuotedReplySnippet(
 
     Row(
         modifier = Modifier
-            .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .background(containerBg)
     ) {
@@ -448,8 +442,8 @@ private fun QuotedReplySnippet(
 
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .widthIn(min = 120.dp),
             verticalArrangement = Arrangement.Center
         ) {
             Text(
