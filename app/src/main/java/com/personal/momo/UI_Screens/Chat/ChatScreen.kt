@@ -273,8 +273,8 @@ fun ChatScreen(
                 val isHighlighted = message.id == highlightedMessageId
 
                 val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
-                val isNextSameSender = nextChronologicalMsg != null && nextChronologicalMsg.senderId == message.senderId
-                val isNextSameGroup = isNextSameSender && isSameMinute(message.timestamp, nextChronologicalMsg.timestamp)
+                val isNextSameSender = nextChronologicalMsg?.senderId == message.senderId
+                val isNextSameGroup = isNextSameSender && (nextChronologicalMsg?.let { isSameMinute(message.timestamp, it.timestamp) } ?: false)
                 val isLastInGroup = !isNextSameGroup
                 val isLastInSenderGroup = !isNextSameSender
 
