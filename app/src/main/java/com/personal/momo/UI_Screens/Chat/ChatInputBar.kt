@@ -8,6 +8,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +60,36 @@ private val AquaMintColor = Color(0xFF43CEA2)
 private val DarkInputSurfaceColor = Color(0xFF171922)
 private val DarkInputBorderColor = Color(0xFF262936)
 
+private val GalleryIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Gallery",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val CameraIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Camera",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M12 12m-3.2 0a3.2 3.2 0 1 0 6.4 0a3.2 3.2 0 1 0 -6.4 0 M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
 private val SendIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "Send",
@@ -96,6 +128,8 @@ internal fun ChatInputBar(
     onCancelReply: () -> Unit,
     myCode: Int,
     partnerDisplayName: String,
+    onCameraClick: () -> Unit,
+    onGalleryClick: () -> Unit,
     onSend: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -130,7 +164,7 @@ internal fun ChatInputBar(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
+            Row(
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = 44.dp, max = 110.dp)
@@ -141,35 +175,83 @@ internal fun ChatInputBar(
                         color = DarkInputBorderColor,
                         shape = RoundedCornerShape(22.dp)
                     )
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                contentAlignment = Alignment.CenterStart
+                    .padding(
+                        start = 16.dp,
+                        end = if (text.isEmpty()) 12.dp else 16.dp,
+                        top = 6.dp,
+                        bottom = 6.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (text.isEmpty()) {
-                    Text(
-                        text = "Message...",
-                        fontSize = 15.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (text.isEmpty()) {
+                        Text(
+                            text = "Message...",
+                            fontSize = 15.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+
+                    BasicTextField(
+                        value = text,
+                        onValueChange = onTextChanged,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        textStyle = TextStyle(
+                            fontSize = 15.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            autoCorrect = true,
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Default
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
                     )
                 }
 
-                BasicTextField(
-                    value = text,
-                    onValueChange = onTextChanged,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    textStyle = TextStyle(
-                        fontSize = 15.5.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Sentences,
-                        autoCorrect = true,
-                        keyboardType = KeyboardType.Text,
-                        imeAction = ImeAction.Default
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-                )
+                if (text.isEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Icon(
+                        imageVector = GalleryIcon,
+                        contentDescription = "Gallery",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                onGalleryClick()
+                            }
+                    )
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Icon(
+                        imageVector = CameraIcon,
+                        contentDescription = "Camera",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                onCameraClick()
+                            }
+                    )
+
+                    Spacer(modifier = Modifier.width(2.dp))
+                }
             }
 
             Spacer(modifier = Modifier.width(8.dp))
