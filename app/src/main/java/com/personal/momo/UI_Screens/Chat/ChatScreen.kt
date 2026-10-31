@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -273,18 +273,25 @@ fun ChatScreen(
                 .fillMaxWidth()
                 .weight(1f)
                 .clipToBounds(),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            items(messagesList, key = { it.id }) { message ->
+            itemsIndexed(messagesList, key = { _, message -> message.id }) { index, message ->
                 val isOutgoing = message.senderId == myCode
                 val isSelected = selectedMessageIds.contains(message.id)
+
+                val nextMsg = messagesList.getOrNull(index + 1)
+                val isNextSameGroup = nextMsg != null &&
+                    nextMsg.senderId == message.senderId &&
+                    isSameMinute(message.timestamp, nextMsg.timestamp)
+                val isLastInGroup = !isNextSameGroup
 
                 MessageBubbleRow(
                     message = message,
                     isOutgoing = isOutgoing,
                     isSelected = isSelected,
                     isSelectionMode = isSelectionMode,
+                    isLastInGroup = isLastInGroup,
                     onToggleSelect = { id ->
                         selectedMessageIds = if (selectedMessageIds.contains(id)) {
                             selectedMessageIds - id
@@ -331,17 +338,17 @@ private fun SelectionTopHeader(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 3.dp
+        shadowElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.94f) {
                         onClearSelection()
@@ -352,15 +359,15 @@ private fun SelectionTopHeader(
                     imageVector = ArrowBackIcon,
                     contentDescription = "Cancel Selection",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Text(
                 text = "$selectedCount",
-                fontSize = 18.sp,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
@@ -369,7 +376,7 @@ private fun SelectionTopHeader(
 
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.94f) {
                         onCopy()
@@ -380,15 +387,15 @@ private fun SelectionTopHeader(
                     imageVector = CopyIcon,
                     contentDescription = "Copy Messages",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(21.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.94f) {
                         onDelete()
@@ -399,7 +406,7 @@ private fun SelectionTopHeader(
                     imageVector = DeleteIcon,
                     contentDescription = "Delete Messages",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(21.dp)
                 )
             }
         }
@@ -423,17 +430,17 @@ private fun ChatTopHeader(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 3.dp
+        shadowElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .bounceClick(scaleDown = 0.94f) {
                         onBack()
@@ -444,20 +451,20 @@ private fun ChatTopHeader(
                     imageVector = ArrowBackIcon,
                     contentDescription = "Back",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     .border(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center
@@ -476,12 +483,12 @@ private fun ChatTopHeader(
                         imageVector = Icons.Default.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -489,13 +496,13 @@ private fun ChatTopHeader(
             ) {
                 Text(
                     text = partnerName,
-                    fontSize = 16.sp,
+                    fontSize = 15.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = statusText,
-                    fontSize = 12.sp,
+                    fontSize = 11.5.sp,
                     color = if (inChat)
                         Color(0xFF25D366)
                     else
@@ -512,6 +519,7 @@ private fun MessageBubbleRow(
     isOutgoing: Boolean,
     isSelected: Boolean,
     isSelectionMode: Boolean,
+    isLastInGroup: Boolean,
     onToggleSelect: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
@@ -521,13 +529,13 @@ private fun MessageBubbleRow(
             topStart = 16.dp,
             topEnd = 4.dp,
             bottomStart = 16.dp,
-            bottomEnd = 16.dp
+            bottomEnd = if (isLastInGroup) 16.dp else 4.dp
         )
     } else {
         RoundedCornerShape(
             topStart = 4.dp,
             topEnd = 16.dp,
-            bottomStart = 16.dp,
+            bottomStart = if (isLastInGroup) 16.dp else 4.dp,
             bottomEnd = 16.dp
         )
     }
@@ -535,6 +543,12 @@ private fun MessageBubbleRow(
     val formattedTime = remember(message.timestamp) {
         formatBubbleTime(message.timestamp)
     }
+
+    val isShortMessage = remember(message.text) {
+        !message.text.contains('\n') && message.text.length <= 26
+    }
+
+    val bottomSpacing = if (isLastInGroup) 6.dp else 2.dp
 
     Box(
         modifier = Modifier
@@ -555,14 +569,14 @@ private fun MessageBubbleRow(
                     }
                 )
             }
-            .padding(horizontal = 14.dp, vertical = 4.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 1.dp, bottom = bottomSpacing)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start
         ) {
             Surface(
-                modifier = Modifier.widthIn(max = 280.dp),
+                modifier = Modifier.widthIn(max = 290.dp),
                 shape = bubbleShape,
                 color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
                 border = if (isOutgoing) null else BorderStroke(
@@ -571,42 +585,92 @@ private fun MessageBubbleRow(
                 ),
                 shadowElevation = 1.dp
             ) {
-                Column(
-                    modifier = Modifier
-                        .then(
-                            if (isOutgoing) {
-                                Modifier.background(MomoPrimaryGradient)
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = message.text,
-                        fontSize = 14.5.sp,
-                        color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
-                        lineHeight = 20.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(3.dp))
-
-                    Row(
-                        modifier = Modifier.align(Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                if (!isLastInGroup) {
+                    Column(
+                        modifier = Modifier
+                            .then(
+                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                            )
+                            .padding(horizontal = 11.dp, vertical = 5.dp)
                     ) {
                         Text(
-                            text = formattedTime,
-                            fontSize = 10.5.sp,
-                            color = if (isOutgoing)
-                                Color.White.copy(alpha = 0.82f)
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            text = message.text,
+                            fontSize = 14.5.sp,
+                            color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
+                            lineHeight = 19.5.sp
+                        )
+                    }
+                } else if (isShortMessage) {
+                    Row(
+                        modifier = Modifier
+                            .then(
+                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                            )
+                            .padding(start = 11.dp, end = 9.dp, top = 5.dp, bottom = 5.dp),
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        Text(
+                            text = message.text,
+                            fontSize = 14.5.sp,
+                            color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
+                            lineHeight = 19.5.sp
                         )
 
-                        if (isOutgoing) {
-                            BubbleStatusTicks(status = message.status)
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            modifier = Modifier.padding(bottom = 1.dp)
+                        ) {
+                            Text(
+                                text = formattedTime,
+                                fontSize = 10.sp,
+                                color = if (isOutgoing)
+                                    Color.White.copy(alpha = 0.82f)
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+
+                            if (isOutgoing) {
+                                BubbleStatusTicks(status = message.status)
+                            }
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .then(
+                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                            )
+                            .padding(start = 11.dp, end = 10.dp, top = 5.dp, bottom = 4.dp)
+                    ) {
+                        Text(
+                            text = message.text,
+                            fontSize = 14.5.sp,
+                            color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
+                            lineHeight = 19.5.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Row(
+                            modifier = Modifier.align(Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Text(
+                                text = formattedTime,
+                                fontSize = 10.sp,
+                                color = if (isOutgoing)
+                                    Color.White.copy(alpha = 0.82f)
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+
+                            if (isOutgoing) {
+                                BubbleStatusTicks(status = message.status)
+                            }
                         }
                     }
                 }
@@ -749,6 +813,20 @@ private fun ChatInputBar(
                     .padding(start = 2.dp)
             )
         }
+    }
+}
+
+private fun isSameMinute(t1: Long, t2: Long): Boolean {
+    if (t1 <= 0L || t2 <= 0L) return false
+    return try {
+        val dt1 = LocalDateTime.ofInstant(Instant.ofEpochMilli(t1), ZoneId.systemDefault())
+        val dt2 = LocalDateTime.ofInstant(Instant.ofEpochMilli(t2), ZoneId.systemDefault())
+        dt1.year == dt2.year &&
+            dt1.dayOfYear == dt2.dayOfYear &&
+            dt1.hour == dt2.hour &&
+            dt1.minute == dt2.minute
+    } catch (_: Exception) {
+        false
     }
 }
 
