@@ -87,7 +87,18 @@ fun InboxScreen(
     }
 
     val lastMsg = messages.lastOrNull()
-    val lastMessageText = lastMsg?.text ?: "Tap to start chatting"
+    val lastMessageText = remember(lastMsg) {
+        if (lastMsg == null) {
+            "Tap to start chatting"
+        } else if (lastMsg.mediaType == 1) {
+            if (lastMsg.text.isNotBlank()) "📷 ${lastMsg.text}" else "📷 Photo"
+        } else if (lastMsg.mediaType == 2) {
+            if (lastMsg.text.isNotBlank()) "🎥 ${lastMsg.text}" else "🎥 Video"
+        } else {
+            lastMsg.text.ifBlank { "Tap to start chatting" }
+        }
+    }
+
     val lastTimestamp = lastMsg?.timestamp ?: 0L
     val isOutgoing = lastMsg != null && lastMsg.senderId == mySenderCode
     val deliveryStatus = lastMsg?.status ?: -1
@@ -144,7 +155,6 @@ private fun InboxChatRow(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left Profile Avatar
             Box(
                 modifier = Modifier
                     .size(52.dp)
@@ -178,7 +188,6 @@ private fun InboxChatRow(
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            // Center Content (Name & Subtitle Message Preview)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.Center
@@ -218,7 +227,6 @@ private fun InboxChatRow(
 
             Spacer(modifier = Modifier.width(10.dp))
 
-            // Right Content (Timestamp & Unread Badge Counter)
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.Center
