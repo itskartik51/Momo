@@ -12,11 +12,12 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -123,17 +124,17 @@ internal fun MessageBubbleRow(
 
     val bubbleShape = if (isOutgoing) {
         RoundedCornerShape(
-            topStart = 16.dp,
-            topEnd = 4.dp,
-            bottomStart = 16.dp,
-            bottomEnd = if (isLastInGroup) 16.dp else 4.dp
+            topStart = 8.dp,
+            topEnd = 2.dp,
+            bottomStart = 8.dp,
+            bottomEnd = if (isLastInGroup) 8.dp else 2.dp
         )
     } else {
         RoundedCornerShape(
-            topStart = 4.dp,
-            topEnd = 16.dp,
-            bottomStart = if (isLastInGroup) 16.dp else 4.dp,
-            bottomEnd = 16.dp
+            topStart = 2.dp,
+            topEnd = 8.dp,
+            bottomStart = if (isLastInGroup) 8.dp else 2.dp,
+            bottomEnd = 8.dp
         )
     }
 
@@ -141,7 +142,7 @@ internal fun MessageBubbleRow(
         formatBubbleTime(message.timestamp)
     }
 
-    val bottomSpacing = if (isLastInGroup) 6.dp else 2.dp
+    val bottomSpacing = if (isLastInGroup) 5.dp else 2.dp
 
     Box(
         modifier = Modifier
@@ -162,7 +163,7 @@ internal fun MessageBubbleRow(
                     }
                 )
             }
-            .padding(start = 12.dp, end = 12.dp, top = 1.dp, bottom = bottomSpacing)
+            .padding(start = 8.dp, end = 8.dp, top = 1.dp, bottom = bottomSpacing)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -316,17 +317,20 @@ private fun BubbleMessageContent(
             }
         }
     ) { measurables, constraints ->
-        val padStart = 11.dp.roundToPx()
-        val padEnd = 11.dp.roundToPx()
-        val padTop = 6.dp.roundToPx()
-        val padBottom = 6.dp.roundToPx()
+        val bubblePadStart = 8.dp.roundToPx()
+        val bubblePadEnd = 8.dp.roundToPx()
+        val bubblePadTop = if (hasReply) 4.dp.roundToPx() else 5.dp.roundToPx()
+        val bubblePadBottom = 5.dp.roundToPx()
 
-        val timePadEnd = 7.dp.roundToPx()
+        val quoteMargin = 4.dp.roundToPx()
+        val quoteSpacing = 4.dp.roundToPx()
+
+        val timePadEnd = 6.dp.roundToPx()
         val timePadBottom = 2.dp.roundToPx()
-        val horizontalGap = 7.dp.roundToPx()
-        val quoteSpacing = 5.dp.roundToPx()
+        val horizontalGap = 6.dp.roundToPx()
 
-        val maxContentWidth = (constraints.maxWidth - padStart - padEnd).coerceAtLeast(0)
+        val maxTextWidth = (constraints.maxWidth - bubblePadStart - bubblePadEnd).coerceAtLeast(0)
+        val maxQuoteWidth = (constraints.maxWidth - quoteMargin * 2).coerceAtLeast(0)
 
         var mIndex = 0
         val quoteMeasurable = if (hasReply) measurables[mIndex++] else null
@@ -334,7 +338,7 @@ private fun BubbleMessageContent(
         val timeMeasurable = if (isLastInGroup && measurables.size > mIndex) measurables[mIndex] else null
 
         val textPlaceable = textMeasurable.measure(
-            constraints.copy(minWidth = 0, maxWidth = maxContentWidth, minHeight = 0)
+            constraints.copy(minWidth = 0, maxWidth = maxTextWidth, minHeight = 0)
         )
 
         val timePlaceable = timeMeasurable?.measure(
@@ -348,19 +352,24 @@ private fun BubbleMessageContent(
         val timeWidth = timePlaceable?.width ?: 0
         val timeHeight = timePlaceable?.height ?: 0
 
-        val inlineWidthNeeded = padStart + lastLineRight + horizontalGap + timeWidth + timePadEnd
+        val inlineWidthNeeded = bubblePadStart + lastLineRight + horizontalGap + timeWidth + timePadEnd
         val canFitInline = timePlaceable == null || inlineWidthNeeded <= constraints.maxWidth
 
-        val textAndContentWidth = if (canFitInline) {
-            maxOf(textPlaceable.width, (inlineWidthNeeded - padStart - padEnd).coerceAtLeast(0))
+        val textNeededWidth = if (canFitInline) {
+            maxOf(textPlaceable.width, (inlineWidthNeeded - bubblePadStart - bubblePadEnd).coerceAtLeast(0))
         } else {
-            maxOf(textPlaceable.width, (timeWidth + timePadEnd - padEnd).coerceAtLeast(0))
+            maxOf(textPlaceable.width, (timeWidth + timePadEnd - bubblePadEnd).coerceAtLeast(0))
         }
+
+        val desiredQuoteWidth = if (hasReply) {
+            val minQuoteWidth = (textNeededWidth + bubblePadStart + bubblePadEnd - quoteMargin * 2).coerceAtLeast(140.dp.roundToPx())
+            minOf(minQuoteWidth, maxQuoteWidth)
+        } else 0
 
         val quotePlaceable = quoteMeasurable?.measure(
             constraints.copy(
-                minWidth = minOf(textAndContentWidth, maxContentWidth),
-                maxWidth = maxContentWidth,
+                minWidth = desiredQuoteWidth,
+                maxWidth = maxQuoteWidth,
                 minHeight = 0
             )
         )
@@ -368,39 +377,42 @@ private fun BubbleMessageContent(
         val quoteWidth = quotePlaceable?.width ?: 0
         val quoteHeight = if (quotePlaceable != null) quotePlaceable.height + quoteSpacing else 0
 
-        val finalContentWidth = maxOf(textAndContentWidth, quoteWidth)
-        val baseBubbleWidth = padStart + finalContentWidth + padEnd
+        val baseBubbleWidth = if (hasReply) {
+            maxOf(quoteWidth + quoteMargin * 2, textPlaceable.width + bubblePadStart + bubblePadEnd)
+        } else {
+            textPlaceable.width + bubblePadStart + bubblePadEnd
+        }
 
         if (timePlaceable == null) {
             val totalWidth = baseBubbleWidth
-            val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom
+            val totalHeight = bubblePadTop + quoteHeight + textPlaceable.height + bubblePadBottom
 
             layout(totalWidth, totalHeight) {
-                quotePlaceable?.placeRelative(padStart, padTop)
-                textPlaceable.placeRelative(padStart, padTop + quoteHeight)
+                quotePlaceable?.placeRelative(quoteMargin, bubblePadTop)
+                textPlaceable.placeRelative(bubblePadStart, bubblePadTop + quoteHeight)
             }
         } else if (canFitInline) {
             val totalWidth = maxOf(baseBubbleWidth, inlineWidthNeeded)
-            val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom
+            val totalHeight = bubblePadTop + quoteHeight + textPlaceable.height + bubblePadBottom
 
             layout(totalWidth, totalHeight) {
-                quotePlaceable?.placeRelative(padStart, padTop)
-                textPlaceable.placeRelative(padStart, padTop + quoteHeight)
+                quotePlaceable?.placeRelative(quoteMargin, bubblePadTop)
+                textPlaceable.placeRelative(bubblePadStart, bubblePadTop + quoteHeight)
 
                 val timeX = totalWidth - timeWidth - timePadEnd
                 val timeY = totalHeight - timeHeight - timePadBottom
                 timePlaceable.placeRelative(timeX, timeY)
             }
         } else {
-            val minTimeWidth = padStart + timeWidth + timePadEnd
+            val minTimeWidth = bubblePadStart + timeWidth + timePadEnd
             val totalWidth = maxOf(baseBubbleWidth, minTimeWidth)
 
-            val extraBottomSpace = (timeHeight - (padBottom - timePadBottom)).coerceAtLeast(0) + 2.dp.roundToPx()
-            val totalHeight = padTop + quoteHeight + textPlaceable.height + padBottom + extraBottomSpace
+            val extraBottomSpace = (timeHeight - (bubblePadBottom - timePadBottom)).coerceAtLeast(0) + 2.dp.roundToPx()
+            val totalHeight = bubblePadTop + quoteHeight + textPlaceable.height + bubblePadBottom + extraBottomSpace
 
             layout(totalWidth, totalHeight) {
-                quotePlaceable?.placeRelative(padStart, padTop)
-                textPlaceable.placeRelative(padStart, padTop + quoteHeight)
+                quotePlaceable?.placeRelative(quoteMargin, bubblePadTop)
+                textPlaceable.placeRelative(bubblePadStart, bubblePadTop + quoteHeight)
 
                 val timeX = totalWidth - timeWidth - timePadEnd
                 val timeY = totalHeight - timeHeight - timePadBottom
@@ -423,26 +435,27 @@ private fun QuotedReplySnippet(
     val senderTitle = if (isReplyFromMe) "You" else partnerDisplayName
 
     val containerBg = if (isOutgoing) {
-        Color.Black.copy(alpha = 0.22f)
+        Color.Black.copy(alpha = 0.14f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        Color.White.copy(alpha = 0.06f)
     }
 
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(containerBg)
+            .height(IntrinsicSize.Min)
     ) {
         Box(
             modifier = Modifier
                 .width(3.5.dp)
-                .heightIn(min = 34.dp)
+                .fillMaxHeight()
                 .background(accentColor)
         )
 
         Column(
             modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(start = 7.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
                 .widthIn(min = 120.dp),
             verticalArrangement = Arrangement.Center
         ) {
