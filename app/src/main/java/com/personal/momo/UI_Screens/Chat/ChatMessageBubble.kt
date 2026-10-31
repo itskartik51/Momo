@@ -141,17 +141,17 @@ private fun BubbleMessageContent(
 
     val textColor = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface
     val timeColor = if (isOutgoing)
-        Color.White.copy(alpha = 0.62f)
+        Color.White.copy(alpha = 0.80f)
     else
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
 
     Layout(
         content = {
             Text(
                 text = message.text,
-                fontSize = 14.5.sp,
+                fontSize = 15.5.sp,
                 color = textColor,
-                lineHeight = 19.sp,
+                lineHeight = 21.5.sp,
                 style = TextStyle(
                     platformStyle = PlatformTextStyle(includeFontPadding = false)
                 ),
@@ -165,7 +165,7 @@ private fun BubbleMessageContent(
                 ) {
                     Text(
                         text = formattedTime,
-                        fontSize = 9.5.sp,
+                        fontSize = 11.sp,
                         color = timeColor,
                         style = TextStyle(
                             platformStyle = PlatformTextStyle(includeFontPadding = false)
@@ -245,7 +245,7 @@ private fun BubbleMessageContent(
 
 @Composable
 private fun BubbleStatusTicks(status: Int) {
-    val defaultTickColor = Color.White.copy(alpha = 0.68f)
+    val defaultTickColor = Color.White.copy(alpha = 0.80f)
     val blueTickColor = Color(0xFF34B7F1)
 
     when (status) {
@@ -254,7 +254,7 @@ private fun BubbleStatusTicks(status: Int) {
                 imageVector = Icons.Outlined.Schedule,
                 contentDescription = "Pending",
                 tint = defaultTickColor,
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(13.5.dp)
             )
         }
         1 -> {
@@ -262,48 +262,48 @@ private fun BubbleStatusTicks(status: Int) {
                 imageVector = Icons.Default.Check,
                 contentDescription = "Sent",
                 tint = defaultTickColor,
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(13.5.dp)
             )
         }
         2 -> {
             Box(
-                modifier = Modifier.width(15.5.dp),
+                modifier = Modifier.width(17.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Delivered",
                     tint = defaultTickColor,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(13.5.dp)
                 )
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = defaultTickColor,
                     modifier = Modifier
-                        .padding(start = 3.5.dp)
-                        .size(12.dp)
+                        .padding(start = 4.dp)
+                        .size(13.5.dp)
                 )
             }
         }
         3 -> {
             Box(
-                modifier = Modifier.width(15.5.dp),
+                modifier = Modifier.width(17.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Read",
                     tint = blueTickColor,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(13.5.dp)
                 )
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = blueTickColor,
                     modifier = Modifier
-                        .padding(start = 3.5.dp)
-                        .size(12.dp)
+                        .padding(start = 4.dp)
+                        .size(13.5.dp)
                 )
             }
         }
