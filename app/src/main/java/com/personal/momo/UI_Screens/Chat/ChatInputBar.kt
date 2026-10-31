@@ -51,6 +51,8 @@ import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
 
 private val AquaMintColor = Color(0xFF43CEA2)
+private val DarkInputSurfaceColor = Color(0xFF171922)
+private val DarkInputBorderColor = Color(0xFF262936)
 
 private val SendIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -129,10 +131,10 @@ internal fun ChatInputBar(
                     .weight(1f)
                     .heightIn(min = 44.dp, max = 110.dp)
                     .clip(RoundedCornerShape(22.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(DarkInputSurfaceColor)
                     .border(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                        color = DarkInputBorderColor,
                         shape = RoundedCornerShape(22.dp)
                     )
                     .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -204,23 +206,23 @@ private fun ReplyPreviewBar(
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = DarkInputSurfaceColor,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            color = DarkInputBorderColor
         )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(end = 8.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .width(4.dp)
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp))
+                    .width(3.5.dp)
+                    .height(36.dp)
+                    .clip(CircleShape)
                     .background(accentColor)
             )
 
@@ -248,7 +250,7 @@ private fun ReplyPreviewBar(
                     fontSize = 12.5.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White.copy(alpha = 0.82f),
                     lineHeight = 16.5.sp,
                     style = TextStyle(
                         platformStyle = PlatformTextStyle(includeFontPadding = false)
@@ -270,7 +272,7 @@ private fun ReplyPreviewBar(
                 Icon(
                     imageVector = CloseIcon,
                     contentDescription = "Cancel Reply",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    tint = Color.White.copy(alpha = 0.65f),
                     modifier = Modifier.size(17.dp)
                 )
             }
