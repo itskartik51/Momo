@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -209,7 +210,8 @@ fun ChatScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f),
+                .weight(1f)
+                .clipToBounds(),
             contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
@@ -575,72 +577,66 @@ private fun ChatInputBar(
     onTextChanged: (String) -> Unit,
     onSend: () -> Unit
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 4.dp
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .weight(1f)
+                .heightIn(min = 44.dp, max = 110.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(22.dp)
+                )
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 44.dp, max = 110.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(22.dp)
-                    )
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                if (text.isEmpty()) {
-                    Text(
-                        text = "Message...",
-                        fontSize = 14.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                }
-
-                BasicTextField(
-                    value = text,
-                    onValueChange = onTextChanged,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = TextStyle(
-                        fontSize = 14.5.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+            if (text.isEmpty()) {
+                Text(
+                    text = "Message...",
+                    fontSize = 14.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            BasicTextField(
+                value = text,
+                onValueChange = onTextChanged,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = TextStyle(
+                    fontSize = 14.5.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
+            )
+        }
 
-            Box(
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(MomoPrimaryGradient)
+                .bounceClick(scaleDown = 0.94f) {
+                    onSend()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = SendIcon,
+                contentDescription = "Send",
+                tint = Color.White,
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(MomoPrimaryGradient)
-                    .bounceClick(scaleDown = 0.94f) {
-                        onSend()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = SendIcon,
-                    contentDescription = "Send",
-                    tint = Color.White,
-                    modifier = Modifier
-                        .size(19.dp)
-                        .padding(start = 2.dp)
-                )
-            }
+                    .size(19.dp)
+                    .padding(start = 2.dp)
+            )
         }
     }
 }
