@@ -70,6 +70,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 private val AquaMintColor = Color(0xFF43CEA2)
+private val DarkQuotedSurfaceColor = Color(0xFF171922)
 
 private val ReplyIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -435,9 +436,9 @@ private fun QuotedReplySnippet(
     val senderTitle = if (isReplyFromMe) "You" else partnerDisplayName
 
     val containerBg = if (isOutgoing) {
-        Color.Black.copy(alpha = 0.14f)
+        DarkQuotedSurfaceColor
     } else {
-        Color.White.copy(alpha = 0.06f)
+        Color.Black.copy(alpha = 0.28f)
     }
 
     Row(
@@ -477,10 +478,7 @@ private fun QuotedReplySnippet(
                 fontSize = 12.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = if (isOutgoing)
-                    Color.White.copy(alpha = 0.85f)
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                color = Color.White.copy(alpha = 0.82f),
                 lineHeight = 16.sp,
                 style = TextStyle(
                     platformStyle = PlatformTextStyle(includeFontPadding = false)
