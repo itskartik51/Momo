@@ -2,8 +2,7 @@ package com.personal.momo.UI_Screens.Chat
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -100,6 +99,7 @@ internal fun MessageBubbleRow(
     isHighlighted: Boolean,
     isSelectionMode: Boolean,
     isLastInGroup: Boolean,
+    isLastInSenderGroup: Boolean = isLastInGroup,
     myCode: Int,
     partnerDisplayName: String,
     onToggleSelect: (String) -> Unit,
@@ -126,6 +126,8 @@ internal fun MessageBubbleRow(
             if (target >= triggerThresholdPx && !isTriggered) {
                 isTriggered = true
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            } else if (target < triggerThresholdPx && isTriggered) {
+                isTriggered = false
             }
         }
     }
@@ -135,13 +137,13 @@ internal fun MessageBubbleRow(
             topStart = 8.dp,
             topEnd = 2.dp,
             bottomStart = 8.dp,
-            bottomEnd = if (isLastInGroup) 8.dp else 2.dp
+            bottomEnd = if (isLastInSenderGroup) 8.dp else 2.dp
         )
     } else {
         RoundedCornerShape(
             topStart = 2.dp,
             topEnd = 8.dp,
-            bottomStart = if (isLastInGroup) 8.dp else 2.dp,
+            bottomStart = if (isLastInSenderGroup) 8.dp else 2.dp,
             bottomEnd = 8.dp
         )
     }
@@ -160,12 +162,33 @@ internal fun MessageBubbleRow(
         label = "rowHighlightAnimation"
     )
 
-    val bottomSpacing = if (isLastInGroup) 5.dp else 2.dp
+    val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.dp
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(rowBackgroundColor)
+            .draggable(
+                state = draggableState,
+                orientation = Orientation.Horizontal,
+                enabled = !isSelectionMode,
+                onDragStopped = {
+                    val wasTriggered = isTriggered
+                    if (wasTriggered) {
+                        onSwipeToReply(message)
+                    }
+                    coroutineScope.launch {
+                        offsetX.animateTo(
+                            targetValue = 0f,
+                            animationSpec = tween(
+                                durationMillis = 180,
+                                easing = FastOutSlowInEasing
+                            )
+                        )
+                        isTriggered = false
+                    }
+                }
+            )
             .pointerInput(message.id, isSelectionMode) {
                 detectTapGestures(
                     onLongPress = {
@@ -189,7 +212,7 @@ internal fun MessageBubbleRow(
             Box(
                 contentAlignment = Alignment.CenterStart
             ) {
-                if (offsetX.value > 0f) {
+                if (offsetX.value > 0.5f) {
                     val progress = (offsetX.value / triggerThresholdPx).coerceIn(0f, 1f)
                     val iconScale = 0.5f + (0.5f * progress)
                     val iconAlpha = progress
@@ -219,26 +242,6 @@ internal fun MessageBubbleRow(
                 Surface(
                     modifier = Modifier
                         .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                        .draggable(
-                            state = draggableState,
-                            orientation = Orientation.Horizontal,
-                            enabled = !isSelectionMode,
-                            onDragStopped = {
-                                if (isTriggered) {
-                                    onSwipeToReply(message)
-                                }
-                                isTriggered = false
-                                coroutineScope.launch {
-                                    offsetX.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = spring(
-                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                            stiffness = Spring.StiffnessLow
-                                        )
-                                    )
-                                }
-                            }
-                        )
                         .widthIn(max = 290.dp),
                     shape = bubbleShape,
                     color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
