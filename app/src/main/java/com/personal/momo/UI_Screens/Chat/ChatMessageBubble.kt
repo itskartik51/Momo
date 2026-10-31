@@ -19,12 +19,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -57,7 +56,6 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
@@ -69,7 +67,6 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.roundToInt
 
 private val AquaMintColor = Color(0xFF43CEA2)
 private val GlowingPinkAccent = Color(0xFFFFC2D1)
@@ -111,7 +108,6 @@ internal fun MessageBubbleRow(
     val coroutineScope = rememberCoroutineScope()
 
     val triggerThresholdPx = with(density) { 45.dp.toPx() }
-    val maxDragPx = with(density) { 68.dp.toPx() }
 
     val offsetX = remember { Animatable(0f) }
     var isTriggered by remember { mutableStateOf(false) }
@@ -119,14 +115,14 @@ internal fun MessageBubbleRow(
     val draggableState = rememberDraggableState { delta ->
         if (!isSelectionMode) {
             val current = offsetX.value
-            val target = (current + delta).coerceIn(0f, maxDragPx)
+            val newRaw = (current + delta).coerceAtLeast(0f)
             coroutineScope.launch {
-                offsetX.snapTo(target)
+                offsetX.snapTo(newRaw)
             }
-            if (target >= triggerThresholdPx && !isTriggered) {
+            if (newRaw >= triggerThresholdPx && !isTriggered) {
                 isTriggered = true
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            } else if (target < triggerThresholdPx && isTriggered) {
+            } else if (newRaw < triggerThresholdPx && isTriggered) {
                 isTriggered = false
             }
         }
@@ -204,68 +200,68 @@ internal fun MessageBubbleRow(
             }
             .padding(start = 8.dp, end = 8.dp, top = 1.dp, bottom = bottomSpacing)
     ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 14.dp)
+                .size(0.dp)
+                .wrapContentSize(unbounded = true, align = Alignment.Center)
+                .graphicsLayer {
+                    val raw = offsetX.value
+                    val progress = (raw / triggerThresholdPx).coerceIn(0f, 1f)
+                    scaleX = 0.45f + (0.55f * progress)
+                    scaleY = 0.45f + (0.55f * progress)
+                    alpha = progress
+                    translationX = (raw * 0.18f)
+                }
+        ) {
+            Icon(
+                imageVector = ReplyIcon,
+                contentDescription = "Reply",
+                tint = if (isTriggered) MomoRedLight else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    val raw = offsetX.value
+                    val effective = if (raw <= triggerThresholdPx) {
+                        raw
+                    } else {
+                        triggerThresholdPx + (raw - triggerThresholdPx) * 0.28f
+                    }
+                    translationX = effective
+                },
             horizontalArrangement = if (isOutgoing) Arrangement.End else Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                contentAlignment = Alignment.CenterStart
+            Surface(
+                modifier = Modifier.widthIn(max = 290.dp),
+                shape = bubbleShape,
+                color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
+                border = if (isOutgoing) null else BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                ),
+                shadowElevation = 1.dp
             ) {
-                if (offsetX.value > 0.5f) {
-                    val progress = (offsetX.value / triggerThresholdPx).coerceIn(0f, 1f)
-                    val iconScale = 0.5f + (0.5f * progress)
-                    val iconAlpha = progress
-
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .graphicsLayer {
-                                scaleX = iconScale
-                                scaleY = iconScale
-                                alpha = iconAlpha
-                                translationX = (offsetX.value * 0.35f)
-                            }
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = ReplyIcon,
-                            contentDescription = "Reply",
-                            tint = if (isTriggered) MomoRedLight else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(17.dp)
-                        )
-                    }
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                        .widthIn(max = 290.dp),
-                    shape = bubbleShape,
-                    color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
-                    border = if (isOutgoing) null else BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                    ),
-                    shadowElevation = 1.dp
+                Box(
+                    modifier = Modifier.then(
+                        if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                    )
                 ) {
-                    Box(
-                        modifier = Modifier.then(
-                            if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                        )
-                    ) {
-                        BubbleMessageContent(
-                            message = message,
-                            isOutgoing = isOutgoing,
-                            isLastInGroup = isLastInGroup,
-                            formattedTime = formattedTime,
-                            myCode = myCode,
-                            partnerDisplayName = partnerDisplayName,
-                            onReplyClick = onReplyClick
-                        )
-                    }
+                    BubbleMessageContent(
+                        message = message,
+                        isOutgoing = isOutgoing,
+                        isLastInGroup = isLastInGroup,
+                        formattedTime = formattedTime,
+                        myCode = myCode,
+                        partnerDisplayName = partnerDisplayName,
+                        onReplyClick = onReplyClick
+                    )
                 }
             }
         }
@@ -469,7 +465,7 @@ private fun QuotedReplySnippet(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(containerBg)
-            .bounceClick(scaleDown = 0.94f) {
+            .bounceClick(scaleDown = 0.96f) {
                 if (!replyToId.isNullOrEmpty()) {
                     onReplyClick(replyToId)
                 }
