@@ -13,14 +13,17 @@ import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -40,6 +43,9 @@ object MediaCompressor {
     private const val DEFAULT_IMAGE_QUALITY = 80
     private const val MAX_VIDEO_SHORT_SIDE = 720
     private const val MAX_VIDEO_LONG_SIDE = 1280
+    private const val TARGET_VIDEO_BITRATE = 1_800_000
+    private const val TARGET_VIDEO_FPS = 30f
+    private const val SMART_SKIP_MAX_IMAGE_SIZE_BYTES = 153_600L
 
     suspend fun compressImage(
         context: Context,
@@ -80,8 +86,27 @@ object MediaCompressor {
             rotationDegrees = 0
         }
 
-        var inSampleSize = 1
+        val cacheFolder = File(context.cacheDir, "media_cache").apply {
+            if (!exists()) mkdirs()
+        }
+        val outputImageFile = File(cacheFolder, "IMG_${UUID.randomUUID().toString().take(8)}.jpg")
+
+        val inputSizeBytes = getUriFileSize(context, inputUri)
         val maxOriginalDimension = maxOf(rawWidth, rawHeight)
+
+        if (inputSizeBytes in 1..SMART_SKIP_MAX_IMAGE_SIZE_BYTES &&
+            maxOriginalDimension <= maxDimension &&
+            rotationDegrees == 0
+        ) {
+            context.contentResolver.openInputStream(inputUri)?.use { inputStream ->
+                FileOutputStream(outputImageFile).use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            return@withContext outputImageFile
+        }
+
+        var inSampleSize = 1
         if (maxOriginalDimension > maxDimension) {
             val halfMax = maxOriginalDimension / 2
             while ((halfMax / inSampleSize) >= maxDimension) {
@@ -131,11 +156,6 @@ object MediaCompressor {
             scaledBitmap
         }
 
-        val cacheFolder = File(context.cacheDir, "media_cache").apply {
-            if (!exists()) mkdirs()
-        }
-        val outputImageFile = File(cacheFolder, "IMG_${UUID.randomUUID().toString().take(8)}.jpg")
-
         FileOutputStream(outputImageFile).use { outputStream ->
             finalOrientedBitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
         }
@@ -155,6 +175,9 @@ object MediaCompressor {
         val outputVideoFile = File(cacheFolder, "VID_${UUID.randomUUID().toString().take(8)}.mp4")
 
         val videoEffects = mutableListOf<Effect>()
+
+        videoEffects.add(FrameDropEffect.createDefaultFrameDropEffect(TARGET_VIDEO_FPS))
+
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, inputUri)
@@ -235,7 +258,17 @@ object MediaCompressor {
                 }
             }
 
-            val transformer = Transformer.Builder(context)
+            val videoEncoderSettings = VideoEncoderSettings.Builder()
+                .setBitrate(TARGET_VIDEO_BITRATE)
+                .build()
+
+            val encoderFactory = DefaultEncoderFactory.Builder(context.applicationContext)
+                .setRequestedVideoEncoderSettings(videoEncoderSettings)
+                .setEnableFallback(true)
+                .build()
+
+            val transformer = Transformer.Builder(context.applicationContext)
+                .setEncoderFactory(encoderFactory)
                 .addListener(listener)
                 .setVideoMimeType(MimeTypes.VIDEO_H264)
                 .setAudioMimeType(MimeTypes.AUDIO_AAC)
@@ -262,6 +295,16 @@ object MediaCompressor {
             }
 
             transformer.start(editedMediaItem, outputVideoFile.absolutePath)
+        }
+    }
+
+    private fun getUriFileSize(context: Context, uri: Uri): Long {
+        return try {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use {
+                it.statSize
+            } ?: -1L
+        } catch (_: Exception) {
+            -1L
         }
     }
 
