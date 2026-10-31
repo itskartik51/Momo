@@ -215,7 +215,13 @@ object ChatEngine {
         }
     }
 
-    fun sendMessage(context: Context, text: String) {
+    fun sendMessage(
+        context: Context,
+        text: String,
+        replyToId: String? = null,
+        replyToText: String? = null,
+        replyToSenderId: Int? = null
+    ) {
         val appContext = context.applicationContext
         appContextRef = appContext
         val cleanText = text.trim()
@@ -231,7 +237,10 @@ object ChatEngine {
             senderId = myCode,
             text = cleanText,
             timestamp = timestamp,
-            status = 0 // 0: Pending (Clock icon)
+            status = 0, // 0: Pending (Clock icon)
+            replyToId = replyToId,
+            replyToText = replyToText,
+            replyToSenderId = replyToSenderId
         )
 
         engineScope.launch {
@@ -241,13 +250,23 @@ object ChatEngine {
     }
 
     private fun pushToFirebaseQueue(context: Context, message: ChatMessage, receiverCode: Int) {
-        val payload = mapOf(
+        val payload = mutableMapOf<String, Any>(
             "id" to message.id,
             "send" to message.senderId,
             "text" to message.text,
             "time" to message.timestamp,
             "status" to 1 // 1: Sent
         )
+
+        if (!message.replyToId.isNullOrEmpty()) {
+            payload["rId"] = message.replyToId
+        }
+        if (!message.replyToText.isNullOrEmpty()) {
+            payload["rText"] = message.replyToText
+        }
+        if (message.replyToSenderId != null) {
+            payload["rSend"] = message.replyToSenderId
+        }
 
         val queueRef = database.reference
             .child("momo_chat")
@@ -282,6 +301,13 @@ object ChatEngine {
                 val text = snapshot.child("text").getValue(String::class.java) ?: ""
                 val timestamp = snapshot.child("time").getValue(Long::class.java)?.toLong() ?: System.currentTimeMillis()
 
+                val replyToId = snapshot.child("rId").getValue(String::class.java)
+                    ?: snapshot.child("replyToId").getValue(String::class.java)
+                val replyToText = snapshot.child("rText").getValue(String::class.java)
+                    ?: snapshot.child("replyToText").getValue(String::class.java)
+                val replyToSenderId = snapshot.child("rSend").getValue(Long::class.java)?.toInt()
+                    ?: snapshot.child("replyToSenderId").getValue(Long::class.java)?.toInt()
+
                 val initialDeliveryStatus = if (isChatScreenActive) 3 else 2
 
                 val incomingMessage = ChatMessage(
@@ -289,7 +315,10 @@ object ChatEngine {
                     senderId = senderCode,
                     text = text,
                     timestamp = timestamp,
-                    status = initialDeliveryStatus
+                    status = initialDeliveryStatus,
+                    replyToId = replyToId,
+                    replyToText = replyToText,
+                    replyToSenderId = replyToSenderId
                 )
 
                 engineScope.launch {
