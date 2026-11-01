@@ -111,7 +111,7 @@ fun InboxScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         InboxChatRow(
             partnerName = partnerDisplayName,
@@ -123,6 +123,8 @@ fun InboxScreen(
             unreadCount = unreadCount,
             onClick = onChatClick
         )
+
+        Spacer(modifier = Modifier.height(86.dp))
     }
 }
 
