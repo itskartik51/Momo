@@ -396,5 +396,7 @@ private fun CallHubView(
             partnerName = partnerName,
             modifier = Modifier.weight(1f)
         )
+
+        Spacer(modifier = Modifier.height(86.dp))
     }
 }
