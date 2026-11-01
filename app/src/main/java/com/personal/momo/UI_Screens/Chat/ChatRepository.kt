@@ -71,9 +71,6 @@ object MomoStorage {
 
             val candidateRecvVideo = File(getVideosDir(context), localPath)
             if (candidateRecvVideo.exists() && candidateRecvVideo.length() > 0L) return candidateRecvVideo
-
-            val legacyFile = File(File(context.filesDir, "chat_media"), localPath)
-            if (legacyFile.exists() && legacyFile.length() > 0L) return legacyFile
         }
 
         val directFile = File(localPath)
@@ -120,45 +117,8 @@ object ChatRepository {
         loadMessages(context.applicationContext)
     }
 
-    private fun performLegacyMigrationIfNeeded(context: Context) {
-        try {
-            val oldJsonFile = File(context.filesDir, FILE_NAME)
-            val newJsonFile = File(MomoStorage.getChatDir(context), FILE_NAME)
-
-            if (oldJsonFile.exists()) {
-                if (!newJsonFile.exists() || newJsonFile.length() == 0L) {
-                    oldJsonFile.copyTo(newJsonFile, overwrite = true)
-                }
-                oldJsonFile.delete()
-            }
-
-            val oldMediaFolder = File(context.filesDir, "chat_media")
-            if (oldMediaFolder.exists() && oldMediaFolder.isDirectory) {
-                val files = oldMediaFolder.listFiles() ?: emptyArray()
-                for (file in files) {
-                    if (file.isFile && file.length() > 0L) {
-                        val isVideo = file.name.endsWith(".mp4", ignoreCase = true)
-                        val targetDir = if (isVideo) {
-                            MomoStorage.getVideosDir(context)
-                        } else {
-                            MomoStorage.getPhotosDir(context)
-                        }
-                        val targetFile = File(targetDir, file.name)
-                        file.copyTo(targetFile, overwrite = true)
-                        file.delete()
-                    }
-                }
-                oldMediaFolder.deleteRecursively()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
     private fun ensureLoadedLocked(context: Context) {
         if (isInitialized) return
-
-        performLegacyMigrationIfNeeded(context)
 
         val file = File(MomoStorage.getChatDir(context), FILE_NAME)
         if (!file.exists()) {
