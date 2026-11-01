@@ -128,9 +128,7 @@ internal fun MediaBubbleMessageContent(
     val hasCaption = message.text.isNotBlank()
 
     val mediaFile = remember(message.localPath) {
-        message.localPath?.let { fileName ->
-            File(File(context.filesDir, "chat_media"), fileName).takeIf { it.exists() && it.length() > 0L }
-        }
+        MomoStorage.resolveLocalMediaFile(context, message.localPath)
     }
 
     val blurBitmap = remember(message.blurPreview) {
