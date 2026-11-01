@@ -1,19 +1,22 @@
 package com.personal.momo.UI_Screens.Chat
 
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.media.ExifInterface
+import android.media.MediaMetadataRetriever
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -96,6 +99,10 @@ internal fun MediaBubbleMessageContent(
         }
     }
 
+    val mediaAspectRatio = remember(mediaFile) {
+        calculateMediaAspectRatio(mediaFile, message.mediaType == 2)
+    }
+
     var showFullScreenPreview by remember { mutableStateOf(false) }
 
     if (showFullScreenPreview && mediaFile != null) {
@@ -139,12 +146,19 @@ internal fun MediaBubbleMessageContent(
         }
     }
 
+    val framePadding = 3.5.dp
+
     Column(
-        modifier = Modifier.widthIn(max = 290.dp)
+        modifier = Modifier.width(255.dp)
     ) {
         if (hasReply) {
             Box(
-                modifier = Modifier.padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 4.dp)
+                modifier = Modifier.padding(
+                    start = framePadding,
+                    end = framePadding,
+                    top = framePadding,
+                    bottom = 2.dp
+                )
             ) {
                 QuotedReplySnippet(
                     replyToId = message.replyToId,
@@ -158,28 +172,33 @@ internal fun MediaBubbleMessageContent(
             }
         }
 
-        val mediaClipShape = if (hasCaption) {
+        val innerMediaClipShape = if (hasCaption) {
             RoundedCornerShape(
-                topStart = if (isOutgoing) 8.dp else 2.dp,
-                topEnd = if (isOutgoing) 2.dp else 8.dp,
-                bottomStart = 4.dp,
-                bottomEnd = 4.dp
+                topStart = if (isOutgoing) 6.dp else 2.dp,
+                topEnd = if (isOutgoing) 2.dp else 6.dp,
+                bottomStart = 3.dp,
+                bottomEnd = 3.dp
             )
         } else {
-            bubbleShape
+            RoundedCornerShape(
+                topStart = if (isOutgoing) 6.dp else 2.dp,
+                topEnd = if (isOutgoing) 2.dp else 6.dp,
+                bottomStart = 6.dp,
+                bottomEnd = 6.dp
+            )
         }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 180.dp, max = 260.dp)
                 .padding(
-                    start = if (hasCaption) 4.dp else 0.dp,
-                    end = if (hasCaption) 4.dp else 0.dp,
-                    top = if (hasCaption || hasReply) 4.dp else 0.dp,
-                    bottom = if (hasCaption) 0.dp else 0.dp
+                    start = framePadding,
+                    end = framePadding,
+                    top = if (hasReply) 2.dp else framePadding,
+                    bottom = if (hasCaption) 2.dp else framePadding
                 )
-                .clip(mediaClipShape)
+                .aspectRatio(mediaAspectRatio)
+                .clip(innerMediaClipShape)
                 .background(Color.Black.copy(alpha = 0.25f))
                 .bounceClick(scaleDown = 0.97f) {
                     if (mediaFile != null) {
@@ -236,7 +255,7 @@ internal fun MediaBubbleMessageContent(
                     Row(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(end = 8.dp, bottom = 6.dp)
+                            .padding(end = 6.dp, bottom = 5.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(Color.Black.copy(alpha = 0.55f))
                             .padding(horizontal = 6.5.dp, vertical = 2.5.dp),
@@ -286,7 +305,7 @@ internal fun MediaBubbleMessageContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 5.dp)
+                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 6.dp)
             ) {
                 Text(
                     text = message.text,
@@ -330,5 +349,61 @@ internal fun MediaBubbleMessageContent(
                 }
             }
         }
+    }
+}
+
+private fun calculateMediaAspectRatio(file: File?, isVideo: Boolean): Float {
+    if (file == null || !file.exists() || file.length() == 0L) return 1f
+    return try {
+        if (isVideo) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(file.absolutePath)
+                val wStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                val hStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                val rotStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                val rawW = wStr?.toIntOrNull() ?: 0
+                val rawH = hStr?.toIntOrNull() ?: 0
+                val rotation = rotStr?.toIntOrNull() ?: 0
+                val isRotated = rotation == 90 || rotation == 270
+                val actualW = if (isRotated) rawH else rawW
+                val actualH = if (isRotated) rawW else rawH
+                if (actualW > 0 && actualH > 0) {
+                    (actualW.toFloat() / actualH.toFloat()).coerceIn(0.68f, 1.75f)
+                } else 1f
+            } finally {
+                try {
+                    retriever.release()
+                } catch (_: Exception) {}
+            }
+        } else {
+            val boundsOptions = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeFile(file.absolutePath, boundsOptions)
+            val rawW = boundsOptions.outWidth
+            val rawH = boundsOptions.outHeight
+            if (rawW > 0 && rawH > 0) {
+                var rotation = 0
+                try {
+                    val exif = ExifInterface(file.absolutePath)
+                    val orientation = exif.getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL
+                    )
+                    rotation = when (orientation) {
+                        ExifInterface.ORIENTATION_ROTATE_90,
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 90
+                        else -> 0
+                    }
+                } catch (_: Exception) {}
+                val isRotated = rotation == 90
+                val actualW = if (isRotated) rawH else rawW
+                val actualH = if (isRotated) rawW else rawH
+                (actualW.toFloat() / actualH.toFloat()).coerceIn(0.68f, 1.75f)
+            } else 1f
+        }
+    } catch (_: Exception) {
+        1f
     }
 }
