@@ -30,6 +30,11 @@ data class PartnerPresence(
     val lastSeen: Long = 0L
 )
 
+data class MediaTransferProgress(
+    val stage: String,
+    val progress: Float
+)
+
 object ChatEngine {
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val database: FirebaseDatabase by lazy { FirebaseDatabase.getInstance() }
@@ -58,6 +63,9 @@ object ChatEngine {
     private val _partnerPresenceFlow = MutableStateFlow(PartnerPresence())
     val partnerPresenceFlow: StateFlow<PartnerPresence> = _partnerPresenceFlow.asStateFlow()
 
+    private val _mediaProgressFlow = MutableStateFlow>(emptyMap())
+    val mediaProgressFlow: StateFlow> = _mediaProgressFlow.asStateFlow()
+
     fun getMySenderCode(context: Context? = appContextRef): Int {
         val currentUserId = if (context != null) {
             CacheManager.getAppUserId(context.applicationContext)
@@ -69,6 +77,14 @@ object ChatEngine {
 
     fun getPartnerSenderCode(context: Context? = appContextRef): Int {
         return if (getMySenderCode(context) == 1) 2 else 1
+    }
+
+    fun updateMediaProgress(messageId: String, stage: String, progress: Float) {
+        _mediaProgressFlow.value = _mediaProgressFlow.value + (messageId to MediaTransferProgress(stage, progress))
+    }
+
+    fun clearMediaProgress(messageId: String) {
+        _mediaProgressFlow.value = _mediaProgressFlow.value - messageId
     }
 
     fun startEngine(context: Context) {
@@ -306,7 +322,10 @@ object ChatEngine {
                 val fileToEncrypt = try {
                     val fileUri = Uri.fromFile(permanentLocalFile)
                     if (mediaType == 2) {
-                        val compressed = MediaCompressor.compressVideo(appContext, fileUri)
+                        updateMediaProgress(messageId, "Compressing", 0f)
+                        val compressed = MediaCompressor.compressVideo(appContext, fileUri) { progress ->
+                            updateMediaProgress(messageId, "Compressing", progress)
+                        }
                         if (compressed.exists() && compressed.length() > 0L) {
                             compressed.copyTo(permanentLocalFile, overwrite = true)
                             compressed.delete()
@@ -333,22 +352,29 @@ object ChatEngine {
                 )
                 ChatRepository.saveMessage(appContext, readyMessage)
 
+                updateMediaProgress(messageId, "Sending", 0f)
                 val uploadResult = FirebaseMediaManager.uploadEncryptedMedia(
                     encryptedFile = encResult.encryptedFile,
                     fileId = fileId
-                )
+                ) { progress ->
+                    updateMediaProgress(messageId, "Sending", progress)
+                }
 
                 if (encResult.encryptedFile.exists()) {
                     encResult.encryptedFile.delete()
                 }
 
                 if (uploadResult.isSuccess) {
+                    updateMediaProgress(messageId, "Sending", 1f)
+                    delay(200L)
                     pushToFirebaseQueue(appContext, readyMessage, partnerCode)
                 } else {
                     uploadResult.exceptionOrNull()?.printStackTrace()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                clearMediaProgress(messageId)
             }
         }
     }
