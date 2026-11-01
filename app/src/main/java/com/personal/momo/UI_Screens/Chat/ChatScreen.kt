@@ -381,7 +381,7 @@ fun ChatScreen(
                             highlightTimerJob?.cancel()
                             highlightedMessageId = targetReplyId
                             highlightTimerJob = coroutineScope.launch {
-                                delay(1200L)
+                                delay(1800L)
                                 if (highlightedMessageId == targetReplyId) {
                                     highlightedMessageId = null
                                 }
