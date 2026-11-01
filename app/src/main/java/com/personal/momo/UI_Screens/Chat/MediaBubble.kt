@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,8 +45,11 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -114,9 +118,12 @@ internal fun MediaBubbleMessageContent(
     myCode: Int,
     partnerDisplayName: String,
     bubbleShape: RoundedCornerShape,
+    isSelectionMode: Boolean,
+    onToggleSelect: (String) -> Unit,
     onReplyClick: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val hasReply = !message.replyToText.isNullOrBlank()
     val hasCaption = message.text.isNotBlank()
 
@@ -246,32 +253,38 @@ internal fun MediaBubbleMessageContent(
                 .aspectRatio(mediaAspectRatio)
                 .clip(innerMediaClipShape)
                 .background(Color.Black.copy(alpha = 0.28f))
-                .then(
-                    if (mediaFile != null) {
-                        Modifier.bounceClick(scaleDown = 0.97f) {
-                            if (message.mediaType == 2) {
-                                try {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.provider",
-                                        mediaFile
-                                    )
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        setDataAndType(uri, "video/*")
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .pointerInput(message.id, isSelectionMode, mediaFile != null) {
+                    detectTapGestures(
+                        onLongPress = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleSelect(message.id)
+                        },
+                        onTap = {
+                            if (isSelectionMode) {
+                                onToggleSelect(message.id)
+                            } else if (mediaFile != null) {
+                                if (message.mediaType == 2) {
+                                    try {
+                                        val uri = FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.provider",
+                                            mediaFile
+                                        )
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            setDataAndType(uri, "video/*")
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "Play Video"))
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
                                     }
-                                    context.startActivity(Intent.createChooser(intent, "Play Video"))
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
+                                } else {
+                                    showFullScreenPreview = true
                                 }
-                            } else {
-                                showFullScreenPreview = true
                             }
                         }
-                    } else {
-                        Modifier
-                    }
-                ),
+                    )
+                },
             contentAlignment = Alignment.Center
         ) {
             if (mediaFile != null) {
@@ -343,7 +356,11 @@ internal fun MediaBubbleMessageContent(
                             .clip(RoundedCornerShape(22.dp))
                             .background(Color.Black.copy(alpha = 0.62f))
                             .bounceClick(scaleDown = 0.94f) {
-                                ChatEngine.downloadMediaMessage(context, message)
+                                if (isSelectionMode) {
+                                    onToggleSelect(message.id)
+                                } else {
+                                    ChatEngine.downloadMediaMessage(context, message)
+                                }
                             }
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
