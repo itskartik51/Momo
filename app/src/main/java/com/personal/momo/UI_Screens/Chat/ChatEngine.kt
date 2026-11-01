@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
 data class PartnerPresence(
@@ -57,7 +58,6 @@ object ChatEngine {
     private val _partnerPresenceFlow = MutableStateFlow(PartnerPresence())
     val partnerPresenceFlow: StateFlow<PartnerPresence> = _partnerPresenceFlow.asStateFlow()
 
-    // Numeric mapping: 1 for Kanu, 2 for Momo
     fun getMySenderCode(context: Context? = appContextRef): Int {
         val currentUserId = if (context != null) {
             CacheManager.getAppUserId(context.applicationContext)
@@ -75,7 +75,6 @@ object ChatEngine {
         val appContext = context.applicationContext
         appContextRef = appContext
 
-        // Hydrate user ID from SharedPreferences immediately so cold background starts never read default "Kanu" on Momo's device
         CacheManager.getAppUserId(appContext)
 
         if (isEngineRunning) {
@@ -93,7 +92,6 @@ object ChatEngine {
             bindUserListeners(appContext, initialCode)
             listenForNetworkReconnect(appContext)
 
-            // Observe user role changes from Settings so listeners dynamically rebind if role is switched
             CacheManager.appUserIdFlow.collect { userId ->
                 val newCode = if (userId.equals("Momo", ignoreCase = true)) 2 else 1
                 if (boundMyCode != newCode) {
@@ -242,7 +240,7 @@ object ChatEngine {
             senderId = myCode,
             text = cleanText,
             timestamp = timestamp,
-            status = 0, // 0: Pending (Clock icon)
+            status = 0,
             replyToId = replyToId,
             replyToText = replyToText,
             replyToSenderId = replyToSenderId
@@ -257,7 +255,7 @@ object ChatEngine {
     fun sendMediaMessage(
         context: Context,
         mediaUri: Uri,
-        mediaType: Int, // 1: Image, 2: Video
+        mediaType: Int,
         caption: String = "",
         replyToId: String? = null,
         replyToText: String? = null,
@@ -275,29 +273,19 @@ object ChatEngine {
 
         engineScope.launch {
             try {
-                // 1. Hardware-accelerated / smart compression
-                val compressedFile = if (mediaType == 2) {
-                    MediaCompressor.compressVideo(appContext, mediaUri)
-                } else {
-                    MediaCompressor.compressImage(appContext, mediaUri)
-                }
-
-                // 2. Save compressed file directly to permanent local media directory
                 val mediaFolder = File(appContext.filesDir, "chat_media").apply {
                     if (!exists()) mkdirs()
                 }
                 val extension = if (mediaType == 2) "mp4" else "jpg"
                 val permanentFileName = "MEDIA_${UUID.randomUUID().toString().take(8)}.$extension"
                 val permanentLocalFile = File(mediaFolder, permanentFileName)
-                compressedFile.copyTo(permanentLocalFile, overwrite = true)
-                if (compressedFile.exists()) {
-                    compressedFile.delete()
-                }
 
-                // 3. Encrypt file locally using AES-256-GCM
-                val encResult = MediaCrypto.encryptFile(appContext, permanentLocalFile)
+                context.contentResolver.openInputStream(mediaUri)?.use { input ->
+                    FileOutputStream(permanentLocalFile).use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: throw IllegalArgumentException("Cannot open stream for mediaUri: $mediaUri")
 
-                // 4. Save local message with Pending status (0) for instant UI display
                 val pendingMessage = ChatMessage(
                     id = messageId,
                     senderId = myCode,
@@ -309,26 +297,55 @@ object ChatEngine {
                     replyToSenderId = replyToSenderId,
                     mediaType = mediaType,
                     fileId = fileId,
-                    cryptoKey = encResult.base64Key,
-                    cryptoIv = encResult.base64Iv,
+                    cryptoKey = null,
+                    cryptoIv = null,
                     localPath = permanentFileName
                 )
                 ChatRepository.saveMessage(appContext, pendingMessage)
 
-                // 5. Upload encrypted payload to Firebase Storage
+                val fileToEncrypt = try {
+                    val fileUri = Uri.fromFile(permanentLocalFile)
+                    if (mediaType == 2) {
+                        val compressed = MediaCompressor.compressVideo(appContext, fileUri)
+                        if (compressed.exists() && compressed.length() > 0L) {
+                            compressed.copyTo(permanentLocalFile, overwrite = true)
+                            compressed.delete()
+                        }
+                        permanentLocalFile
+                    } else {
+                        val compressed = MediaCompressor.compressImage(appContext, fileUri)
+                        if (compressed.exists() && compressed.length() > 0L) {
+                            compressed.copyTo(permanentLocalFile, overwrite = true)
+                            compressed.delete()
+                        }
+                        permanentLocalFile
+                    }
+                } catch (compEx: Exception) {
+                    compEx.printStackTrace()
+                    permanentLocalFile
+                }
+
+                val encResult = MediaCrypto.encryptFile(appContext, fileToEncrypt)
+
+                val readyMessage = pendingMessage.copy(
+                    cryptoKey = encResult.base64Key,
+                    cryptoIv = encResult.base64Iv
+                )
+                ChatRepository.saveMessage(appContext, readyMessage)
+
                 val uploadResult = FirebaseMediaManager.uploadEncryptedMedia(
                     encryptedFile = encResult.encryptedFile,
                     fileId = fileId
                 )
 
-                // Clear temporary encrypted cache file
                 if (encResult.encryptedFile.exists()) {
                     encResult.encryptedFile.delete()
                 }
 
                 if (uploadResult.isSuccess) {
-                    // 6. Push metadata to partner's inbox queue
-                    pushToFirebaseQueue(appContext, pendingMessage, partnerCode)
+                    pushToFirebaseQueue(appContext, readyMessage, partnerCode)
+                } else {
+                    uploadResult.exceptionOrNull()?.printStackTrace()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -342,7 +359,7 @@ object ChatEngine {
             "send" to message.senderId,
             "text" to message.text,
             "time" to message.timestamp,
-            "status" to 1 // 1: Sent
+            "status" to 1
         )
 
         if (!message.replyToId.isNullOrEmpty()) {
@@ -386,7 +403,6 @@ object ChatEngine {
                 val messageId = snapshot.child("id").getValue(String::class.java) ?: snapshot.key ?: return
                 val senderCode = snapshot.child("send").getValue(Long::class.java)?.toInt() ?: partnerCode
 
-                // Safety guard: never process own outgoing message as an incoming message
                 if (senderCode == myCode) {
                     snapshot.ref.removeValue()
                     return
@@ -474,13 +490,11 @@ object ChatEngine {
                         outputExtension = extension
                     )
 
-                    // Update message in local repository with the decrypted file name
                     ChatRepository.saveMessage(
                         context,
                         message.copy(localPath = decryptedFile.name)
                     )
 
-                    // Delete encrypted file from Firebase Storage immediately to keep free tier quota clean
                     FirebaseMediaManager.deleteMediaFromFirebase(fileId)
                 } catch (e: Exception) {
                     e.printStackTrace()
