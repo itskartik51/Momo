@@ -289,12 +289,12 @@ object ChatEngine {
 
         engineScope.launch {
             try {
-                val mediaFolder = File(appContext.filesDir, "chat_media").apply {
-                    if (!exists()) mkdirs()
-                }
-                val extension = if (mediaType == 2) "mp4" else "jpg"
+                val isVideo = mediaType == 2
+                val extension = if (isVideo) "mp4" else "jpg"
                 val permanentFileName = "MEDIA_${UUID.randomUUID().toString().take(8)}.$extension"
-                val permanentLocalFile = File(mediaFolder, permanentFileName)
+                val targetDir = if (isVideo) MomoStorage.getVideosSentDir(appContext) else MomoStorage.getPhotosSentDir(appContext)
+                val permanentLocalFile = File(targetDir, permanentFileName)
+                val relativeLocalPath = if (isVideo) "Media/Videos/Sent/$permanentFileName" else "Media/Photos/Sent/$permanentFileName"
 
                 context.contentResolver.openInputStream(mediaUri)?.use { input ->
                     FileOutputStream(permanentLocalFile).use { output ->
@@ -304,7 +304,7 @@ object ChatEngine {
 
                 val initialBlurPreview = MediaCompressor.generateBlurThumbnail(
                     file = permanentLocalFile,
-                    isVideo = mediaType == 2
+                    isVideo = isVideo
                 )
 
                 val pendingMessage = ChatMessage(
@@ -320,14 +320,14 @@ object ChatEngine {
                     fileId = fileId,
                     cryptoKey = null,
                     cryptoIv = null,
-                    localPath = permanentFileName,
+                    localPath = relativeLocalPath,
                     fileSize = permanentLocalFile.length(),
                     blurPreview = initialBlurPreview
                 )
                 ChatRepository.saveMessage(appContext, pendingMessage)
 
                 val fileToEncrypt = try {
-                    if (mediaType == 2) {
+                    if (isVideo) {
                         updateMediaProgress(messageId, "Compressing", 0f)
                         val compressed = MediaCompressor.compressVideo(appContext, Uri.fromFile(permanentLocalFile)) { progress ->
                             updateMediaProgress(messageId, "Compressing", progress)
@@ -355,7 +355,7 @@ object ChatEngine {
                 val finalFileSize = fileToEncrypt.length()
                 val finalBlurPreview = initialBlurPreview ?: MediaCompressor.generateBlurThumbnail(
                     file = fileToEncrypt,
-                    isVideo = mediaType == 2
+                    isVideo = isVideo
                 )
 
                 val encResult = MediaCrypto.encryptFile(appContext, fileToEncrypt)
@@ -543,18 +543,25 @@ object ChatEngine {
                 if (downloadResult.isSuccess) {
                     updateMediaProgress(message.id, "Downloading", 1f)
                     delay(180L)
-                    val extension = if (message.mediaType == 2) "mp4" else "jpg"
-                    val decryptedFile = MediaCrypto.decryptFile(
+
+                    val isVideo = message.mediaType == 2
+                    val extension = if (isVideo) "mp4" else "jpg"
+                    val fileName = "MEDIA_${UUID.randomUUID().toString().take(8)}.$extension"
+                    val targetDir = if (isVideo) MomoStorage.getVideosDir(appContext) else MomoStorage.getPhotosDir(appContext)
+                    val targetFile = File(targetDir, fileName)
+                    val relativeLocalPath = if (isVideo) "Media/Videos/$fileName" else "Media/Photos/$fileName"
+
+                    MediaCrypto.decryptFile(
                         context = appContext,
                         encryptedFile = tempEncFile,
                         base64Key = cryptoKey,
                         base64Iv = cryptoIv,
-                        outputExtension = extension
+                        destinationFile = targetFile
                     )
 
                     ChatRepository.saveMessage(
                         appContext,
-                        message.copy(localPath = decryptedFile.name)
+                        message.copy(localPath = relativeLocalPath)
                     )
 
                     FirebaseMediaManager.deleteMediaFromFirebase(fileId)
