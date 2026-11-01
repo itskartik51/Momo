@@ -327,10 +327,9 @@ object ChatEngine {
                 ChatRepository.saveMessage(appContext, pendingMessage)
 
                 val fileToEncrypt = try {
-                    val fileUri = Uri.fromFile(permanentLocalFile)
                     if (mediaType == 2) {
                         updateMediaProgress(messageId, "Compressing", 0f)
-                        val compressed = MediaCompressor.compressVideo(appContext, fileUri) { progress ->
+                        val compressed = MediaCompressor.compressVideo(appContext, Uri.fromFile(permanentLocalFile)) { progress ->
                             updateMediaProgress(messageId, "Compressing", progress)
                         }
                         if (compressed.exists() && compressed.length() > 0L) {
@@ -339,7 +338,9 @@ object ChatEngine {
                         }
                         permanentLocalFile
                     } else {
-                        val compressed = MediaCompressor.compressImage(appContext, fileUri)
+                        updateMediaProgress(messageId, "Compressing", 0.15f)
+                        val compressed = MediaCompressor.compressImage(appContext, permanentLocalFile)
+                        updateMediaProgress(messageId, "Compressing", 1f)
                         if (compressed.exists() && compressed.length() > 0L) {
                             compressed.copyTo(permanentLocalFile, overwrite = true)
                             compressed.delete()
