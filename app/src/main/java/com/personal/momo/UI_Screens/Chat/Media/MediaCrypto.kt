@@ -2,6 +2,7 @@ package com.personal.momo.UI_Screens.Chat.Media
 
 import android.content.Context
 import android.util.Base64
+import com.personal.momo.UI_Screens.Chat.MomoStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -91,11 +92,13 @@ object MediaCrypto {
         encryptedFile: File,
         base64Key: String,
         base64Iv: String,
-        outputExtension: String
+        destinationFile: File
     ): File = withContext(Dispatchers.IO) {
         if (!encryptedFile.exists() || encryptedFile.length() == 0L) {
             throw IllegalArgumentException("Encrypted source file does not exist or is empty: ${encryptedFile.absolutePath}")
         }
+
+        destinationFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
 
         val keyBytes = Base64.decode(base64Key, Base64.NO_WRAP)
         val ivBytes = Base64.decode(base64Iv, Base64.NO_WRAP)
@@ -106,15 +109,9 @@ object MediaCrypto {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmSpec)
 
-        val mediaFolder = File(context.filesDir, "chat_media").apply {
-            if (!exists()) mkdirs()
-        }
-        val cleanExtension = outputExtension.trimStart('.').ifEmpty { "dat" }
-        val decryptedFile = File(mediaFolder, "MEDIA_${UUID.randomUUID().toString().take(8)}.$cleanExtension")
-
         try {
             FileInputStream(encryptedFile).use { inputStream ->
-                FileOutputStream(decryptedFile).use { outputStream ->
+                FileOutputStream(destinationFile).use { outputStream ->
                     val buffer = ByteArray(STREAM_BUFFER_SIZE_BYTES)
                     var bytesRead: Int
                     while (inputStream.read(buffer).also { bytesRead = it } != -1) {
@@ -130,24 +127,37 @@ object MediaCrypto {
                 }
             }
         } catch (e: Exception) {
-            if (decryptedFile.exists()) {
-                decryptedFile.delete()
+            if (destinationFile.exists()) {
+                destinationFile.delete()
             }
             throw e
         }
 
-        decryptedFile
+        destinationFile
+    }
+
+    suspend fun decryptFile(
+        context: Context,
+        encryptedFile: File,
+        base64Key: String,
+        base64Iv: String,
+        outputExtension: String
+    ): File = withContext(Dispatchers.IO) {
+        val cleanExtension = outputExtension.trimStart('.').ifEmpty { "dat" }
+        val isVideo = cleanExtension.equals("mp4", ignoreCase = true)
+        val targetDir = if (isVideo) MomoStorage.getVideosDir(context) else MomoStorage.getPhotosDir(context)
+        val destinationFile = File(targetDir, "MEDIA_${UUID.randomUUID().toString().take(8)}.$cleanExtension")
+        decryptFile(context, encryptedFile, base64Key, base64Iv, destinationFile)
     }
 
     fun getLocalMediaFile(context: Context, fileName: String): File? {
-        val file = File(File(context.filesDir, "chat_media"), fileName)
-        return if (file.exists() && file.length() > 0L) file else null
+        return MomoStorage.resolveLocalMediaFile(context, fileName)
     }
 
     fun deleteLocalMedia(context: Context, fileName: String): Boolean {
         return try {
-            val file = File(File(context.filesDir, "chat_media"), fileName)
-            if (file.exists()) file.delete() else false
+            val file = MomoStorage.resolveLocalMediaFile(context, fileName)
+            if (file != null && file.exists()) file.delete() else false
         } catch (_: Exception) {
             false
         }
