@@ -116,7 +116,13 @@ internal fun MessageBubbleRow(
             isHighlighted -> HighlightFlashColor
             else -> Color.Transparent
         },
-        animationSpec = tween(durationMillis = if (isHighlighted) 120 else 600),
+        animationSpec = tween(
+            durationMillis = when {
+                isSelected -> 100
+                isHighlighted -> 450
+                else -> 300
+            }
+        ),
         label = "rowHighlightAnimation"
     )
 
@@ -242,6 +248,8 @@ internal fun MessageBubbleRow(
                                 myCode = myCode,
                                 partnerDisplayName = partnerDisplayName,
                                 bubbleShape = bubbleShape,
+                                isSelectionMode = isSelectionMode,
+                                onToggleSelect = onToggleSelect,
                                 onReplyClick = onReplyClick
                             )
                         } else {
