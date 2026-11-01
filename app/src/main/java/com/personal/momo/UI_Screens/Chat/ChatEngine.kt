@@ -63,7 +63,7 @@ object ChatEngine {
     private val _partnerPresenceFlow = MutableStateFlow(PartnerPresence())
     val partnerPresenceFlow: StateFlow<PartnerPresence> = _partnerPresenceFlow.asStateFlow()
 
-    private val _mediaProgressFlow = MutableStateFlow>(emptyMap())
+    private val _mediaProgressFlow = MutableStateFlow(emptyMap<String, MediaTransferProgress>())
     val mediaProgressFlow: StateFlow> = _mediaProgressFlow.asStateFlow()
 
     fun getMySenderCode(context: Context? = appContextRef): Int {
