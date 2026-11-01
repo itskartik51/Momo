@@ -14,7 +14,7 @@ import java.io.File
 
 /**
  * Message Model based on Ultra-Compact Tuple Format:
- * [id, send, text, time, status, replyToId?, replyToText?, replyToSenderId?, mediaType?, fileId?, cryptoKey?, cryptoIv?, localPath?]
+ * [id, send, text, time, status, replyToId?, replyToText?, replyToSenderId?, mediaType?, fileId?, cryptoKey?, cryptoIv?, localPath?, fileSize?, blurPreview?]
  *
  * Index 0  -> id: String (UUID)
  * Index 1  -> senderId: Int (1: Kanu, 2: Momo)
@@ -29,6 +29,8 @@ import java.io.File
  * Index 10 -> cryptoKey: String? (Base64 AES-256 encryption key)
  * Index 11 -> cryptoIv: String? (Base64 GCM IV)
  * Index 12 -> localPath: String? (Local decrypted file name in chat_media)
+ * Index 13 -> fileSize: Long (Media file size in bytes)
+ * Index 14 -> blurPreview: String? (Base64 low-res blurred micro-thumbnail)
  */
 data class ChatMessage(
     val id: String,
@@ -43,14 +45,16 @@ data class ChatMessage(
     val fileId: String? = null,
     val cryptoKey: String? = null,
     val cryptoIv: String? = null,
-    val localPath: String? = null
+    val localPath: String? = null,
+    val fileSize: Long = 0L,
+    val blurPreview: String? = null
 )
 
 object ChatRepository {
     private const val FILE_NAME = "momo_chat_history.json"
     private val mutex = Mutex()
 
-    private val _messagesFlow = MutableStateFlow<List<ChatMessage>>(emptyList())
+    private val _messagesFlow = MutableStateFlow(emptyList<ChatMessage>())
     val messagesFlow: StateFlow<List<ChatMessage>> = _messagesFlow.asStateFlow()
 
     @Volatile
@@ -116,6 +120,14 @@ object ChatRepository {
                         tuple.optString(12).takeIf { it.isNotEmpty() }
                     } else null
 
+                    val fileSize = if (tuple.length() > 13 && !tuple.isNull(13)) {
+                        tuple.optLong(13, 0L)
+                    } else 0L
+
+                    val blurPreview = if (tuple.length() > 14 && !tuple.isNull(14)) {
+                        tuple.optString(14).takeIf { it.isNotEmpty() }
+                    } else null
+
                     list.add(
                         ChatMessage(
                             id = tuple.optString(0, ""),
@@ -130,7 +142,9 @@ object ChatRepository {
                             fileId = fileId,
                             cryptoKey = cryptoKey,
                             cryptoIv = cryptoIv,
-                            localPath = localPath
+                            localPath = localPath,
+                            fileSize = fileSize,
+                            blurPreview = blurPreview
                         )
                     )
                 }
@@ -269,6 +283,8 @@ object ChatRepository {
                         tuple.put(msg.cryptoKey ?: JSONObject.NULL)
                         tuple.put(msg.cryptoIv ?: JSONObject.NULL)
                         tuple.put(msg.localPath ?: JSONObject.NULL)
+                        tuple.put(msg.fileSize)
+                        tuple.put(msg.blurPreview ?: JSONObject.NULL)
                     }
                 }
 
