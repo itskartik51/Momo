@@ -302,6 +302,11 @@ object ChatEngine {
                     }
                 } ?: throw IllegalArgumentException("Cannot open stream for mediaUri: $mediaUri")
 
+                val initialBlurPreview = MediaCompressor.generateBlurThumbnail(
+                    file = permanentLocalFile,
+                    isVideo = mediaType == 2
+                )
+
                 val pendingMessage = ChatMessage(
                     id = messageId,
                     senderId = myCode,
@@ -315,7 +320,9 @@ object ChatEngine {
                     fileId = fileId,
                     cryptoKey = null,
                     cryptoIv = null,
-                    localPath = permanentFileName
+                    localPath = permanentFileName,
+                    fileSize = permanentLocalFile.length(),
+                    blurPreview = initialBlurPreview
                 )
                 ChatRepository.saveMessage(appContext, pendingMessage)
 
@@ -344,11 +351,19 @@ object ChatEngine {
                     permanentLocalFile
                 }
 
+                val finalFileSize = fileToEncrypt.length()
+                val finalBlurPreview = initialBlurPreview ?: MediaCompressor.generateBlurThumbnail(
+                    file = fileToEncrypt,
+                    isVideo = mediaType == 2
+                )
+
                 val encResult = MediaCrypto.encryptFile(appContext, fileToEncrypt)
 
                 val readyMessage = pendingMessage.copy(
                     cryptoKey = encResult.base64Key,
-                    cryptoIv = encResult.base64Iv
+                    cryptoIv = encResult.base64Iv,
+                    fileSize = finalFileSize,
+                    blurPreview = finalBlurPreview
                 )
                 ChatRepository.saveMessage(appContext, readyMessage)
 
@@ -403,6 +418,12 @@ object ChatEngine {
             message.fileId?.let { payload["fId"] = it }
             message.cryptoKey?.let { payload["cKey"] = it }
             message.cryptoIv?.let { payload["cIv"] = it }
+            if (message.fileSize > 0L) {
+                payload["fSize"] = message.fileSize
+            }
+            if (!message.blurPreview.isNullOrEmpty()) {
+                payload["bPrev"] = message.blurPreview
+            }
         }
 
         val queueRef = database.reference
@@ -452,6 +473,10 @@ object ChatEngine {
                     ?: snapshot.child("cryptoKey").getValue(String::class.java)
                 val cIv = snapshot.child("cIv").getValue(String::class.java)
                     ?: snapshot.child("cryptoIv").getValue(String::class.java)
+                val fSize = snapshot.child("fSize").getValue(Long::class.java)
+                    ?: snapshot.child("fileSize").getValue(Long::class.java) ?: 0L
+                val bPrev = snapshot.child("bPrev").getValue(String::class.java)
+                    ?: snapshot.child("blurPreview").getValue(String::class.java)
 
                 val initialDeliveryStatus = if (isChatScreenActive) 3 else 2
 
@@ -468,17 +493,15 @@ object ChatEngine {
                     fileId = fId,
                     cryptoKey = cKey,
                     cryptoIv = cIv,
-                    localPath = null
+                    localPath = null,
+                    fileSize = fSize,
+                    blurPreview = bPrev
                 )
 
                 engineScope.launch {
                     ChatRepository.saveMessage(context, incomingMessage)
                     snapshot.ref.removeValue()
                     sendReceipt(senderCode, messageId, initialDeliveryStatus)
-
-                    if (mType > 0 && !fId.isNullOrEmpty() && !cKey.isNullOrEmpty() && !cIv.isNullOrEmpty()) {
-                        downloadAndDecryptMedia(context, incomingMessage)
-                    }
                 }
             }
 
@@ -493,23 +516,35 @@ object ChatEngine {
         ref.addChildEventListener(listener)
     }
 
-    private fun downloadAndDecryptMedia(context: Context, message: ChatMessage) {
+    fun downloadMediaMessage(context: Context, message: ChatMessage) {
+        val appContext = context.applicationContext
         val fileId = message.fileId ?: return
         val cryptoKey = message.cryptoKey ?: return
         val cryptoIv = message.cryptoIv ?: return
 
+        if (_mediaProgressFlow.value.containsKey(message.id)) return
+
         engineScope.launch {
-            val cacheFolder = File(context.cacheDir, "media_cache").apply {
+            val cacheFolder = File(appContext.cacheDir, "media_cache").apply {
                 if (!exists()) mkdirs()
             }
             val tempEncFile = File(cacheFolder, "TEMP_${fileId}.enc")
 
-            val downloadResult = FirebaseMediaManager.downloadEncryptedMedia(fileId, tempEncFile)
-            if (downloadResult.isSuccess) {
-                val extension = if (message.mediaType == 2) "mp4" else "jpg"
-                try {
+            try {
+                updateMediaProgress(message.id, "Downloading", 0f)
+                val downloadResult = FirebaseMediaManager.downloadEncryptedMedia(
+                    fileId = fileId,
+                    targetFile = tempEncFile
+                ) { progress ->
+                    updateMediaProgress(message.id, "Downloading", progress)
+                }
+
+                if (downloadResult.isSuccess) {
+                    updateMediaProgress(message.id, "Downloading", 1f)
+                    delay(180L)
+                    val extension = if (message.mediaType == 2) "mp4" else "jpg"
                     val decryptedFile = MediaCrypto.decryptFile(
-                        context = context,
+                        context = appContext,
                         encryptedFile = tempEncFile,
                         base64Key = cryptoKey,
                         base64Iv = cryptoIv,
@@ -517,18 +552,21 @@ object ChatEngine {
                     )
 
                     ChatRepository.saveMessage(
-                        context,
+                        appContext,
                         message.copy(localPath = decryptedFile.name)
                     )
 
                     FirebaseMediaManager.deleteMediaFromFirebase(fileId)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    if (tempEncFile.exists()) {
-                        tempEncFile.delete()
-                    }
+                } else {
+                    downloadResult.exceptionOrNull()?.printStackTrace()
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                if (tempEncFile.exists()) {
+                    tempEncFile.delete()
+                }
+                clearMediaProgress(message.id)
             }
         }
     }
