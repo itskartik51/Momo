@@ -1,12 +1,15 @@
 package com.personal.momo.UI_Screens.Chat
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
+import android.util.Base64
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,21 +37,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.personal.momo.UI_Screens.Chat.Media.MediaCompressor
 import com.personal.momo.UI_Screens.bounceClick
 import java.io.File
 import java.util.Locale
@@ -63,6 +70,21 @@ private val PlayArrowIcon: ImageVector by lazy {
     ).addPath(
         pathData = PathParser().parsePathString(
             "M8 5v14l11-7z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val DownloadArrowIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "DownloadArrow",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -104,8 +126,18 @@ internal fun MediaBubbleMessageContent(
         }
     }
 
-    val mediaAspectRatio = remember(mediaFile) {
-        calculateMediaAspectRatio(mediaFile, message.mediaType == 2)
+    val blurBitmap = remember(message.blurPreview) {
+        decodeBlurPreviewBitmap(message.blurPreview)
+    }
+
+    val mediaAspectRatio = remember(mediaFile, blurBitmap) {
+        when {
+            mediaFile != null -> calculateMediaAspectRatio(mediaFile, message.mediaType == 2)
+            blurBitmap != null && blurBitmap.width > 0 && blurBitmap.height > 0 -> {
+                (blurBitmap.width.toFloat() / blurBitmap.height.toFloat()).coerceIn(0.68f, 1.75f)
+            }
+            else -> 1f
+        }
     }
 
     val progressMap by ChatEngine.mediaProgressFlow.collectAsState()
@@ -213,29 +245,33 @@ internal fun MediaBubbleMessageContent(
                 )
                 .aspectRatio(mediaAspectRatio)
                 .clip(innerMediaClipShape)
-                .background(Color.Black.copy(alpha = 0.25f))
-                .bounceClick(scaleDown = 0.97f) {
+                .background(Color.Black.copy(alpha = 0.28f))
+                .then(
                     if (mediaFile != null) {
-                        if (message.mediaType == 2) {
-                            try {
-                                val uri = FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.provider",
-                                    mediaFile
-                                )
-                                val intent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(uri, "video/*")
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        Modifier.bounceClick(scaleDown = 0.97f) {
+                            if (message.mediaType == 2) {
+                                try {
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.provider",
+                                        mediaFile
+                                    )
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, "video/*")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(intent, "Play Video"))
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
-                                context.startActivity(Intent.createChooser(intent, "Play Video"))
-                            } catch (e: Exception) {
-                                e.printStackTrace()
+                            } else {
+                                showFullScreenPreview = true
                             }
-                        } else {
-                            showFullScreenPreview = true
                         }
+                    } else {
+                        Modifier
                     }
-                },
+                ),
             contentAlignment = Alignment.Center
         ) {
             if (mediaFile != null) {
@@ -264,73 +300,118 @@ internal fun MediaBubbleMessageContent(
                         )
                     }
                 }
-
-                if (isOutgoing && mediaProgress != null) {
+            } else {
+                if (blurBitmap != null) {
+                    Image(
+                        bitmap = blurBitmap.asImageBitmap(),
+                        contentDescription = "Blurred Preview",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .blur(16.dp),
+                        contentScale = ContentScale.Crop
+                    )
                     Box(
                         modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 6.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .padding(horizontal = 8.dp, vertical = 2.5.dp)
-                    ) {
-                        Text(
-                            text = String.format(Locale.ENGLISH, "%s : %.1f%%", mediaProgress.stage, animatedProgress),
-                            fontSize = 10.5.sp,
-                            color = Color.White.copy(alpha = 0.95f),
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false)
-                            )
-                        )
-                    }
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.22f))
+                    )
                 }
 
-                if (!hasCaption && isLastInGroup) {
+                if (mediaProgress != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(26.dp),
+                            color = Color.White,
+                            strokeWidth = 2.5.dp
+                        )
+                    }
+                } else {
+                    val sizeLabel = if (message.fileSize > 0L) {
+                        MediaCompressor.formatFileSize(message.fileSize)
+                    } else {
+                        if (message.mediaType == 2) "Video" else "Photo"
+                    }
+
                     Row(
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 6.dp, bottom = 5.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black.copy(alpha = 0.55f))
-                            .padding(horizontal = 6.5.dp, vertical = 2.5.dp),
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(Color.Black.copy(alpha = 0.62f))
+                            .bounceClick(scaleDown = 0.94f) {
+                                ChatEngine.downloadMediaMessage(context, message)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        Icon(
+                            imageVector = DownloadArrowIcon,
+                            contentDescription = "Download Media",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+
                         Text(
-                            text = formattedTime,
-                            fontSize = 10.5.sp,
+                            text = sizeLabel,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
                             color = Color.White.copy(alpha = 0.95f),
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false)
                             )
                         )
-
-                        if (isOutgoing) {
-                            BubbleStatusTicks(status = message.status)
-                        }
                     }
                 }
-            } else {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+            }
+
+            if (mediaProgress != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 6.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 8.dp, vertical = 2.5.dp)
                 ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(30.dp),
-                        color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.primary,
-                        strokeWidth = 2.5.dp
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
                     Text(
-                        text = if (message.mediaType == 2) "Loading video..." else "Loading photo...",
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.75f),
+                        text = String.format(Locale.ENGLISH, "%s : %.1f%%", mediaProgress.stage, animatedProgress),
+                        fontSize = 10.5.sp,
+                        color = Color.White.copy(alpha = 0.95f),
                         style = TextStyle(
                             platformStyle = PlatformTextStyle(includeFontPadding = false)
                         )
                     )
+                }
+            }
+
+            if (!hasCaption && isLastInGroup) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 6.dp, bottom = 5.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 6.5.dp, vertical = 2.5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = formattedTime,
+                        fontSize = 10.5.sp,
+                        color = Color.White.copy(alpha = 0.95f),
+                        style = TextStyle(
+                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                        )
+                    )
+
+                    if (isOutgoing) {
+                        BubbleStatusTicks(status = message.status)
+                    }
                 }
             }
         }
@@ -383,6 +464,16 @@ internal fun MediaBubbleMessageContent(
                 }
             }
         }
+    }
+}
+
+private fun decodeBlurPreviewBitmap(base64Str: String?): Bitmap? {
+    if (base64Str.isNullOrBlank()) return null
+    return try {
+        val bytes = Base64.decode(base64Str, Base64.NO_WRAP)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (_: Exception) {
+        null
     }
 }
 
