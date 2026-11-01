@@ -51,6 +51,113 @@ object MediaCompressor {
 
     suspend fun compressImage(
         context: Context,
+        inputFile: File,
+        maxDimension: Int = MAX_IMAGE_DIMENSION,
+        quality: Int = DEFAULT_IMAGE_QUALITY
+    ): File = withContext(Dispatchers.IO) {
+        val boundsOptions = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(inputFile.absolutePath, boundsOptions)
+
+        val rawWidth = boundsOptions.outWidth
+        val rawHeight = boundsOptions.outHeight
+        if (rawWidth <= 0 || rawHeight <= 0) {
+            throw IllegalArgumentException("Invalid image dimensions from File: ${inputFile.absolutePath}")
+        }
+
+        var rotationDegrees = 0
+        try {
+            val exif = ExifInterface(inputFile.absolutePath)
+            val orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+            rotationDegrees = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        } catch (_: Exception) {
+            rotationDegrees = 0
+        }
+
+        val cacheFolder = File(context.cacheDir, "media_cache").apply {
+            if (!exists()) mkdirs()
+        }
+        val outputImageFile = File(cacheFolder, "IMG_${UUID.randomUUID().toString().take(8)}.jpg")
+
+        val inputSizeBytes = inputFile.length()
+        val maxOriginalDimension = maxOf(rawWidth, rawHeight)
+
+        if (inputSizeBytes in 1..SMART_SKIP_MAX_IMAGE_SIZE_BYTES &&
+            maxOriginalDimension <= maxDimension &&
+            rotationDegrees == 0
+        ) {
+            inputFile.copyTo(outputImageFile, overwrite = true)
+            return@withContext outputImageFile
+        }
+
+        var inSampleSize = 1
+        if (maxOriginalDimension > maxDimension) {
+            val halfMax = maxOriginalDimension / 2
+            while ((halfMax / inSampleSize) >= maxDimension) {
+                inSampleSize *= 2
+            }
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            this.inSampleSize = inSampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+
+        val sampledBitmap = BitmapFactory.decodeFile(inputFile.absolutePath, decodeOptions)
+            ?: throw IllegalStateException("Failed to decode sampled bitmap from file")
+
+        val currentMax = maxOf(sampledBitmap.width, sampledBitmap.height)
+        val scaledBitmap = if (currentMax > maxDimension) {
+            val scaleFactor = maxDimension.toFloat() / currentMax
+            val destWidth = (sampledBitmap.width * scaleFactor).roundToInt().coerceAtLeast(1)
+            val destHeight = (sampledBitmap.height * scaleFactor).roundToInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(sampledBitmap, destWidth, destHeight, true).also {
+                if (it != sampledBitmap) {
+                    sampledBitmap.recycle()
+                }
+            }
+        } else {
+            sampledBitmap
+        }
+
+        val finalOrientedBitmap = if (rotationDegrees != 0) {
+            val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+            Bitmap.createBitmap(
+                scaledBitmap,
+                0,
+                0,
+                scaledBitmap.width,
+                scaledBitmap.height,
+                matrix,
+                true
+            ).also {
+                if (it != scaledBitmap) {
+                    scaledBitmap.recycle()
+                }
+            }
+        } else {
+            scaledBitmap
+        }
+
+        FileOutputStream(outputImageFile).use { outputStream ->
+            finalOrientedBitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
+        }
+        finalOrientedBitmap.recycle()
+
+        outputImageFile
+    }
+
+    suspend fun compressImage(
+        context: Context,
         inputUri: Uri,
         maxDimension: Int = MAX_IMAGE_DIMENSION,
         quality: Int = DEFAULT_IMAGE_QUALITY
@@ -182,7 +289,11 @@ object MediaCompressor {
 
         val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSource(context, inputUri)
+            if (inputUri.scheme == "file" || (inputUri.path != null && File(inputUri.path ?: "").exists())) {
+                retriever.setDataSource(inputUri.path)
+            } else {
+                retriever.setDataSource(context, inputUri)
+            }
             val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
             val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
             val rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
