@@ -13,24 +13,79 @@ import org.json.JSONObject
 import java.io.File
 
 /**
+ * Central storage and directory manager for Momo Chat.
+ * Paths:
+ * Android/media/com.personal.momo/Momo/
+ *   ├── Chat/
+ *   │   └── momo_chat_history.json
+ *   └── Media/
+ *       ├── Photos/
+ *       │   └── Sent/
+ *       └── Videos/
+ *           └── Sent/
+ */
+object MomoStorage {
+    fun getMomoDir(context: Context): File {
+        val mediaDirs = context.externalMediaDirs
+        val base = mediaDirs.firstOrNull() ?: context.filesDir
+        val momoDir = File(base, "Momo")
+        if (!momoDir.exists()) momoDir.mkdirs()
+        return momoDir
+    }
+
+    fun getChatDir(context: Context): File = File(getMomoDir(context), "Chat").apply {
+        if (!exists()) mkdirs()
+    }
+
+    fun getPhotosDir(context: Context): File = File(getMomoDir(context), "Media/Photos").apply {
+        if (!exists()) mkdirs()
+    }
+
+    fun getPhotosSentDir(context: Context): File = File(getPhotosDir(context), "Sent").apply {
+        if (!exists()) mkdirs()
+    }
+
+    fun getVideosDir(context: Context): File = File(getMomoDir(context), "Media/Videos").apply {
+        if (!exists()) mkdirs()
+    }
+
+    fun getVideosSentDir(context: Context): File = File(getVideosDir(context), "Sent").apply {
+        if (!exists()) mkdirs()
+    }
+
+    fun resolveLocalMediaFile(context: Context, localPath: String?): File? {
+        if (localPath.isNullOrBlank()) return null
+
+        val fileInMomo = File(getMomoDir(context), localPath)
+        if (fileInMomo.exists() && fileInMomo.length() > 0L) return fileInMomo
+
+        if (!localPath.contains("/") && !localPath.contains("\\")) {
+            val candidateSentPhoto = File(getPhotosSentDir(context), localPath)
+            if (candidateSentPhoto.exists() && candidateSentPhoto.length() > 0L) return candidateSentPhoto
+
+            val candidateRecvPhoto = File(getPhotosDir(context), localPath)
+            if (candidateRecvPhoto.exists() && candidateRecvPhoto.length() > 0L) return candidateRecvPhoto
+
+            val candidateSentVideo = File(getVideosSentDir(context), localPath)
+            if (candidateSentVideo.exists() && candidateSentVideo.length() > 0L) return candidateSentVideo
+
+            val candidateRecvVideo = File(getVideosDir(context), localPath)
+            if (candidateRecvVideo.exists() && candidateRecvVideo.length() > 0L) return candidateRecvVideo
+
+            val legacyFile = File(File(context.filesDir, "chat_media"), localPath)
+            if (legacyFile.exists() && legacyFile.length() > 0L) return legacyFile
+        }
+
+        val directFile = File(localPath)
+        if (directFile.exists() && directFile.length() > 0L) return directFile
+
+        return null
+    }
+}
+
+/**
  * Message Model based on Ultra-Compact Tuple Format:
  * [id, send, text, time, status, replyToId?, replyToText?, replyToSenderId?, mediaType?, fileId?, cryptoKey?, cryptoIv?, localPath?, fileSize?, blurPreview?]
- *
- * Index 0  -> id: String (UUID)
- * Index 1  -> senderId: Int (1: Kanu, 2: Momo)
- * Index 2  -> text: String (Message content / Media caption)
- * Index 3  -> timestamp: Long (Epoch ms)
- * Index 4  -> status: Int (0: Pending, 1: Sent, 2: Delivered, 3: Read)
- * Index 5  -> replyToId: String? (Optional replied message ID)
- * Index 6  -> replyToText: String? (Optional replied message text)
- * Index 7  -> replyToSenderId: Int? (Optional replied sender code)
- * Index 8  -> mediaType: Int (0: Plain Text, 1: Image, 2: Video)
- * Index 9  -> fileId: String? (Encrypted file identifier in Firebase Storage)
- * Index 10 -> cryptoKey: String? (Base64 AES-256 encryption key)
- * Index 11 -> cryptoIv: String? (Base64 GCM IV)
- * Index 12 -> localPath: String? (Local decrypted file name in chat_media)
- * Index 13 -> fileSize: Long (Media file size in bytes)
- * Index 14 -> blurPreview: String? (Base64 low-res blurred micro-thumbnail)
  */
 data class ChatMessage(
     val id: String,
@@ -65,9 +120,47 @@ object ChatRepository {
         loadMessages(context.applicationContext)
     }
 
+    private fun performLegacyMigrationIfNeeded(context: Context) {
+        try {
+            val oldJsonFile = File(context.filesDir, FILE_NAME)
+            val newJsonFile = File(MomoStorage.getChatDir(context), FILE_NAME)
+
+            if (oldJsonFile.exists()) {
+                if (!newJsonFile.exists() || newJsonFile.length() == 0L) {
+                    oldJsonFile.copyTo(newJsonFile, overwrite = true)
+                }
+                oldJsonFile.delete()
+            }
+
+            val oldMediaFolder = File(context.filesDir, "chat_media")
+            if (oldMediaFolder.exists() && oldMediaFolder.isDirectory) {
+                val files = oldMediaFolder.listFiles() ?: emptyArray()
+                for (file in files) {
+                    if (file.isFile && file.length() > 0L) {
+                        val isVideo = file.name.endsWith(".mp4", ignoreCase = true)
+                        val targetDir = if (isVideo) {
+                            MomoStorage.getVideosDir(context)
+                        } else {
+                            MomoStorage.getPhotosDir(context)
+                        }
+                        val targetFile = File(targetDir, file.name)
+                        file.copyTo(targetFile, overwrite = true)
+                        file.delete()
+                    }
+                }
+                oldMediaFolder.deleteRecursively()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun ensureLoadedLocked(context: Context) {
         if (isInitialized) return
-        val file = File(context.applicationContext.filesDir, FILE_NAME)
+
+        performLegacyMigrationIfNeeded(context)
+
+        val file = File(MomoStorage.getChatDir(context), FILE_NAME)
         if (!file.exists()) {
             _messagesFlow.value = emptyList()
             isInitialized = true
@@ -291,7 +384,7 @@ object ChatRepository {
                 rootArray.put(tuple)
             }
 
-            val file = File(context.filesDir, FILE_NAME)
+            val file = File(MomoStorage.getChatDir(context), FILE_NAME)
             file.writeText(rootArray.toString())
         } catch (e: Exception) {
             e.printStackTrace()
