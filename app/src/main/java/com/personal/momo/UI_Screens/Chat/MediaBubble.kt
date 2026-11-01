@@ -4,6 +4,9 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +51,7 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.bounceClick
 import java.io.File
+import java.util.Locale
 
 private val PlayArrowIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -102,6 +107,15 @@ internal fun MediaBubbleMessageContent(
     val mediaAspectRatio = remember(mediaFile) {
         calculateMediaAspectRatio(mediaFile, message.mediaType == 2)
     }
+
+    val progressMap by ChatEngine.mediaProgressFlow.collectAsState()
+    val mediaProgress = progressMap[message.id]
+    val targetProgress = mediaProgress?.progress?.times(100f)?.coerceIn(0f, 100f) ?: 0f
+    val animatedProgress by animateFloatAsState(
+        targetValue = targetProgress,
+        animationSpec = tween(durationMillis = 140, easing = LinearEasing),
+        label = "mediaProgressAnim"
+    )
 
     var showFullScreenPreview by remember { mutableStateOf(false) }
 
@@ -247,6 +261,26 @@ internal fun MediaBubbleMessageContent(
                             modifier = Modifier
                                 .size(26.dp)
                                 .padding(start = 2.dp)
+                        )
+                    }
+                }
+
+                if (isOutgoing && mediaProgress != null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 6.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .padding(horizontal = 8.dp, vertical = 2.5.dp)
+                    ) {
+                        Text(
+                            text = String.format(Locale.ENGLISH, "%s : %.1f%%", mediaProgress.stage, animatedProgress),
+                            fontSize = 10.5.sp,
+                            color = Color.White.copy(alpha = 0.95f),
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false)
+                            )
                         )
                     }
                 }
