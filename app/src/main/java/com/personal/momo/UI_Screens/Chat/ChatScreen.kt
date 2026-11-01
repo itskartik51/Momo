@@ -42,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -151,13 +152,13 @@ fun ChatScreen(
     val isSelectionMode = selectedMessageIds.isNotEmpty()
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var tempCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
         if (success) {
-            val photoUri = tempCameraUri
+            val photoUri = tempCameraUriString?.let { Uri.parse(it) }
             if (photoUri != null) {
                 val caption = inputText.trim()
                 ChatEngine.sendMediaMessage(
@@ -413,7 +414,7 @@ fun ChatScreen(
                         "${context.packageName}.provider",
                         photoFile
                     )
-                    tempCameraUri = uri
+                    tempCameraUriString = uri.toString()
                     cameraLauncher.launch(uri)
                 },
                 onGalleryClick = {
