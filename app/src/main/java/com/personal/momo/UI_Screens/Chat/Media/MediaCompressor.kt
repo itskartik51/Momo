@@ -9,6 +9,7 @@ import android.graphics.Matrix
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.util.Base64
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
@@ -26,10 +27,10 @@ import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -46,6 +47,7 @@ object MediaCompressor {
     private const val TARGET_VIDEO_BITRATE = 1_800_000
     private const val TARGET_VIDEO_FPS = 30f
     private const val SMART_SKIP_MAX_IMAGE_SIZE_BYTES = 153_600L
+    private const val BLUR_THUMB_MAX_DIMENSION = 36
 
     suspend fun compressImage(
         context: Context,
@@ -228,8 +230,8 @@ object MediaCompressor {
                 if (videoEffects.isNotEmpty()) {
                     setEffects(
                         Effects(
-                            /* audioProcessors = */ emptyList(),
-                            /* videoEffects = */ videoEffects
+                            emptyList(),
+                            videoEffects
                         )
                     )
                 }
@@ -296,6 +298,123 @@ object MediaCompressor {
 
             transformer.start(editedMediaItem, outputVideoFile.absolutePath)
         }
+    }
+
+    fun generateBlurThumbnail(file: File, isVideo: Boolean): String? {
+        if (!file.exists() || file.length() == 0L) return null
+        return try {
+            val rawBitmap: Bitmap? = if (isVideo) {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(file.absolutePath)
+                    retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        ?: retriever.frameAtTime
+                } finally {
+                    try {
+                        retriever.release()
+                    } catch (_: Exception) {}
+                }
+            } else {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, bounds)
+                val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+                var sample = 1
+                while (maxDim / sample > BLUR_THUMB_MAX_DIMENSION * 2) {
+                    sample *= 2
+                }
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val decoded = BitmapFactory.decodeFile(file.absolutePath, opts)
+                if (decoded != null) {
+                    var rotation = 0
+                    try {
+                        val exif = ExifInterface(file.absolutePath)
+                        rotation = when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                            ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                            ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                            else -> 0
+                        }
+                    } catch (_: Exception) {}
+                    if (rotation != 0) {
+                        val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                        Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also {
+                            if (it != decoded) decoded.recycle()
+                        }
+                    } else {
+                        decoded
+                    }
+                } else null
+            }
+
+            if (rawBitmap == null || rawBitmap.width <= 0 || rawBitmap.height <= 0) return null
+
+            val maxSide = maxOf(rawBitmap.width, rawBitmap.height)
+            val scale = BLUR_THUMB_MAX_DIMENSION.toFloat() / maxSide
+            val targetW = (rawBitmap.width * scale).roundToInt().coerceAtLeast(4)
+            val targetH = (rawBitmap.height * scale).roundToInt().coerceAtLeast(4)
+
+            val tinyBitmap = Bitmap.createScaledBitmap(rawBitmap, targetW, targetH, true)
+            if (tinyBitmap != rawBitmap) {
+                rawBitmap.recycle()
+            }
+
+            val blurredTiny = applyBoxBlur(tinyBitmap, radius = 2)
+            if (blurredTiny != tinyBitmap) {
+                tinyBitmap.recycle()
+            }
+
+            val out = ByteArrayOutputStream()
+            blurredTiny.compress(Bitmap.CompressFormat.JPEG, 55, out)
+            blurredTiny.recycle()
+
+            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun applyBoxBlur(src: Bitmap, radius: Int): Bitmap {
+        val w = src.width
+        val h = src.height
+        val pixels = IntArray(w * h)
+        val result = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        repeat(2) {
+            for (y in 0 until h) {
+                for (x in 0 until w) {
+                    var rSum = 0
+                    var gSum = 0
+                    var bSum = 0
+                    var count = 0
+
+                    for (dy in -radius..radius) {
+                        val ny = (y + dy).coerceIn(0, h - 1)
+                        for (dx in -radius..radius) {
+                            val nx = (x + dx).coerceIn(0, w - 1)
+                            val c = pixels[ny * w + nx]
+                            rSum += (c shr 16) and 0xFF
+                            gSum += (c shr 8) and 0xFF
+                            bSum += c and 0xFF
+                            count++
+                        }
+                    }
+
+                    val r = rSum / count
+                    val g = gSum / count
+                    val b = bSum / count
+                    result[y * w + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                }
+            }
+            System.arraycopy(result, 0, pixels, 0, pixels.size)
+        }
+
+        val outBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        outBitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+        return outBitmap
     }
 
     private fun getUriFileSize(context: Context, uri: Uri): Long {
