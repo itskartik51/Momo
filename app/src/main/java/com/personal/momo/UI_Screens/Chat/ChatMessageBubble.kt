@@ -1,8 +1,8 @@
 package com.personal.momo.UI_Screens.Chat
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import kotlinx.coroutines.launch
+
+private val MomoCrimsonHighlightBase = Color(0xFFFF2E63)
 
 @Composable
 internal fun MessageBubbleRow(
@@ -110,21 +112,30 @@ internal fun MessageBubbleRow(
         formatBubbleTime(message.timestamp)
     }
 
-    val rowBackgroundColor by animateColorAsState(
-        targetValue = when {
-            isSelected -> HighlightFlashColor
-            isHighlighted -> HighlightFlashColor
-            else -> Color.Transparent
-        },
+    val selectionAlpha by animateFloatAsState(
+        targetValue = if (isSelected) 0.20f else 0f,
         animationSpec = tween(
-            durationMillis = when {
-                isSelected -> 100
-                isHighlighted -> 450
-                else -> 300
-            }
+            durationMillis = if (isSelected) 100 else 120,
+            easing = FastOutSlowInEasing
         ),
-        label = "rowHighlightAnimation"
+        label = "selectionAlphaAnimation"
     )
+
+    val highlightAlpha by animateFloatAsState(
+        targetValue = if (isHighlighted) 0.26f else 0f,
+        animationSpec = tween(
+            durationMillis = if (isHighlighted) 140 else 850,
+            easing = FastOutSlowInEasing
+        ),
+        label = "quoteHighlightAlphaAnimation"
+    )
+
+    val combinedHighlightAlpha = maxOf(selectionAlpha, highlightAlpha)
+    val rowBackgroundColor = if (combinedHighlightAlpha > 0.001f) {
+        MomoCrimsonHighlightBase.copy(alpha = combinedHighlightAlpha)
+    } else {
+        Color.Transparent
+    }
 
     val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.dp
 
