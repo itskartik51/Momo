@@ -4,8 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +23,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,15 +86,15 @@ private val CallTabIcon: ImageVector by lazy {
 
 private val GlassDockBackgroundBrush = Brush.verticalGradient(
     colors = listOf(
-        Color(0xBF282A34),
-        Color(0xD417181F)
+        Color(0xEE2A2C38),
+        Color(0xF5181922)
     )
 )
 
 private val GlassDockBorderBrush = Brush.verticalGradient(
     colors = listOf(
-        Color.White.copy(alpha = 0.22f),
-        Color.White.copy(alpha = 0.06f)
+        Color.White.copy(alpha = 0.24f),
+        Color.White.copy(alpha = 0.08f)
     )
 )
 
@@ -170,8 +171,8 @@ fun WindowScreen(
                 val chatPopFraction by animateFloatAsState(
                     targetValue = targetChatFraction,
                     animationSpec = spring(
-                        dampingRatio = 0.72f,
-                        stiffness = Spring.StiffnessMediumLow
+                        dampingRatio = 0.62f,
+                        stiffness = Spring.StiffnessMedium
                     ),
                     label = "ChatPopFraction"
                 )
@@ -179,146 +180,149 @@ fun WindowScreen(
                 val callPopFraction by animateFloatAsState(
                     targetValue = targetCallFraction,
                     animationSpec = spring(
-                        dampingRatio = 0.72f,
-                        stiffness = Spring.StiffnessMediumLow
+                        dampingRatio = 0.62f,
+                        stiffness = Spring.StiffnessMedium
                     ),
                     label = "CallPopFraction"
                 )
 
-                Box(
+                Surface(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
                         .padding(bottom = 18.dp)
                         .width(196.dp)
-                        .height(58.dp)
-                        .clip(RoundedCornerShape(30.dp))
-                        .background(GlassDockBackgroundBrush)
-                        .border(
-                            width = 1.dp,
-                            brush = GlassDockBorderBrush,
-                            shape = RoundedCornerShape(30.dp)
-                        )
-                        .padding(4.dp)
+                        .height(58.dp),
+                    shape = RoundedCornerShape(30.dp),
+                    color = Color(0xF2181920),
+                    border = BorderStroke(1.2.dp, GlassDockBorderBrush),
+                    shadowElevation = 10.dp
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(GlassDockBackgroundBrush)
+                            .padding(4.dp)
                     ) {
-                        val isChatSelected = scrollProgress < 0.5f
-                        val chatContentAlpha = (0.52f + 0.48f * chatPopFraction).coerceIn(0.52f, 1f)
-                        val chatIconScale = 0.88f + 0.12f * chatPopFraction
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(26.dp))
-                                .bounceClick(scaleDown = 0.94f) {
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(0)
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            if (chatPopFraction > 0.01f) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer {
-                                            val pillScale = 0.35f + 0.65f * chatPopFraction
-                                            scaleX = pillScale
-                                            scaleY = pillScale
-                                            alpha = chatPopFraction.coerceIn(0f, 1f)
+                            val isChatSelected = scrollProgress < 0.5f
+                            val chatContentAlpha = (0.52f + 0.48f * chatPopFraction).coerceIn(0.52f, 1f)
+                            val chatIconScale = 0.88f + 0.12f * chatPopFraction
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(26.dp))
+                                    .bounceClick(scaleDown = 0.94f) {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(0)
                                         }
-                                        .clip(RoundedCornerShape(26.dp))
-                                        .background(MomoPrimaryGradient)
-                                )
-                            }
-
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.graphicsLayer {
-                                    scaleX = chatIconScale
-                                    scaleY = chatIconScale
-                                }
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = ChatTabIcon,
-                                    contentDescription = "Chat",
-                                    tint = Color.White.copy(alpha = chatContentAlpha),
-                                    modifier = Modifier.size(19.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Chat",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = if (isChatSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = Color.White.copy(alpha = chatContentAlpha),
-                                    style = TextStyle(
-                                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                if (chatPopFraction > 0.01f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                val pillScale = 0.35f + 0.65f * chatPopFraction
+                                                scaleX = pillScale
+                                                scaleY = pillScale
+                                                alpha = chatPopFraction.coerceIn(0f, 1f)
+                                            }
+                                            .clip(RoundedCornerShape(26.dp))
+                                            .background(MomoPrimaryGradient)
                                     )
-                                )
-                            }
-                        }
+                                }
 
-                        val isCallSelected = scrollProgress >= 0.5f
-                        val callContentAlpha = (0.52f + 0.48f * callPopFraction).coerceIn(0.52f, 1f)
-                        val callIconScale = 0.88f + 0.12f * callPopFraction
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(26.dp))
-                                .bounceClick(scaleDown = 0.94f) {
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(1)
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.graphicsLayer {
+                                        scaleX = chatIconScale
+                                        scaleY = chatIconScale
                                     }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (callPopFraction > 0.01f) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer {
-                                            val pillScale = 0.35f + 0.65f * callPopFraction
-                                            scaleX = pillScale
-                                            scaleY = pillScale
-                                            alpha = callPopFraction.coerceIn(0f, 1f)
-                                        }
-                                        .clip(RoundedCornerShape(26.dp))
-                                        .background(MomoPrimaryGradient)
-                                )
+                                ) {
+                                    Icon(
+                                        imageVector = ChatTabIcon,
+                                        contentDescription = "Chat",
+                                        tint = Color.White.copy(alpha = chatContentAlpha),
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Chat",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = if (isChatSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = Color.White.copy(alpha = chatContentAlpha),
+                                        style = TextStyle(
+                                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                        )
+                                    )
+                                }
                             }
 
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.graphicsLayer {
-                                    scaleX = callIconScale
-                                    scaleY = callIconScale
-                                }
+                            val isCallSelected = scrollProgress >= 0.5f
+                            val callContentAlpha = (0.52f + 0.48f * callPopFraction).coerceIn(0.52f, 1f)
+                            val callIconScale = 0.88f + 0.12f * callPopFraction
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(26.dp))
+                                    .bounceClick(scaleDown = 0.94f) {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(1)
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = CallTabIcon,
-                                    contentDescription = "Call",
-                                    tint = Color.White.copy(alpha = callContentAlpha),
-                                    modifier = Modifier.size(19.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Call",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = if (isCallSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = Color.White.copy(alpha = callContentAlpha),
-                                    style = TextStyle(
-                                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                if (callPopFraction > 0.01f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                val pillScale = 0.35f + 0.65f * callPopFraction
+                                                scaleX = pillScale
+                                                scaleY = pillScale
+                                                alpha = callPopFraction.coerceIn(0f, 1f)
+                                            }
+                                            .clip(RoundedCornerShape(26.dp))
+                                            .background(MomoPrimaryGradient)
                                     )
-                                )
+                                }
+
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.graphicsLayer {
+                                        scaleX = callIconScale
+                                        scaleY = callIconScale
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = CallTabIcon,
+                                        contentDescription = "Call",
+                                        tint = Color.White.copy(alpha = callContentAlpha),
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Call",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = if (isCallSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = Color.White.copy(alpha = callContentAlpha),
+                                        style = TextStyle(
+                                            platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
