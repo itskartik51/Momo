@@ -51,6 +51,8 @@ import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceMenuAction
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceOption
 import com.personal.momo.UI_Screens.Chat.Preference.NotificationModeAppliedToast
 import com.personal.momo.UI_Screens.Chat.Preference.PrefCountDialog
+import com.personal.momo.UI_Screens.Chat.Preference.PrefNameDialog
+import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNotificationDialog
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
@@ -91,15 +93,19 @@ fun InboxScreen(
 
     val isMomo = currentUserId.equals("Momo", ignoreCase = true)
     val mySenderCode = if (isMomo) 2 else 1
-    val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
+
+    val dynamicPartnerName by PrefNameManager.partnerDisplayNameFlow.collectAsState()
+    val partnerDisplayName = dynamicPartnerName.ifBlank { if (isMomo) "Kanu" else "Momo" }
 
     var showMessageCountDialog by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
+    var showEditNameDialog by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var toastTriggerKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         ChatEngine.startEngine(context)
+        PrefNameManager.init(context)
     }
 
     LaunchedEffect(toastTriggerKey) {
@@ -123,6 +129,18 @@ fun InboxScreen(
             onModeApplied = { selectedMode ->
                 showNotificationDialog = false
                 toastMessage = selectedMode.appliedToastText
+                toastTriggerKey++
+            }
+        )
+    }
+
+    if (showEditNameDialog) {
+        PrefNameDialog(
+            initialName = partnerDisplayName,
+            onDismiss = { showEditNameDialog = false },
+            onNameSaved = {
+                showEditNameDialog = false
+                toastMessage = "Name updated"
                 toastTriggerKey++
             }
         )
@@ -180,6 +198,9 @@ fun InboxScreen(
                             }
                             ChatPreferenceOption.NOTIFICATION -> {
                                 showNotificationDialog = true
+                            }
+                            ChatPreferenceOption.EDIT_NAME -> {
+                                showEditNameDialog = true
                             }
                             else -> {}
                         }
