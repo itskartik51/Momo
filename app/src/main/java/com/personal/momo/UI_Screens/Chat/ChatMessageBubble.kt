@@ -55,6 +55,7 @@ private val MomoCrimsonHighlightBase = Color(0xFFFF2E63)
 @Composable
 internal fun MessageBubbleRow(
     message: ChatMessage,
+    replyToMessage: ChatMessage? = null,
     isOutgoing: Boolean,
     isSelected: Boolean,
     isHighlighted: Boolean,
@@ -139,7 +140,7 @@ internal fun MessageBubbleRow(
 
     val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.dp
 
-    val hasReply = !message.replyToText.isNullOrBlank()
+    val hasReply = replyToMessage != null
     val isMedia = message.mediaType > 0
     val pureEmojiCount = remember(message.text) { if (!isMedia) getPureEmojiCount(message.text) else 0 }
     val isFloatingEmoji = !hasReply && !isMedia && (pureEmojiCount in 1..3)
@@ -253,6 +254,7 @@ internal fun MessageBubbleRow(
                         if (message.mediaType > 0) {
                             MediaBubbleMessageContent(
                                 message = message,
+                                replyToMessage = replyToMessage,
                                 isOutgoing = isOutgoing,
                                 isLastInGroup = isLastInGroup,
                                 formattedTime = formattedTime,
@@ -266,6 +268,7 @@ internal fun MessageBubbleRow(
                         } else {
                             BubbleMessageContent(
                                 message = message,
+                                replyToMessage = replyToMessage,
                                 isOutgoing = isOutgoing,
                                 isLastInGroup = isLastInGroup,
                                 formattedTime = formattedTime,
@@ -345,6 +348,7 @@ private fun FloatingEmojiContent(
 @Composable
 private fun BubbleMessageContent(
     message: ChatMessage,
+    replyToMessage: ChatMessage?,
     isOutgoing: Boolean,
     isLastInGroup: Boolean,
     formattedTime: String,
@@ -362,15 +366,13 @@ private fun BubbleMessageContent(
     else
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
 
-    val hasReply = !message.replyToText.isNullOrBlank()
+    val hasReply = replyToMessage != null
 
     Layout(
         content = {
-            if (hasReply) {
+            if (hasReply && replyToMessage != null) {
                 QuotedReplySnippet(
-                    replyToId = message.replyToId,
-                    replyToText = message.replyToText ?: "",
-                    replyToSenderId = message.replyToSenderId,
+                    replyMessage = replyToMessage,
                     myCode = myCode,
                     partnerDisplayName = partnerDisplayName,
                     isOutgoing = isOutgoing,
