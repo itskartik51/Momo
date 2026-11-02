@@ -125,6 +125,8 @@ internal fun ChatInputBar(
     onTextChanged: (String) -> Unit,
     replyingToMessage: ChatMessage?,
     onCancelReply: () -> Unit,
+    editingMessage: ChatMessage? = null,
+    onCancelEdit: () -> Unit = {},
     myCode: Int,
     partnerDisplayName: String,
     onCameraClick: () -> Unit,
@@ -133,8 +135,8 @@ internal fun ChatInputBar(
 ) {
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(replyingToMessage) {
-        if (replyingToMessage != null) {
+    LaunchedEffect(replyingToMessage, editingMessage) {
+        if (replyingToMessage != null || editingMessage != null) {
             focusRequester.requestFocus()
         }
     }
@@ -143,7 +145,20 @@ internal fun ChatInputBar(
         modifier = Modifier.fillMaxWidth()
     ) {
         AnimatedVisibility(
-            visible = replyingToMessage != null,
+            visible = editingMessage != null,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            editingMessage?.let { targetMessage ->
+                EditPreviewBar(
+                    message = targetMessage,
+                    onCancelEdit = onCancelEdit
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = replyingToMessage != null && editingMessage == null,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut()
         ) {
@@ -176,7 +191,7 @@ internal fun ChatInputBar(
                     )
                     .padding(
                         start = 16.dp,
-                        end = if (text.isEmpty()) 12.dp else 16.dp,
+                        end = if (text.isEmpty() && editingMessage == null) 12.dp else 16.dp,
                         top = 6.dp,
                         bottom = 6.dp
                     ),
@@ -190,7 +205,7 @@ internal fun ChatInputBar(
                 ) {
                     if (text.isEmpty()) {
                         Text(
-                            text = "Message...",
+                            text = if (editingMessage != null) "Edit message..." else "Message...",
                             fontSize = 15.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
@@ -216,7 +231,7 @@ internal fun ChatInputBar(
                     )
                 }
 
-                if (text.isEmpty()) {
+                if (text.isEmpty() && editingMessage == null) {
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Icon(
@@ -279,6 +294,92 @@ internal fun ChatInputBar(
 }
 
 @Composable
+private fun EditPreviewBar(
+    message: ChatMessage,
+    onCancelEdit: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = DarkInputSurfaceColor,
+        border = BorderStroke(
+            width = 1.dp,
+            color = DarkInputBorderColor
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(MomoPrimaryGradient)
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 7.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Editing message",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MomoRedLight,
+                    maxLines = 1,
+                    style = TextStyle(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = message.text.ifBlank { if (message.mediaType == 2) "Video" else "Photo" },
+                    fontSize = 12.5.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = Color.White.copy(alpha = 0.82f),
+                    lineHeight = 16.5.sp,
+                    style = TextStyle(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            Box(
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .bounceClick(scaleDown = 0.94f) {
+                        onCancelEdit()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CloseIcon,
+                    contentDescription = "Cancel Edit",
+                    tint = Color.White.copy(alpha = 0.65f),
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ReplyPreviewBar(
     message: ChatMessage,
     myCode: Int,
@@ -288,6 +389,12 @@ private fun ReplyPreviewBar(
     val isMyMessage = message.senderId == myCode
     val accentColor = if (isMyMessage) MomoRedLight else AquaMintColor
     val senderName = if (isMyMessage) "You" else partnerDisplayName
+
+    val previewText = when {
+        message.mediaType == 1 -> if (message.text.isNotBlank()) "📷 ${message.text}" else "📷 Photo"
+        message.mediaType == 2 -> if (message.text.isNotBlank()) "🎥 ${message.text}" else "🎥 Video"
+        else -> message.text
+    }
 
     Surface(
         modifier = Modifier
@@ -335,7 +442,7 @@ private fun ReplyPreviewBar(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = message.text,
+                    text = previewText,
                     fontSize = 12.5.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
