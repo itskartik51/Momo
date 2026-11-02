@@ -65,6 +65,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -133,8 +134,10 @@ fun ChatScreen(
     val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
     val isMomo = currentUserId.equals("Momo", ignoreCase = true)
-    val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
     val myCode = if (isMomo) 2 else 1
+
+    val dynamicPartnerName by PrefNameManager.partnerDisplayNameFlow.collectAsState()
+    val partnerDisplayName = dynamicPartnerName.ifBlank { if (isMomo) "Kanu" else "Momo" }
 
     val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
     val messagesList by ChatRepository.messagesFlow.collectAsState()
@@ -153,6 +156,10 @@ fun ChatScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     var tempCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        PrefNameManager.init(context)
+    }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
