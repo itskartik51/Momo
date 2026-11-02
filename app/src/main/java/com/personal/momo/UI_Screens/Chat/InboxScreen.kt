@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceMenuAction
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
@@ -112,12 +113,13 @@ fun InboxScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            contentAlignment = Alignment.CenterStart
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = "MomoChat",
@@ -126,6 +128,8 @@ fun InboxScreen(
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1
             )
+
+            ChatPreferenceMenuAction()
         }
 
         Spacer(modifier = Modifier.height(4.dp))
