@@ -22,6 +22,6 @@ jobs:
       - name: Deploy to Firebase Functions
         uses: w9jds/firebase-action@master
         with:
-          args: deploy --only functions --project momo-c9306
+          args: deploy --only functions --project momo-c9306 --force
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
