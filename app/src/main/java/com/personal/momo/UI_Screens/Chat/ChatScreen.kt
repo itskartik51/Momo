@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -39,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -168,6 +171,16 @@ fun ChatScreen(
         PrefProfileManager.init(context)
     }
 
+    LaunchedEffect(inputText) {
+        if (inputText.trim().isNotEmpty()) {
+            ChatEngine.setTyping(context, true)
+            delay(2500L)
+            ChatEngine.setTyping(context, false)
+        } else {
+            ChatEngine.setTyping(context, false)
+        }
+    }
+
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -175,6 +188,7 @@ fun ChatScreen(
             val photoUri = tempCameraUriString?.let { Uri.parse(it) }
             if (photoUri != null) {
                 val caption = inputText.trim()
+                ChatEngine.setTyping(context, false)
                 ChatEngine.sendMediaMessage(
                     context = context,
                     mediaUri = photoUri,
@@ -204,6 +218,7 @@ fun ChatScreen(
             val mediaType = if (isVideo) 2 else 1
             val caption = inputText.trim()
 
+            ChatEngine.setTyping(context, false)
             ChatEngine.sendMediaMessage(
                 context = context,
                 mediaUri = uri,
@@ -250,6 +265,7 @@ fun ChatScreen(
                 Lifecycle.Event.ON_PAUSE,
                 Lifecycle.Event.ON_STOP,
                 Lifecycle.Event.ON_DESTROY -> {
+                    ChatEngine.setTyping(context, false)
                     ChatEngine.setChatScreenActive(context, false)
                 }
                 else -> {}
@@ -260,6 +276,7 @@ fun ChatScreen(
 
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            ChatEngine.setTyping(context, false)
             ChatEngine.setChatScreenActive(context, false)
         }
     }
@@ -279,6 +296,7 @@ fun ChatScreen(
                 replyingToMessage = null
             }
             else -> {
+                ChatEngine.setTyping(context, false)
                 ChatEngine.setChatScreenActive(context, false)
                 onBack()
             }
@@ -338,8 +356,10 @@ fun ChatScreen(
                 avatarUrl = effectiveAvatarUrl,
                 inChat = partnerPresence.inChat,
                 lastSeen = partnerPresence.lastSeen,
+                isTyping = partnerPresence.isTyping,
                 onAvatarClick = { showFullScreenAvatar = true },
                 onBack = {
+                    ChatEngine.setTyping(context, false)
                     ChatEngine.setChatScreenActive(context, false)
                     onBack()
                 }
@@ -450,6 +470,7 @@ fun ChatScreen(
                 onSend = {
                     val cleanText = inputText.trim()
                     if (cleanText.isNotEmpty()) {
+                        ChatEngine.setTyping(context, false)
                         ChatEngine.sendMessage(
                             context = context,
                             text = cleanText,
@@ -562,24 +583,33 @@ private fun ChatTopHeader(
     avatarUrl: String?,
     inChat: Boolean,
     lastSeen: Long,
+    isTyping: Boolean,
     onAvatarClick: () -> Unit,
     onBack: () -> Unit
 ) {
-    val statusText = when {
-        inChat -> "Online"
-        lastSeen > 0L -> "Last seen ${formatLastSeenTime(lastSeen)}"
-        else -> "Offline"
+    var dotCount by remember { mutableIntStateOf(1) }
+
+    LaunchedEffect(isTyping) {
+        if (isTyping) {
+            while (true) {
+                delay(350L)
+                dotCount = if (dotCount >= 3) 1 else dotCount + 1
+            }
+        } else {
+            dotCount = 1
+        }
     }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f)),
         shadowElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -603,12 +633,12 @@ private fun ChatTopHeader(
 
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     .border(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        color = if (inChat) Color(0xFF25D366).copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                         shape = CircleShape
                     )
                     .bounceClick(scaleDown = 0.94f) {
@@ -643,18 +673,55 @@ private fun ChatTopHeader(
             ) {
                 Text(
                     text = partnerName,
-                    fontSize = 15.5.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.5.sp,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Text(
-                    text = statusText,
-                    fontSize = 11.5.sp,
-                    color = if (inChat)
-                        Color(0xFF25D366)
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
+
+                Spacer(modifier = Modifier.height(1.dp))
+
+                if (isTyping) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Online",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF25D366)
+                        )
+                        Text(
+                            text = "  •  ",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                        )
+                        Text(
+                            text = "typing${".".repeat(dotCount)}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        )
+                    }
+                } else if (inChat) {
+                    Text(
+                        text = "Online",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF25D366)
+                    )
+                } else {
+                    val lastSeenText = if (lastSeen > 0L) {
+                        "Last seen ${formatLastSeenTime(lastSeen)}"
+                    } else {
+                        "Offline"
+                    }
+                    Text(
+                        text = lastSeenText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
     }
