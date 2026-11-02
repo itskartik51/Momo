@@ -301,6 +301,7 @@ fun PrefProfileDialog(
     val coroutineScope = rememberCoroutineScope()
     val myAvatarUrl by PrefProfileManager.myAvatarUrlFlow.collectAsState()
     var isUploading by remember { mutableStateOf(false) }
+    var showFullScreenMyAvatar by remember { mutableStateOf(false) }
 
     val mediaPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -313,6 +314,13 @@ fun PrefProfileDialog(
                 onComplete = { isUploading = false }
             )
         }
+    }
+
+    if (showFullScreenMyAvatar) {
+        FullScreenImageViewer(
+            imageUrl = myAvatarUrl,
+            onDismiss = { showFullScreenMyAvatar = false }
+        )
     }
 
     Dialog(
@@ -405,7 +413,12 @@ fun PrefProfileDialog(
                                 width = 2.dp,
                                 color = Color.White.copy(alpha = 0.25f),
                                 shape = CircleShape
-                            ),
+                            )
+                            .bounceClick(scaleDown = 0.94f) {
+                                if (!isUploading && myAvatarUrl.isNotBlank()) {
+                                    showFullScreenMyAvatar = true
+                                }
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         if (myAvatarUrl.isNotBlank()) {
