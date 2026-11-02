@@ -3,7 +3,6 @@ package com.personal.momo.UI_Screens.Chat.Preference
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,18 +15,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -175,7 +170,21 @@ object PrefNameManager {
 }
 
 private val DialogSurfaceColor = Color(0xFF1E1F22)
-private val InputFieldTrackColor = Color(0xFF151619)
+
+private val EditDialogHeaderIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "EditDialogHeaderIcon",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
 
 private val CloseDialogIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -236,7 +245,7 @@ fun PrefNameDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 18.dp)
+                    .padding(horizontal = 20.dp, vertical = 20.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -254,7 +263,7 @@ fun PrefNameDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Edit,
+                                imageVector = EditDialogHeaderIcon,
                                 contentDescription = null,
                                 tint = Color.White,
                                 modifier = Modifier.size(17.dp)
@@ -292,100 +301,96 @@ fun PrefNameDialog(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                Box(
+                OutlinedTextField(
+                    value = textFieldValue,
+                    onValueChange = { textFieldValue = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(InputFieldTrackColor)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (textFieldValue.text.isEmpty()) {
+                        .focusRequester(focusRequester),
+                    label = {
                         Text(
-                            text = "Enter name...",
-                            fontSize = 14.sp,
-                            color = Color.White.copy(alpha = 0.35f)
+                            text = "Partner Name",
+                            fontSize = 13.5.sp
                         )
-                    }
+                    },
+                    textStyle = TextStyle(
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    ),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.White,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
+                        focusedLabelColor = Color.White,
+                        unfocusedLabelColor = Color.White.copy(alpha = 0.55f),
+                        cursorColor = Color.White,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { focusManager.clearFocus() }
+                    )
+                )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BasicTextField(
-                            value = textFieldValue,
-                            onValueChange = { textFieldValue = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .focusRequester(focusRequester),
-                            textStyle = TextStyle(
-                                fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White
-                            ),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Words,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onDone = { focusManager.clearFocus() }
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-                        )
+                Spacer(modifier = Modifier.height(24.dp))
 
-                        if (textFieldValue.text.isNotEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.10f))
-                                    .bounceClick(scaleDown = 0.90f) {
-                                        textFieldValue = TextFieldValue("")
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Clear",
-                                    tint = Color.White.copy(alpha = 0.75f),
-                                    modifier = Modifier.size(14.dp)
-                                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .bounceClick(scaleDown = 0.94f) {
+                                onDismiss()
                             }
-                        }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Cancel",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.70f)
+                        )
                     }
-                }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .clip(CircleShape)
-                        .background(MomoPrimaryGradient)
-                        .bounceClick(scaleDown = 0.94f) {
-                            val cleanName = textFieldValue.text.trim()
-                            if (cleanName.isNotEmpty() && !isSaving) {
-                                isSaving = true
-                                PrefNameManager.updatePartnerDisplayName(context, cleanName) { success ->
-                                    isSaving = false
-                                    if (success) {
-                                        onNameSaved(cleanName)
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(MomoPrimaryGradient)
+                            .bounceClick(scaleDown = 0.94f) {
+                                val cleanName = textFieldValue.text.trim()
+                                if (cleanName.isNotEmpty() && !isSaving) {
+                                    isSaving = true
+                                    PrefNameManager.updatePartnerDisplayName(context, cleanName) { success ->
+                                        isSaving = false
+                                        if (success) {
+                                            onNameSaved(cleanName)
+                                        }
                                     }
                                 }
                             }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (isSaving) "Saving..." else "Save Name",
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                            .padding(horizontal = 24.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isSaving) "Saving..." else "Save",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
                 }
             }
         }
