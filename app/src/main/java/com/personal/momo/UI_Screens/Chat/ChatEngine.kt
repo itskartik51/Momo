@@ -9,6 +9,7 @@ import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
+import com.google.firebase.messaging.FirebaseMessaging
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Chat.Media.FirebaseMediaManager
 import com.personal.momo.UI_Screens.Chat.Media.MediaCompressor
@@ -67,6 +68,8 @@ object ChatEngine {
     private val _mediaProgressFlow = MutableStateFlow(mapOf<String, MediaTransferProgress>())
     val mediaProgressFlow = _mediaProgressFlow.asStateFlow()
 
+    fun isChatScreenActive(): Boolean = isChatScreenActive
+
     fun getMySenderCode(context: Context? = appContextRef): Int {
         val currentUserId = if (context != null) {
             CacheManager.getAppUserId(context.applicationContext)
@@ -86,6 +89,32 @@ object ChatEngine {
 
     fun clearMediaProgress(messageId: String) {
         _mediaProgressFlow.value = _mediaProgressFlow.value - messageId
+    }
+
+    fun updateFCMToken(context: Context, explicitToken: String? = null) {
+        val appContext = context.applicationContext
+        val myCode = getMySenderCode(appContext)
+
+        if (!explicitToken.isNullOrBlank()) {
+            database.reference
+                .child("momo_chat")
+                .child("fcm_tokens")
+                .child(myCode.toString())
+                .setValue(explicitToken)
+            return
+        }
+
+        try {
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                if (!token.isNullOrBlank()) {
+                    database.reference
+                        .child("momo_chat")
+                        .child("fcm_tokens")
+                        .child(myCode.toString())
+                        .setValue(token)
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     fun startEngine(context: Context) {
@@ -128,6 +157,7 @@ object ChatEngine {
         listenToPartnerPresence(partnerCode)
         listenForIncomingMessages(context, myCode, partnerCode)
         listenForReceipts(context, myCode)
+        updateFCMToken(context)
     }
 
     @Synchronized
@@ -660,6 +690,7 @@ object ChatEngine {
                     val myCode = getMySenderCode(context)
                     syncMyPresenceWithCurrentState(myCode)
                     retryPendingMessages(context)
+                    updateFCMToken(context)
                 }
             }
 
