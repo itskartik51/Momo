@@ -165,7 +165,7 @@ object ChatNotificationManager {
 
         ensureChannelCreated(appContext)
 
-        val partnerName = if (mySenderCode == 2) "Kanu" else "Momo"
+        val partnerName = PrefNameManager.getPartnerDisplayName(appContext)
         val myName = if (mySenderCode == 2) "Momo" else "Kanu"
 
         val launchIntent = appContext.packageManager
