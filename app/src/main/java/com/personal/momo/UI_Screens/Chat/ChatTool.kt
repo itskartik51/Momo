@@ -162,41 +162,41 @@ fun DeleteMessagesDialog(
                                 .clip(CircleShape)
                                 .background(MomoPrimaryGradient)
                                 .bounceClick(scaleDown = 0.94f) {
-                                onDeleteForMe()
-                            }
-                            .padding(horizontal = 16.dp, vertical = 9.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Delete for me",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.width(10.dp))
+                                    onDeleteForMe()
+                                }
+                                .padding(horizontal = 18.dp, vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Delete",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(10.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MomoPrimaryGradient)
-                            .bounceClick(scaleDown = 0.94f) {
-                                onDeleteForMe()
-                            }
-                            .padding(horizontal = 22.dp, vertical = 9.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Delete",
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MomoPrimaryGradient)
+                                .bounceClick(scaleDown = 0.94f) {
+                                    onDeleteForMe()
+                                }
+                                .padding(horizontal = 22.dp, vertical = 9.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Delete",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }
         }
     }
-}
 }
