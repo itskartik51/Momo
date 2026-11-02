@@ -49,11 +49,14 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceMenuAction
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceOption
+import com.personal.momo.UI_Screens.Chat.Preference.FullScreenImageViewer
 import com.personal.momo.UI_Screens.Chat.Preference.NotificationModeAppliedToast
 import com.personal.momo.UI_Screens.Chat.Preference.PrefCountDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNotificationDialog
+import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileDialog
+import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
@@ -88,7 +91,7 @@ fun InboxScreen(
 ) {
     val context = LocalContext.current
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
-    val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
+    val fallbackAvatarUrl by CacheManager.avatarUrlFlow.collectAsState()
     val messages by ChatRepository.messagesFlow.collectAsState()
 
     val isMomo = currentUserId.equals("Momo", ignoreCase = true)
@@ -97,15 +100,22 @@ fun InboxScreen(
     val dynamicPartnerName by PrefNameManager.partnerDisplayNameFlow.collectAsState()
     val partnerDisplayName = dynamicPartnerName.ifBlank { if (isMomo) "Kanu" else "Momo" }
 
+    val partnerChatAvatar by PrefProfileManager.partnerAvatarUrlFlow.collectAsState()
+    val effectiveAvatarUrl = partnerChatAvatar.ifBlank { fallbackAvatarUrl }
+
     var showMessageCountDialog by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
     var showEditNameDialog by remember { mutableStateOf(false) }
+    var showProfileDialog by remember { mutableStateOf(false) }
+    var showFullScreenAvatar by remember { mutableStateOf(false) }
+
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var toastTriggerKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         ChatEngine.startEngine(context)
         PrefNameManager.init(context)
+        PrefProfileManager.init(context)
     }
 
     LaunchedEffect(toastTriggerKey) {
@@ -143,6 +153,19 @@ fun InboxScreen(
                 toastMessage = "Name updated"
                 toastTriggerKey++
             }
+        )
+    }
+
+    if (showProfileDialog) {
+        PrefProfileDialog(
+            onDismiss = { showProfileDialog = false }
+        )
+    }
+
+    if (showFullScreenAvatar) {
+        FullScreenImageViewer(
+            imageUrl = effectiveAvatarUrl,
+            onDismiss = { showFullScreenAvatar = false }
         )
     }
 
@@ -202,6 +225,9 @@ fun InboxScreen(
                             ChatPreferenceOption.EDIT_NAME -> {
                                 showEditNameDialog = true
                             }
+                            ChatPreferenceOption.PROFILE -> {
+                                showProfileDialog = true
+                            }
                             else -> {}
                         }
                     }
@@ -212,12 +238,13 @@ fun InboxScreen(
 
             InboxChatRow(
                 partnerName = partnerDisplayName,
-                avatarUrl = avatarUrl,
+                avatarUrl = effectiveAvatarUrl,
                 lastMessage = lastMessageText,
                 timestamp = lastTimestamp,
                 isOutgoing = isOutgoing,
                 deliveryStatus = deliveryStatus,
                 unreadCount = unreadCount,
+                onAvatarClick = { showFullScreenAvatar = true },
                 onClick = onChatClick
             )
         }
@@ -241,6 +268,7 @@ private fun InboxChatRow(
     isOutgoing: Boolean,
     deliveryStatus: Int,
     unreadCount: Int,
+    onAvatarClick: () -> Unit,
     onClick: () -> Unit
 ) {
     val formattedTime = remember(timestamp) {
@@ -270,7 +298,10 @@ private fun InboxChatRow(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                         shape = CircleShape
-                    ),
+                    )
+                    .bounceClick(scaleDown = 0.94f) {
+                        onAvatarClick()
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 if (!avatarUrl.isNullOrBlank()) {
