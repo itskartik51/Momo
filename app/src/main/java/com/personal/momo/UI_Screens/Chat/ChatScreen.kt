@@ -112,6 +112,21 @@ private val CopyIcon: ImageVector by lazy {
     ).build()
 }
 
+private val EditMessageIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "EditMessage",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
 private val DeleteIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "DeleteOutline",
@@ -149,17 +164,30 @@ fun ChatScreen(
     val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
     val messagesList by ChatRepository.messagesFlow.collectAsState()
     val reversedMessages = remember(messagesList) { messagesList.asReversed() }
+    val messageMap = remember(messagesList) { messagesList.associateBy { it.id } }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var inputText by remember { mutableStateOf("") }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     var highlightedMessageId by remember { mutableStateOf<String?>(null) }
     var highlightTimerJob by remember { mutableStateOf<Job?>(null) }
 
     var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
+
+    val selectedMessages = remember(selectedMessageIds, messagesList) {
+        messagesList.filter { it.id in selectedMessageIds }
+    }
+    val canEdit = remember(selectedMessages, myCode) {
+        selectedMessages.size == 1 && selectedMessages.first().senderId == myCode
+    }
+    val canUnsend = remember(selectedMessages, myCode) {
+        selectedMessages.isNotEmpty() && selectedMessages.all { it.senderId == myCode }
+    }
+
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showFullScreenAvatar by remember { mutableStateOf(false) }
 
@@ -171,7 +199,7 @@ fun ChatScreen(
     }
 
     LaunchedEffect(inputText) {
-        if (inputText.trim().isNotEmpty()) {
+        if (inputText.trim().isNotEmpty() && editingMessage == null) {
             ChatEngine.setTyping(context, true)
             delay(2500L)
             ChatEngine.setTyping(context, false)
@@ -199,6 +227,7 @@ fun ChatScreen(
                 )
                 inputText = ""
                 replyingToMessage = null
+                editingMessage = null
                 coroutineScope.launch {
                     if (reversedMessages.isNotEmpty()) {
                         listState.animateScrollToItem(0)
@@ -229,6 +258,7 @@ fun ChatScreen(
             )
             inputText = ""
             replyingToMessage = null
+            editingMessage = null
             coroutineScope.launch {
                 if (reversedMessages.isNotEmpty()) {
                     listState.animateScrollToItem(0)
@@ -291,6 +321,10 @@ fun ChatScreen(
             isSelectionMode -> {
                 selectedMessageIds = emptySet()
             }
+            editingMessage != null -> {
+                editingMessage = null
+                inputText = ""
+            }
             replyingToMessage != null -> {
                 replyingToMessage = null
             }
@@ -311,16 +345,23 @@ fun ChatScreen(
     if (showDeleteDialog) {
         DeleteMessagesDialog(
             selectedCount = selectedMessageIds.size,
+            canUnsend = canUnsend,
             onDismiss = {
                 showDeleteDialog = false
             },
-            onConfirmDelete = {
+            onDeleteForMe = {
                 val targets = selectedMessageIds
                 selectedMessageIds = emptySet()
                 showDeleteDialog = false
                 coroutineScope.launch {
                     ChatRepository.deleteMessages(context, targets)
                 }
+            },
+            onUnsend = {
+                val targets = selectedMessageIds
+                selectedMessageIds = emptySet()
+                showDeleteDialog = false
+                ChatEngine.unsendMessages(context, targets)
             }
         )
     }
@@ -340,10 +381,20 @@ fun ChatScreen(
         if (isSelectionMode) {
             SelectionTopHeader(
                 selectedCount = selectedMessageIds.size,
+                canEdit = canEdit,
                 onClearSelection = { selectedMessageIds = emptySet() },
                 onCopy = {
                     ChatTool.copyMessagesToClipboard(context, messagesList, selectedMessageIds)
                     selectedMessageIds = emptySet()
+                },
+                onEdit = {
+                    val target = selectedMessages.firstOrNull()
+                    if (target != null) {
+                        replyingToMessage = null
+                        editingMessage = target
+                        inputText = target.text
+                        selectedMessageIds = emptySet()
+                    }
                 },
                 onDelete = {
                     showDeleteDialog = true
@@ -379,6 +430,7 @@ fun ChatScreen(
                 val isOutgoing = message.senderId == myCode
                 val isSelected = selectedMessageIds.contains(message.id)
                 val isHighlighted = message.id == highlightedMessageId
+                val replyToMsg = message.replyToId?.let { messageMap[it] }
 
                 val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
                 val isNextSameSender = nextChronologicalMsg?.senderId == message.senderId
@@ -388,6 +440,7 @@ fun ChatScreen(
 
                 MessageBubbleRow(
                     message = message,
+                    replyToMessage = replyToMsg,
                     isOutgoing = isOutgoing,
                     isSelected = isSelected,
                     isHighlighted = isHighlighted,
@@ -404,6 +457,7 @@ fun ChatScreen(
                         }
                     },
                     onSwipeToReply = { targetMsg ->
+                        editingMessage = null
                         replyingToMessage = targetMsg
                     },
                     onReplyClick = { targetReplyId ->
@@ -446,6 +500,11 @@ fun ChatScreen(
                 onTextChanged = { inputText = it },
                 replyingToMessage = replyingToMessage,
                 onCancelReply = { replyingToMessage = null },
+                editingMessage = editingMessage,
+                onCancelEdit = {
+                    editingMessage = null
+                    inputText = ""
+                },
                 myCode = myCode,
                 partnerDisplayName = partnerDisplayName,
                 onCameraClick = {
@@ -469,19 +528,26 @@ fun ChatScreen(
                 onSend = {
                     val cleanText = inputText.trim()
                     if (cleanText.isNotEmpty()) {
-                        ChatEngine.setTyping(context, false)
-                        ChatEngine.sendMessage(
-                            context = context,
-                            text = cleanText,
-                            replyToId = replyingToMessage?.id,
-                            replyToText = replyingToMessage?.text,
-                            replyToSenderId = replyingToMessage?.senderId
-                        )
-                        inputText = ""
-                        replyingToMessage = null
-                        coroutineScope.launch {
-                            if (reversedMessages.isNotEmpty()) {
-                                listState.animateScrollToItem(0)
+                        val activeEdit = editingMessage
+                        if (activeEdit != null) {
+                            ChatEngine.editMessage(context, activeEdit.id, cleanText)
+                            editingMessage = null
+                            inputText = ""
+                        } else {
+                            ChatEngine.setTyping(context, false)
+                            ChatEngine.sendMessage(
+                                context = context,
+                                text = cleanText,
+                                replyToId = replyingToMessage?.id,
+                                replyToText = null,
+                                replyToSenderId = null
+                            )
+                            inputText = ""
+                            replyingToMessage = null
+                            coroutineScope.launch {
+                                if (reversedMessages.isNotEmpty()) {
+                                    listState.animateScrollToItem(0)
+                                }
                             }
                         }
                     }
@@ -494,8 +560,10 @@ fun ChatScreen(
 @Composable
 private fun SelectionTopHeader(
     selectedCount: Int,
+    canEdit: Boolean,
     onClearSelection: () -> Unit,
     onCopy: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     Surface(
@@ -536,6 +604,27 @@ private fun SelectionTopHeader(
             )
 
             Spacer(modifier = Modifier.weight(1f))
+
+            if (canEdit) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .bounceClick(scaleDown = 0.94f) {
+                            onEdit()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = EditMessageIcon,
+                        contentDescription = "Edit Message",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+            }
 
             Box(
                 modifier = Modifier
