@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -27,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,10 +49,13 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceMenuAction
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceOption
+import com.personal.momo.UI_Screens.Chat.Preference.NotificationModeAppliedToast
 import com.personal.momo.UI_Screens.Chat.Preference.PrefCountDialog
+import com.personal.momo.UI_Screens.Chat.Preference.PrefNotificationDialog
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
+import kotlinx.coroutines.delay
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -89,9 +94,19 @@ fun InboxScreen(
     val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
 
     var showMessageCountDialog by remember { mutableStateOf(false) }
+    var showNotificationDialog by remember { mutableStateOf(false) }
+    var toastMessage by remember { mutableStateOf<String?>(null) }
+    var toastTriggerKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         ChatEngine.startEngine(context)
+    }
+
+    LaunchedEffect(toastTriggerKey) {
+        if (toastMessage != null) {
+            delay(2000L)
+            toastMessage = null
+        }
     }
 
     if (showMessageCountDialog) {
@@ -99,6 +114,17 @@ fun InboxScreen(
             messages = messages,
             mySenderCode = mySenderCode,
             onDismiss = { showMessageCountDialog = false }
+        )
+    }
+
+    if (showNotificationDialog) {
+        PrefNotificationDialog(
+            onDismiss = { showNotificationDialog = false },
+            onModeApplied = { selectedMode ->
+                showNotificationDialog = false
+                toastMessage = selectedMode.appliedToastText
+                toastTriggerKey++
+            }
         )
     }
 
@@ -122,50 +148,65 @@ fun InboxScreen(
         messages.count { it.senderId != mySenderCode && it.status < 3 }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            Text(
-                text = "MomoChat",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "MomoChat",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1
+                )
 
-            ChatPreferenceMenuAction(
-                onOptionSelected = { option ->
-                    when (option) {
-                        ChatPreferenceOption.MESSAGE_COUNT -> {
-                            showMessageCountDialog = true
+                ChatPreferenceMenuAction(
+                    onOptionSelected = { option ->
+                        when (option) {
+                            ChatPreferenceOption.MESSAGE_COUNT -> {
+                                showMessageCountDialog = true
+                            }
+                            ChatPreferenceOption.NOTIFICATION -> {
+                                showNotificationDialog = true
+                            }
+                            else -> {}
                         }
-                        else -> {}
                     }
-                }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            InboxChatRow(
+                partnerName = partnerDisplayName,
+                avatarUrl = avatarUrl,
+                lastMessage = lastMessageText,
+                timestamp = lastTimestamp,
+                isOutgoing = isOutgoing,
+                deliveryStatus = deliveryStatus,
+                unreadCount = unreadCount,
+                onClick = onChatClick
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-        InboxChatRow(
-            partnerName = partnerDisplayName,
-            avatarUrl = avatarUrl,
-            lastMessage = lastMessageText,
-            timestamp = lastTimestamp,
-            isOutgoing = isOutgoing,
-            deliveryStatus = deliveryStatus,
-            unreadCount = unreadCount,
-            onClick = onChatClick
+        NotificationModeAppliedToast(
+            message = toastMessage,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 88.dp)
         )
     }
 }
