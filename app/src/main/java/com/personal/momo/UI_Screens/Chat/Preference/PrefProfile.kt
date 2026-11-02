@@ -179,7 +179,7 @@ object PrefProfileManager {
                         }
                     }
                 } else {
-                    _partnerAvatarUrlFlow.value = partnerFile.absolutePath
+                    _partnerAvatarUrlFlow.value = partnerFile?.absolutePath ?: partnerUrl
                 }
             }
 
@@ -205,7 +205,7 @@ object PrefProfileManager {
                         }
                     }
                 } else {
-                    _myAvatarUrlFlow.value = myFile.absolutePath
+                    _myAvatarUrlFlow.value = myFile?.absolutePath ?: myUrl
                 }
             }
         }
