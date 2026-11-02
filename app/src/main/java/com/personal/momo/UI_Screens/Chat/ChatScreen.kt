@@ -65,7 +65,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.UI_Screens.Chat.Preference.FullScreenImageViewer
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
+import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -131,13 +133,16 @@ fun ChatScreen(
     val density = LocalDensity.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
-    val avatarUrl by CacheManager.avatarUrlFlow.collectAsState()
+    val fallbackAvatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
     val isMomo = currentUserId.equals("Momo", ignoreCase = true)
     val myCode = if (isMomo) 2 else 1
 
     val dynamicPartnerName by PrefNameManager.partnerDisplayNameFlow.collectAsState()
     val partnerDisplayName = dynamicPartnerName.ifBlank { if (isMomo) "Kanu" else "Momo" }
+
+    val partnerChatAvatar by PrefProfileManager.partnerAvatarUrlFlow.collectAsState()
+    val effectiveAvatarUrl = partnerChatAvatar.ifBlank { fallbackAvatarUrl }
 
     val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
     val messagesList by ChatRepository.messagesFlow.collectAsState()
@@ -154,11 +159,13 @@ fun ChatScreen(
     var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedMessageIds.isNotEmpty()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showFullScreenAvatar by remember { mutableStateOf(false) }
 
     var tempCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         PrefNameManager.init(context)
+        PrefProfileManager.init(context)
     }
 
     val cameraLauncher = rememberLauncherForActivityResult(
@@ -259,6 +266,9 @@ fun ChatScreen(
 
     BackHandler {
         when {
+            showFullScreenAvatar -> {
+                showFullScreenAvatar = false
+            }
             showDeleteDialog -> {
                 showDeleteDialog = false
             }
@@ -298,6 +308,13 @@ fun ChatScreen(
         )
     }
 
+    if (showFullScreenAvatar) {
+        FullScreenImageViewer(
+            imageUrl = effectiveAvatarUrl,
+            onDismiss = { showFullScreenAvatar = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -318,9 +335,10 @@ fun ChatScreen(
         } else {
             ChatTopHeader(
                 partnerName = partnerDisplayName,
-                avatarUrl = avatarUrl,
+                avatarUrl = effectiveAvatarUrl,
                 inChat = partnerPresence.inChat,
                 lastSeen = partnerPresence.lastSeen,
+                onAvatarClick = { showFullScreenAvatar = true },
                 onBack = {
                     ChatEngine.setChatScreenActive(context, false)
                     onBack()
@@ -544,6 +562,7 @@ private fun ChatTopHeader(
     avatarUrl: String?,
     inChat: Boolean,
     lastSeen: Long,
+    onAvatarClick: () -> Unit,
     onBack: () -> Unit
 ) {
     val statusText = when {
@@ -591,7 +610,10 @@ private fun ChatTopHeader(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                         shape = CircleShape
-                    ),
+                    )
+                    .bounceClick(scaleDown = 0.94f) {
+                        onAvatarClick()
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 if (!avatarUrl.isNullOrBlank()) {
