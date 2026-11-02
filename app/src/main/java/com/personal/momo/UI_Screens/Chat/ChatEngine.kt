@@ -60,6 +60,9 @@ object ChatEngine {
     private var receiptsRef: DatabaseReference? = null
     private var receiptsListener: ChildEventListener? = null
 
+    private var syncRef: DatabaseReference? = null
+    private var syncListener: ChildEventListener? = null
+
     private var partnerPresenceRef: DatabaseReference? = null
     private var partnerPresenceListener: ValueEventListener? = null
 
@@ -158,6 +161,7 @@ object ChatEngine {
         listenToPartnerPresence(partnerCode)
         listenForIncomingMessages(context, myCode, partnerCode)
         listenForReceipts(context, myCode)
+        listenForSyncActions(context, myCode)
         updateFCMToken(context)
     }
 
@@ -170,6 +174,10 @@ object ChatEngine {
         receiptsListener?.let { receiptsRef?.removeEventListener(it) }
         receiptsListener = null
         receiptsRef = null
+
+        syncListener?.let { syncRef?.removeEventListener(it) }
+        syncListener = null
+        syncRef = null
 
         partnerPresenceListener?.let { partnerPresenceRef?.removeEventListener(it) }
         partnerPresenceListener = null
@@ -311,13 +319,74 @@ object ChatEngine {
             timestamp = timestamp,
             status = 0,
             replyToId = replyToId,
-            replyToText = replyToText,
-            replyToSenderId = replyToSenderId
+            replyToText = null,
+            replyToSenderId = null
         )
 
         engineScope.launch {
             ChatRepository.saveMessage(appContext, pendingMessage)
             pushToFirebaseQueue(appContext, pendingMessage, partnerCode)
+        }
+    }
+
+    fun editMessage(
+        context: Context,
+        messageId: String,
+        newText: String
+    ) {
+        val appContext = context.applicationContext
+        val cleanText = newText.trim()
+        if (cleanText.isEmpty()) return
+
+        val partnerCode = getPartnerSenderCode(appContext)
+
+        engineScope.launch {
+            val edited = ChatRepository.editMessageText(appContext, messageId, cleanText)
+            if (edited) {
+                val syncQueueRef = database.reference
+                    .child("momo_chat")
+                    .child("sync")
+                    .child(partnerCode.toString())
+                    .push()
+
+                val payload = mapOf<String, Any>(
+                    "action" to "EDIT",
+                    "id" to messageId,
+                    "text" to cleanText,
+                    "time" to ServerValue.TIMESTAMP
+                )
+
+                syncQueueRef.setValue(payload)
+            }
+        }
+    }
+
+    fun unsendMessages(
+        context: Context,
+        messageIds: Set<String>
+    ) {
+        if (messageIds.isEmpty()) return
+        val appContext = context.applicationContext
+        val partnerCode = getPartnerSenderCode(appContext)
+
+        engineScope.launch {
+            ChatRepository.deleteMessages(appContext, messageIds)
+
+            for (msgId in messageIds) {
+                val syncQueueRef = database.reference
+                    .child("momo_chat")
+                    .child("sync")
+                    .child(partnerCode.toString())
+                    .push()
+
+                val payload = mapOf<String, Any>(
+                    "action" to "DELETE",
+                    "id" to msgId,
+                    "time" to ServerValue.TIMESTAMP
+                )
+
+                syncQueueRef.setValue(payload)
+            }
         }
     }
 
@@ -367,8 +436,8 @@ object ChatEngine {
                     timestamp = timestamp,
                     status = 0,
                     replyToId = replyToId,
-                    replyToText = replyToText,
-                    replyToSenderId = replyToSenderId,
+                    replyToText = null,
+                    replyToSenderId = null,
                     mediaType = mediaType,
                     fileId = fileId,
                     cryptoKey = null,
@@ -460,12 +529,6 @@ object ChatEngine {
         if (!message.replyToId.isNullOrEmpty()) {
             payload["rId"] = message.replyToId
         }
-        if (!message.replyToText.isNullOrEmpty()) {
-            payload["rText"] = message.replyToText
-        }
-        if (message.replyToSenderId != null) {
-            payload["rSend"] = message.replyToSenderId
-        }
 
         if (message.mediaType > 0) {
             payload["mType"] = message.mediaType
@@ -514,10 +577,6 @@ object ChatEngine {
 
                 val replyToId = snapshot.child("rId").getValue(String::class.java)
                     ?: snapshot.child("replyToId").getValue(String::class.java)
-                val replyToText = snapshot.child("rText").getValue(String::class.java)
-                    ?: snapshot.child("replyToText").getValue(String::class.java)
-                val replyToSenderId = snapshot.child("rSend").getValue(Long::class.java)?.toInt()
-                    ?: snapshot.child("replyToSenderId").getValue(Long::class.java)?.toInt()
 
                 val mType = snapshot.child("mType").getValue(Long::class.java)?.toInt()
                     ?: snapshot.child("mediaType").getValue(Long::class.java)?.toInt() ?: 0
@@ -542,8 +601,8 @@ object ChatEngine {
                     timestamp = timestamp,
                     status = initialDeliveryStatus,
                     replyToId = replyToId,
-                    replyToText = replyToText,
-                    replyToSenderId = replyToSenderId,
+                    replyToText = null,
+                    replyToSenderId = null,
                     mediaType = mType,
                     fileId = fId,
                     cryptoKey = cKey,
@@ -572,6 +631,46 @@ object ChatEngine {
 
         inboxRef = ref
         inboxListener = listener
+        ref.addChildEventListener(listener)
+    }
+
+    private fun listenForSyncActions(context: Context, myCode: Int) {
+        val ref = database.reference
+            .child("momo_chat")
+            .child("sync")
+            .child(myCode.toString())
+
+        val listener = object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
+                val action = snapshot.child("action").getValue(String::class.java)
+                val messageId = snapshot.child("id").getValue(String::class.java)
+
+                if (!messageId.isNullOrEmpty()) {
+                    engineScope.launch {
+                        when (action) {
+                            "DELETE" -> {
+                                ChatRepository.deleteMessages(context, setOf(messageId))
+                            }
+                            "EDIT" -> {
+                                val newText = snapshot.child("text").getValue(String::class.java) ?: ""
+                                ChatRepository.editMessageText(context, messageId, newText)
+                            }
+                        }
+                        snapshot.ref.removeValue()
+                    }
+                } else {
+                    snapshot.ref.removeValue()
+                }
+            }
+
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onChildRemoved(snapshot: DataSnapshot) {}
+            override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onCancelled(error: DatabaseError) {}
+        }
+
+        syncRef = ref
+        syncListener = listener
         ref.addChildEventListener(listener)
     }
 
