@@ -205,15 +205,15 @@ object ChatNotificationManager {
         when (mode) {
             ChatNotificationMode.PRIVACY -> {
                 val count = unreadMessages.size
-                val privacyBody = if (count == 1) {
+                val privacyTitle = if (count == 1) {
                     "1 new notification"
                 } else {
                     "$count new notifications"
                 }
 
                 builder
-                    .setContentTitle(partnerName)
-                    .setContentText(privacyBody)
+                    .setContentTitle(privacyTitle)
+                    .setContentText(null)
                     .setNumber(count)
                     .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             }
