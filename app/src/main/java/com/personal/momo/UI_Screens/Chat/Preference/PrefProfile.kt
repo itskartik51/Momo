@@ -60,18 +60,26 @@ import com.google.firebase.storage.FirebaseStorage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 object PrefProfileManager {
     private const val PREFS_NAME = "momo_chat_profile_prefs"
-    private const val KEY_MY_AVATAR = "cached_my_chat_avatar"
-    private const val KEY_PARTNER_AVATAR = "cached_partner_chat_avatar"
+    private const val KEY_MY_LOCAL_PATH = "cached_my_avatar_local_path"
+    private const val KEY_MY_REMOTE_URL = "cached_my_avatar_remote_url"
+    private const val KEY_PARTNER_LOCAL_PATH = "cached_partner_avatar_local_path"
+    private const val KEY_PARTNER_REMOTE_URL = "cached_partner_avatar_remote_url"
 
     private const val COLLECTION_APP = "App"
     private const val DOC_HOME_CONFIG = "home_config"
@@ -79,6 +87,7 @@ object PrefProfileManager {
 
     private val firestore by lazy { FirebaseFirestore.getInstance() }
     private val storage by lazy { FirebaseStorage.getInstance() }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var snapshotListener: ListenerRegistration? = null
 
     private val _myAvatarUrlFlow = MutableStateFlow("")
@@ -90,12 +99,37 @@ object PrefProfileManager {
     @Volatile
     private var isInitialized = false
 
+    private fun getAvatarsDirectory(context: Context): File {
+        val dir = File(context.applicationContext.filesDir, "chat_avatars")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    private fun deleteOldAvatars(directory: File, prefix: String, keepFile: File) {
+        directory.listFiles { f -> f.name.startsWith(prefix) && f.name != keepFile.name }?.forEach {
+            try { it.delete() } catch (_: Exception) {}
+        }
+    }
+
     fun init(context: Context) {
         val appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-        _myAvatarUrlFlow.value = prefs.getString(KEY_MY_AVATAR, "").orEmpty()
-        _partnerAvatarUrlFlow.value = prefs.getString(KEY_PARTNER_AVATAR, "").orEmpty()
+        val myLocalPath = prefs.getString(KEY_MY_LOCAL_PATH, null)
+        if (!myLocalPath.isNullOrBlank()) {
+            val file = File(myLocalPath)
+            if (file.exists() && file.length() > 0L) {
+                _myAvatarUrlFlow.value = file.absolutePath
+            }
+        }
+
+        val partnerLocalPath = prefs.getString(KEY_PARTNER_LOCAL_PATH, null)
+        if (!partnerLocalPath.isNullOrBlank()) {
+            val file = File(partnerLocalPath)
+            if (file.exists() && file.length() > 0L) {
+                _partnerAvatarUrlFlow.value = file.absolutePath
+            }
+        }
 
         if (isInitialized) return
         isInitialized = true
@@ -121,13 +155,83 @@ object PrefProfileManager {
             val partnerUrl = if (isMomo) kanuUrl else momoUrl
 
             val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit()
-                .putString(KEY_MY_AVATAR, myUrl)
-                .putString(KEY_PARTNER_AVATAR, partnerUrl)
-                .apply()
+            val avatarsDir = getAvatarsDirectory(appContext)
 
-            _myAvatarUrlFlow.value = myUrl
-            _partnerAvatarUrlFlow.value = partnerUrl
+            if (partnerUrl.isNotBlank()) {
+                val cachedPartnerRemote = prefs.getString(KEY_PARTNER_REMOTE_URL, "").orEmpty()
+                val cachedPartnerLocal = prefs.getString(KEY_PARTNER_LOCAL_PATH, "").orEmpty()
+                val partnerFile = if (cachedPartnerLocal.isNotBlank()) File(cachedPartnerLocal) else null
+                val hasValidLocalPartner = partnerFile != null && partnerFile.exists() && partnerFile.length() > 0L
+
+                if (partnerUrl != cachedPartnerRemote || !hasValidLocalPartner) {
+                    scope.launch {
+                        val destinationFile = File(avatarsDir, "partner_avatar_${System.currentTimeMillis()}.jpg")
+                        val downloaded = downloadUrlToFile(partnerUrl, destinationFile)
+                        if (downloaded) {
+                            deleteOldAvatars(avatarsDir, "partner_avatar_", destinationFile)
+                            prefs.edit()
+                                .putString(KEY_PARTNER_REMOTE_URL, partnerUrl)
+                                .putString(KEY_PARTNER_LOCAL_PATH, destinationFile.absolutePath)
+                                .apply()
+                            _partnerAvatarUrlFlow.value = destinationFile.absolutePath
+                        } else if (!hasValidLocalPartner) {
+                            _partnerAvatarUrlFlow.value = partnerUrl
+                        }
+                    }
+                } else {
+                    _partnerAvatarUrlFlow.value = partnerFile.absolutePath
+                }
+            }
+
+            if (myUrl.isNotBlank()) {
+                val cachedMyRemote = prefs.getString(KEY_MY_REMOTE_URL, "").orEmpty()
+                val cachedMyLocal = prefs.getString(KEY_MY_LOCAL_PATH, "").orEmpty()
+                val myFile = if (cachedMyLocal.isNotBlank()) File(cachedMyLocal) else null
+                val hasValidLocalMy = myFile != null && myFile.exists() && myFile.length() > 0L
+
+                if (myUrl != cachedMyRemote || !hasValidLocalMy) {
+                    scope.launch {
+                        val destinationFile = File(avatarsDir, "my_avatar_${System.currentTimeMillis()}.jpg")
+                        val downloaded = downloadUrlToFile(myUrl, destinationFile)
+                        if (downloaded) {
+                            deleteOldAvatars(avatarsDir, "my_avatar_", destinationFile)
+                            prefs.edit()
+                                .putString(KEY_MY_REMOTE_URL, myUrl)
+                                .putString(KEY_MY_LOCAL_PATH, destinationFile.absolutePath)
+                                .apply()
+                            _myAvatarUrlFlow.value = destinationFile.absolutePath
+                        } else if (!hasValidLocalMy) {
+                            _myAvatarUrlFlow.value = myUrl
+                        }
+                    }
+                } else {
+                    _myAvatarUrlFlow.value = myFile.absolutePath
+                }
+            }
+        }
+    }
+
+    private suspend fun downloadUrlToFile(urlStr: String, destinationFile: File): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(urlStr)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.connectTimeout = 12000
+            conn.readTimeout = 15000
+            conn.instanceFollowRedirects = true
+
+            if (conn.responseCode in 200..299) {
+                conn.inputStream.use { input ->
+                    FileOutputStream(destinationFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 
@@ -145,7 +249,7 @@ object PrefProfileManager {
 
         onProgress(true)
 
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             try {
                 val compressedBytes = compressImageUriToBytes(appContext, imageUri)
                 if (compressedBytes == null) {
@@ -156,6 +260,15 @@ object PrefProfileManager {
                     return@launch
                 }
 
+                val avatarsDir = getAvatarsDirectory(appContext)
+                val newLocalFile = File(avatarsDir, "my_avatar_${System.currentTimeMillis()}.jpg")
+                newLocalFile.writeBytes(compressedBytes)
+                deleteOldAvatars(avatarsDir, "my_avatar_", newLocalFile)
+
+                val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().putString(KEY_MY_LOCAL_PATH, newLocalFile.absolutePath).apply()
+                _myAvatarUrlFlow.value = newLocalFile.absolutePath
+
                 val storageRef = storage.reference.child("avatars").child(fileName)
                 storageRef.putBytes(compressedBytes)
                     .addOnSuccessListener {
@@ -163,9 +276,7 @@ object PrefProfileManager {
                             val downloadUrl = downloadUri.toString()
                             updateFirestoreProfileArray(targetIndex, downloadUrl) { success ->
                                 if (success) {
-                                    val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                                    prefs.edit().putString(KEY_MY_AVATAR, downloadUrl).apply()
-                                    _myAvatarUrlFlow.value = downloadUrl
+                                    prefs.edit().putString(KEY_MY_REMOTE_URL, downloadUrl).apply()
                                 }
                                 onProgress(false)
                                 onComplete(success)
@@ -298,7 +409,6 @@ fun PrefProfileDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val myAvatarUrl by PrefProfileManager.myAvatarUrlFlow.collectAsState()
     var isUploading by remember { mutableStateOf(false) }
     var showFullScreenMyAvatar by remember { mutableStateOf(false) }
