@@ -13,6 +13,7 @@ import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Chat.Media.FirebaseMediaManager
 import com.personal.momo.UI_Screens.Chat.Media.MediaCompressor
 import com.personal.momo.UI_Screens.Chat.Media.MediaCrypto
+import com.personal.momo.UI_Screens.Chat.Preference.ChatNotificationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -206,6 +207,8 @@ object ChatEngine {
             .child(myCode.toString())
 
         if (active) {
+            ChatNotificationManager.clearNotifications(appContext)
+
             val disconnectUpdates = mapOf<String, Any>(
                 "inChat" to false,
                 "lastSeen" to ServerValue.TIMESTAMP
@@ -479,7 +482,8 @@ object ChatEngine {
                 val bPrev = snapshot.child("bPrev").getValue(String::class.java)
                     ?: snapshot.child("blurPreview").getValue(String::class.java)
 
-                val initialDeliveryStatus = if (isChatScreenActive) 3 else 2
+                val activeNow = isChatScreenActive
+                val initialDeliveryStatus = if (activeNow) 3 else 2
 
                 val incomingMessage = ChatMessage(
                     id = messageId,
@@ -503,6 +507,10 @@ object ChatEngine {
                     ChatRepository.saveMessage(context, incomingMessage)
                     snapshot.ref.removeValue()
                     sendReceipt(senderCode, messageId, initialDeliveryStatus)
+
+                    if (!activeNow) {
+                        ChatNotificationManager.onIncomingMessage(context, myCode)
+                    }
                 }
             }
 
@@ -623,6 +631,8 @@ object ChatEngine {
         appContextRef = appContext
         val myCode = getMySenderCode(appContext)
         val partnerCode = getPartnerSenderCode(appContext)
+
+        ChatNotificationManager.clearNotifications(appContext)
 
         engineScope.launch {
             val readMessageIds = ChatRepository.markIncomingMessagesAsRead(appContext, myCode)
