@@ -12,8 +12,8 @@ android {
         applicationId = "com.personal.momo"
         minSdk = 24
         targetSdk = 34
-        versionCode = 28
-        versionName = "1.2405.28"
+        versionCode = 29
+        versionName = "1.2405.29"
 
         resourceConfigurations += listOf("en", "hi")
 
@@ -98,6 +98,7 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.firebase:firebase-messaging-ktx")
 
     // Google Play Services Location for Proximity Tracking
     implementation("com.google.android.gms:play-services-location:21.3.0")
