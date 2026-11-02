@@ -29,7 +29,8 @@ import java.util.UUID
 
 data class PartnerPresence(
     val inChat: Boolean = false,
-    val lastSeen: Long = 0L
+    val lastSeen: Long = 0L,
+    val isTyping: Boolean = false
 )
 
 data class MediaTransferProgress(
@@ -184,6 +185,7 @@ object ChatEngine {
         if (isChatScreenActive) {
             val disconnectUpdates = mapOf<String, Any>(
                 "inChat" to false,
+                "isTyping" to false,
                 "lastSeen" to ServerValue.TIMESTAMP
             )
             presenceRef.onDisconnect().updateChildren(disconnectUpdates)
@@ -196,7 +198,9 @@ object ChatEngine {
         } else {
             presenceRef.onDisconnect().cancel()
             presenceRef.child("inChat").onDisconnect().setValue(false)
+            presenceRef.child("isTyping").onDisconnect().setValue(false)
             presenceRef.child("inChat").setValue(false)
+            presenceRef.child("isTyping").setValue(false)
         }
     }
 
@@ -210,9 +214,11 @@ object ChatEngine {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val inChat = snapshot.child("inChat").getValue(Boolean::class.java) ?: false
                 val lastSeen = snapshot.child("lastSeen").getValue(Long::class.java) ?: 0L
+                val isTyping = snapshot.child("isTyping").getValue(Boolean::class.java) ?: false
                 _partnerPresenceFlow.value = PartnerPresence(
                     inChat = inChat,
-                    lastSeen = lastSeen
+                    lastSeen = lastSeen,
+                    isTyping = isTyping
                 )
             }
 
@@ -241,6 +247,7 @@ object ChatEngine {
 
             val disconnectUpdates = mapOf<String, Any>(
                 "inChat" to false,
+                "isTyping" to false,
                 "lastSeen" to ServerValue.TIMESTAMP
             )
             presenceRef.onDisconnect().updateChildren(disconnectUpdates)
@@ -254,17 +261,30 @@ object ChatEngine {
         } else {
             presenceRef.onDisconnect().cancel()
             presenceRef.child("inChat").onDisconnect().setValue(false)
+            presenceRef.child("isTyping").onDisconnect().setValue(false)
 
             if (wasActive) {
                 val inactiveUpdates = mapOf<String, Any>(
                     "inChat" to false,
+                    "isTyping" to false,
                     "lastSeen" to ServerValue.TIMESTAMP
                 )
                 presenceRef.updateChildren(inactiveUpdates)
             } else {
                 presenceRef.child("inChat").setValue(false)
+                presenceRef.child("isTyping").setValue(false)
             }
         }
+    }
+
+    fun setTyping(context: Context, typing: Boolean) {
+        val appContext = context.applicationContext
+        val myCode = getMySenderCode(appContext)
+        val presenceRef = database.reference
+            .child("momo_chat")
+            .child("presence")
+            .child(myCode.toString())
+        presenceRef.child("isTyping").setValue(typing)
     }
 
     fun sendMessage(
