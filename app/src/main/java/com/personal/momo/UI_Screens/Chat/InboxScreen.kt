@@ -27,7 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +46,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceMenuAction
+import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceOption
+import com.personal.momo.UI_Screens.Chat.Preference.PrefCountDialog
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
@@ -84,8 +88,18 @@ fun InboxScreen(
     val mySenderCode = if (isMomo) 2 else 1
     val partnerDisplayName = if (isMomo) "Kanu" else "Momo"
 
+    var showMessageCountDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         ChatEngine.startEngine(context)
+    }
+
+    if (showMessageCountDialog) {
+        PrefCountDialog(
+            messages = messages,
+            mySenderCode = mySenderCode,
+            onDismiss = { showMessageCountDialog = false }
+        )
     }
 
     val lastMsg = messages.lastOrNull()
@@ -129,7 +143,16 @@ fun InboxScreen(
                 maxLines = 1
             )
 
-            ChatPreferenceMenuAction()
+            ChatPreferenceMenuAction(
+                onOptionSelected = { option ->
+                    when (option) {
+                        ChatPreferenceOption.MESSAGE_COUNT -> {
+                            showMessageCountDialog = true
+                        }
+                        else -> {}
+                    }
+                }
+            )
         }
 
         Spacer(modifier = Modifier.height(4.dp))
