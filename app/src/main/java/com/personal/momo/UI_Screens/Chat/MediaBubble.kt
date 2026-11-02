@@ -112,6 +112,7 @@ private val CloseIcon: ImageVector by lazy {
 @Composable
 internal fun MediaBubbleMessageContent(
     message: ChatMessage,
+    replyToMessage: ChatMessage? = null,
     isOutgoing: Boolean,
     isLastInGroup: Boolean,
     formattedTime: String,
@@ -124,7 +125,7 @@ internal fun MediaBubbleMessageContent(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val hasReply = !message.replyToText.isNullOrBlank()
+    val hasReply = replyToMessage != null
     val hasCaption = message.text.isNotBlank()
 
     val mediaFile = remember(message.localPath) {
@@ -202,7 +203,7 @@ internal fun MediaBubbleMessageContent(
     Column(
         modifier = Modifier.width(255.dp)
     ) {
-        if (hasReply) {
+        if (hasReply && replyToMessage != null) {
             Box(
                 modifier = Modifier.padding(
                     start = framePadding,
@@ -212,9 +213,7 @@ internal fun MediaBubbleMessageContent(
                 )
             ) {
                 QuotedReplySnippet(
-                    replyToId = message.replyToId,
-                    replyToText = message.replyToText ?: "",
-                    replyToSenderId = message.replyToSenderId,
+                    replyMessage = replyToMessage,
                     myCode = myCode,
                     partnerDisplayName = partnerDisplayName,
                     isOutgoing = isOutgoing,
