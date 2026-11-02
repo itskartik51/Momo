@@ -1,29 +1,28 @@
 package com.personal.momo.UI_Screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,16 +34,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.Call.CallManager
@@ -84,12 +83,25 @@ private val CallTabIcon: ImageVector by lazy {
     ).build()
 }
 
+private val GlassDockBackgroundBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xBF282A34),
+        Color(0xD417181F)
+    )
+)
+
+private val GlassDockBorderBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color.White.copy(alpha = 0.22f),
+        Color.White.copy(alpha = 0.06f)
+    )
+)
+
 @Composable
 fun WindowScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     val pagerState = rememberPagerState(
         initialPage = 0,
@@ -127,184 +139,186 @@ fun WindowScreen(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
             ) {
-                Column(
+                HorizontalPager(
+                    state = pagerState,
                     modifier = Modifier.fillMaxSize()
-                ) {
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 20.dp, vertical = 14.dp)
-                            .clipToBounds()
-                    ) {
-                        val fullWidthPx = with(density) { maxWidth.toPx() }
-                        val scrollProgress = (pagerState.currentPage.toFloat() + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
-
-                        Text(
-                            text = "MomoChat",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.graphicsLayer {
-                                translationX = -scrollProgress * fullWidthPx
-                                alpha = (1f - scrollProgress * 1.8f).coerceIn(0f, 1f)
-                            }
-                        )
-
-                        Text(
-                            text = "MomoCall",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.graphicsLayer {
-                                translationX = (1f - scrollProgress) * fullWidthPx
-                                alpha = ((scrollProgress - 0.45f) * 1.8f).coerceIn(0f, 1f)
-                            }
-                        )
-                    }
-
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) { page ->
-                        when (page) {
-                            0 -> {
-                                InboxScreen(
-                                    onChatClick = {
-                                        isInChatDetail = true
+                ) { page ->
+                    when (page) {
+                        0 -> {
+                            InboxScreen(
+                                onChatClick = {
+                                    isInChatDetail = true
+                                }
+                            )
+                        }
+                        1 -> {
+                            CallScreen(
+                                onBack = {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(0)
                                     }
-                                )
-                            }
-                            1 -> {
-                                CallScreen(
-                                    onBack = {
-                                        coroutineScope.launch {
-                                            pagerState.animateScrollToPage(0)
-                                        }
-                                    }
-                                )
-                            }
+                                }
+                            )
                         }
                     }
                 }
 
-                val dockWidth: Dp = 216.dp
-                val dockHeight: Dp = 54.dp
-                val innerPadding: Dp = 4.dp
-                val tabWidth: Dp = (dockWidth - (innerPadding * 2)) / 2
-                val tabWidthPx: Float = with(density) { tabWidth.toPx() }
+                val scrollProgress = (pagerState.currentPage.toFloat() + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
+                val targetChatFraction = (1f - scrollProgress).coerceIn(0f, 1f)
+                val targetCallFraction = scrollProgress.coerceIn(0f, 1f)
 
-                Surface(
+                val chatPopFraction by animateFloatAsState(
+                    targetValue = targetChatFraction,
+                    animationSpec = spring(
+                        dampingRatio = 0.72f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "ChatPopFraction"
+                )
+
+                val callPopFraction by animateFloatAsState(
+                    targetValue = targetCallFraction,
+                    animationSpec = spring(
+                        dampingRatio = 0.72f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "CallPopFraction"
+                )
+
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
-                        .padding(bottom = 20.dp)
-                        .width(dockWidth)
-                        .height(dockHeight),
-                    shape = RoundedCornerShape(27.dp),
-                    color = Color(0xD918191E),
-                    border = BorderStroke(1.2.dp, Color.White.copy(alpha = 0.16f)),
-                    shadowElevation = 14.dp
+                        .padding(bottom = 18.dp)
+                        .width(196.dp)
+                        .height(58.dp)
+                        .clip(RoundedCornerShape(30.dp))
+                        .background(GlassDockBackgroundBrush)
+                        .border(
+                            width = 1.dp,
+                            brush = GlassDockBorderBrush,
+                            shape = RoundedCornerShape(30.dp)
+                        )
+                        .padding(4.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        val scrollProgress = (pagerState.currentPage.toFloat() + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
-                        val midDiff = (2f * scrollProgress - 1f)
-                        val stretchFactor = 1f + 0.10f * (1f - midDiff * midDiff)
+                        val isChatSelected = scrollProgress < 0.5f
+                        val chatContentAlpha = (0.52f + 0.48f * chatPopFraction).coerceIn(0.52f, 1f)
+                        val chatIconScale = 0.88f + 0.12f * chatPopFraction
 
                         Box(
                             modifier = Modifier
-                                .width(tabWidth)
+                                .weight(1f)
                                 .fillMaxHeight()
-                                .graphicsLayer {
-                                    translationX = scrollProgress * tabWidthPx
-                                    scaleX = stretchFactor
-                                }
-                                .clip(RoundedCornerShape(23.dp))
-                                .background(MomoPrimaryGradient)
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalAlignment = Alignment.CenterVertically
+                                .clip(RoundedCornerShape(26.dp))
+                                .bounceClick(scaleDown = 0.94f) {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(0)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            val chatAlpha = (1f - scrollProgress * 0.7f).coerceIn(0.50f, 1f)
-                            val isChatActive = scrollProgress < 0.5f
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(23.dp))
-                                    .bounceClick(scaleDown = 0.94f) {
-                                        coroutineScope.launch {
-                                            pagerState.animateScrollToPage(0)
+                            if (chatPopFraction > 0.01f) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            val pillScale = 0.35f + 0.65f * chatPopFraction
+                                            scaleX = pillScale
+                                            scaleY = pillScale
+                                            alpha = chatPopFraction.coerceIn(0f, 1f)
                                         }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = ChatTabIcon,
-                                        contentDescription = "Chat",
-                                        tint = Color.White.copy(alpha = chatAlpha),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Chat",
-                                        fontSize = 13.5.sp,
-                                        fontWeight = if (isChatActive) FontWeight.Bold else FontWeight.Medium,
-                                        color = Color.White.copy(alpha = chatAlpha)
-                                    )
-                                }
+                                        .clip(RoundedCornerShape(26.dp))
+                                        .background(MomoPrimaryGradient)
+                                )
                             }
 
-                            val callAlpha = (0.30f + scrollProgress * 0.7f).coerceIn(0.50f, 1f)
-                            val isCallActive = scrollProgress >= 0.5f
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(RoundedCornerShape(23.dp))
-                                    .bounceClick(scaleDown = 0.94f) {
-                                        coroutineScope.launch {
-                                            pagerState.animateScrollToPage(1)
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = CallTabIcon,
-                                        contentDescription = "Call",
-                                        tint = Color.White.copy(alpha = callAlpha),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Call",
-                                        fontSize = 13.5.sp,
-                                        fontWeight = if (isCallActive) FontWeight.Bold else FontWeight.Medium,
-                                        color = Color.White.copy(alpha = callAlpha)
-                                    )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = chatIconScale
+                                    scaleY = chatIconScale
                                 }
+                            ) {
+                                Icon(
+                                    imageVector = ChatTabIcon,
+                                    contentDescription = "Chat",
+                                    tint = Color.White.copy(alpha = chatContentAlpha),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Chat",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isChatSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = Color.White.copy(alpha = chatContentAlpha),
+                                    style = TextStyle(
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                    )
+                                )
+                            }
+                        }
+
+                        val isCallSelected = scrollProgress >= 0.5f
+                        val callContentAlpha = (0.52f + 0.48f * callPopFraction).coerceIn(0.52f, 1f)
+                        val callIconScale = 0.88f + 0.12f * callPopFraction
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(26.dp))
+                                .bounceClick(scaleDown = 0.94f) {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(1)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (callPopFraction > 0.01f) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            val pillScale = 0.35f + 0.65f * callPopFraction
+                                            scaleX = pillScale
+                                            scaleY = pillScale
+                                            alpha = callPopFraction.coerceIn(0f, 1f)
+                                        }
+                                        .clip(RoundedCornerShape(26.dp))
+                                        .background(MomoPrimaryGradient)
+                                )
+                            }
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = callIconScale
+                                    scaleY = callIconScale
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = CallTabIcon,
+                                    contentDescription = "Call",
+                                    tint = Color.White.copy(alpha = callContentAlpha),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Call",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isCallSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = Color.White.copy(alpha = callContentAlpha),
+                                    style = TextStyle(
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                                    )
+                                )
                             }
                         }
                     }
