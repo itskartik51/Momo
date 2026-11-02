@@ -63,17 +63,21 @@ internal val ReplyIcon: ImageVector by lazy {
 
 @Composable
 internal fun QuotedReplySnippet(
-    replyToId: String?,
-    replyToText: String,
-    replyToSenderId: Int?,
+    replyMessage: ChatMessage,
     myCode: Int,
     partnerDisplayName: String,
     isOutgoing: Boolean,
     onReplyClick: (String) -> Unit
 ) {
-    val isReplyFromMe = replyToSenderId == myCode
+    val isReplyFromMe = replyMessage.senderId == myCode
     val accentColor = if (isReplyFromMe) GlowingPinkAccent else AquaMintColor
     val senderTitle = if (isReplyFromMe) "You" else partnerDisplayName
+
+    val previewText = when {
+        replyMessage.mediaType == 1 -> if (replyMessage.text.isNotBlank()) "📷 ${replyMessage.text}" else "📷 Photo"
+        replyMessage.mediaType == 2 -> if (replyMessage.text.isNotBlank()) "🎥 ${replyMessage.text}" else "🎥 Video"
+        else -> replyMessage.text.ifBlank { "Message" }
+    }
 
     val containerBg = if (isOutgoing) {
         OutgoingDeepRoseBg
@@ -85,12 +89,10 @@ internal fun QuotedReplySnippet(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(containerBg)
-            .pointerInput(replyToId) {
+            .pointerInput(replyMessage.id) {
                 detectTapGestures(
                     onTap = {
-                        if (!replyToId.isNullOrEmpty()) {
-                            onReplyClick(replyToId)
-                        }
+                        onReplyClick(replyMessage.id)
                     }
                 )
             }
@@ -123,7 +125,7 @@ internal fun QuotedReplySnippet(
             Spacer(modifier = Modifier.height(2.dp))
 
             Text(
-                text = replyToText,
+                text = previewText,
                 fontSize = 12.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
