@@ -81,8 +81,10 @@ object MomoStorage {
 }
 
 /**
- * Message Model based on Ultra-Compact Tuple Format:
- * [id, send, text, time, status, replyToId?, replyToText?, replyToSenderId?, mediaType?, fileId?, cryptoKey?, cryptoIv?, localPath?, fileSize?, blurPreview?]
+ * Optimized Message Model:
+ * Storing only [replyToId] for message references to prevent redundant text duplicates.
+ * Optional [replyToText] and [replyToSenderId] are maintained with null defaults
+ * for zero-breakage backward compatibility during CI/CD builds.
  */
 data class ChatMessage(
     val id: String,
@@ -141,44 +143,48 @@ object ChatRepository {
             for (i in 0 until jsonArray.length()) {
                 val tuple = jsonArray.optJSONArray(i) ?: continue
                 if (tuple.length() >= 5) {
+                    val isOldSchema = tuple.length() == 15 || tuple.length() == 8
+
                     val replyToId = if (tuple.length() > 5 && !tuple.isNull(5)) {
                         tuple.optString(5).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val replyToText = if (tuple.length() > 6 && !tuple.isNull(6)) {
+                    val replyToText = if (isOldSchema && tuple.length() > 6 && !tuple.isNull(6)) {
                         tuple.optString(6).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val replyToSenderId = if (tuple.length() > 7 && !tuple.isNull(7)) {
+                    val replyToSenderId = if (isOldSchema && tuple.length() > 7 && !tuple.isNull(7)) {
                         tuple.optInt(7).takeIf { it > 0 }
                     } else null
 
-                    val mediaType = if (tuple.length() > 8 && !tuple.isNull(8)) {
-                        tuple.optInt(8, 0)
+                    val mediaOffset = if (isOldSchema) 8 else 6
+
+                    val mediaType = if (tuple.length() > mediaOffset && !tuple.isNull(mediaOffset)) {
+                        tuple.optInt(mediaOffset, 0)
                     } else 0
 
-                    val fileId = if (tuple.length() > 9 && !tuple.isNull(9)) {
-                        tuple.optString(9).takeIf { it.isNotEmpty() }
+                    val fileId = if (tuple.length() > mediaOffset + 1 && !tuple.isNull(mediaOffset + 1)) {
+                        tuple.optString(mediaOffset + 1).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val cryptoKey = if (tuple.length() > 10 && !tuple.isNull(10)) {
-                        tuple.optString(10).takeIf { it.isNotEmpty() }
+                    val cryptoKey = if (tuple.length() > mediaOffset + 2 && !tuple.isNull(mediaOffset + 2)) {
+                        tuple.optString(mediaOffset + 2).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val cryptoIv = if (tuple.length() > 11 && !tuple.isNull(11)) {
-                        tuple.optString(11).takeIf { it.isNotEmpty() }
+                    val cryptoIv = if (tuple.length() > mediaOffset + 3 && !tuple.isNull(mediaOffset + 3)) {
+                        tuple.optString(mediaOffset + 3).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val localPath = if (tuple.length() > 12 && !tuple.isNull(12)) {
-                        tuple.optString(12).takeIf { it.isNotEmpty() }
+                    val localPath = if (tuple.length() > mediaOffset + 4 && !tuple.isNull(mediaOffset + 4)) {
+                        tuple.optString(mediaOffset + 4).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val fileSize = if (tuple.length() > 13 && !tuple.isNull(13)) {
-                        tuple.optLong(13, 0L)
+                    val fileSize = if (tuple.length() > mediaOffset + 5 && !tuple.isNull(mediaOffset + 5)) {
+                        tuple.optLong(mediaOffset + 5, 0L)
                     } else 0L
 
-                    val blurPreview = if (tuple.length() > 14 && !tuple.isNull(14)) {
-                        tuple.optString(14).takeIf { it.isNotEmpty() }
+                    val blurPreview = if (tuple.length() > mediaOffset + 6 && !tuple.isNull(mediaOffset + 6)) {
+                        tuple.optString(mediaOffset + 6).takeIf { it.isNotEmpty() }
                     } else null
 
                     list.add(
@@ -204,6 +210,25 @@ object ChatRepository {
             }
 
             list.sortBy { it.timestamp }
+
+            val validIds = list.map { it.id }.toSet()
+            var hadOrphanQuotes = false
+            for (i in list.indices) {
+                val msg = list[i]
+                if (msg.replyToId != null && msg.replyToId !in validIds) {
+                    list[i] = msg.copy(
+                        replyToId = null,
+                        replyToText = null,
+                        replyToSenderId = null
+                    )
+                    hadOrphanQuotes = true
+                }
+            }
+
+            if (hadOrphanQuotes) {
+                writeMessagesToFile(context, list)
+            }
+
             _messagesFlow.value = list
             isInitialized = true
         } catch (e: Exception) {
@@ -242,6 +267,28 @@ object ChatRepository {
         }
     }
 
+    suspend fun editMessageText(context: Context, messageId: String, newText: String): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val appContext = context.applicationContext
+            ensureLoadedLocked(appContext)
+
+            val currentList = _messagesFlow.value.toMutableList()
+            val index = currentList.indexOfFirst { it.id == messageId }
+
+            if (index >= 0) {
+                val existing = currentList[index]
+                if (existing.text != newText) {
+                    currentList[index] = existing.copy(text = newText)
+                    writeMessagesToFile(appContext, currentList)
+                    _messagesFlow.value = currentList
+                }
+                true
+            } else {
+                false
+            }
+        }
+    }
+
     suspend fun updateMessageStatus(context: Context, messageId: String, newStatus: Int): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val appContext = context.applicationContext
@@ -272,7 +319,20 @@ object ChatRepository {
             val currentList = _messagesFlow.value.toMutableList()
             val wasRemoved = currentList.removeAll { it.id in messageIds }
 
-            if (wasRemoved) {
+            var quotesPurged = false
+            for (i in currentList.indices) {
+                val msg = currentList[i]
+                if (msg.replyToId != null && msg.replyToId in messageIds) {
+                    currentList[i] = msg.copy(
+                        replyToId = null,
+                        replyToText = null,
+                        replyToSenderId = null
+                    )
+                    quotesPurged = true
+                }
+            }
+
+            if (wasRemoved || quotesPurged) {
                 writeMessagesToFile(appContext, currentList)
                 _messagesFlow.value = currentList
             }
@@ -322,13 +382,11 @@ object ChatRepository {
                 tuple.put(msg.timestamp)
                 tuple.put(msg.status)
 
-                val hasReply = !msg.replyToId.isNullOrEmpty() || !msg.replyToText.isNullOrEmpty() || msg.replyToSenderId != null
+                val hasReply = !msg.replyToId.isNullOrEmpty()
                 val hasMedia = msg.mediaType > 0 || !msg.fileId.isNullOrEmpty() || !msg.localPath.isNullOrEmpty()
 
                 if (hasReply || hasMedia) {
                     tuple.put(msg.replyToId ?: JSONObject.NULL)
-                    tuple.put(msg.replyToText ?: JSONObject.NULL)
-                    tuple.put(msg.replyToSenderId ?: JSONObject.NULL)
 
                     if (hasMedia) {
                         tuple.put(msg.mediaType)
