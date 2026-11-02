@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -111,6 +112,22 @@ fun InboxScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = "MomoChat",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1
+            )
+        }
+
         Spacer(modifier = Modifier.height(4.dp))
 
         InboxChatRow(
@@ -123,8 +140,6 @@ fun InboxScreen(
             unreadCount = unreadCount,
             onClick = onChatClick
         )
-
-        Spacer(modifier = Modifier.height(86.dp))
     }
 }
 
