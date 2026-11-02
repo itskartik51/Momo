@@ -25,11 +25,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 
 object ChatTool {
@@ -63,8 +65,10 @@ object ChatTool {
 @Composable
 fun DeleteMessagesDialog(
     selectedCount: Int,
+    canUnsend: Boolean = false,
     onDismiss: () -> Unit,
-    onConfirmDelete: () -> Unit
+    onDeleteForMe: () -> Unit,
+    onUnsend: () -> Unit = {}
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -97,7 +101,11 @@ fun DeleteMessagesDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Are you sure you want to delete this message from your chat? This action cannot be undone.",
+                    text = if (canUnsend) {
+                        "Would you like to unsend this message for everyone or delete it from your chat?"
+                    } else {
+                        "Are you sure you want to delete this message from your chat? This action cannot be undone."
+                    },
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
@@ -115,32 +123,73 @@ fun DeleteMessagesDialog(
                             .bounceClick(scaleDown = 0.94f) {
                                 onDismiss()
                             }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "Cancel",
-                            fontSize = 15.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
+                    if (canUnsend) {
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .bounceClick(scaleDown = 0.94f) {
+                                    onUnsend()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Unsend",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                style = TextStyle(
+                                    brush = MomoPrimaryGradient
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MomoPrimaryGradient)
+                                .bounceClick(scaleDown = 0.94f) {
+                                onDeleteForMe()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 9.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Delete for me",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    }
+                } else {
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Box(
                         modifier = Modifier
                             .clip(CircleShape)
-                            .background(Color(0xFFE8455B))
+                            .background(MomoPrimaryGradient)
                             .bounceClick(scaleDown = 0.94f) {
-                                onConfirmDelete()
+                                onDeleteForMe()
                             }
-                            .padding(horizontal = 24.dp, vertical = 10.dp),
+                            .padding(horizontal = 22.dp, vertical = 9.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = "Delete",
-                            fontSize = 15.sp,
+                            fontSize = 14.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color.White
                         )
@@ -149,4 +198,5 @@ fun DeleteMessagesDialog(
             }
         }
     }
+}
 }
