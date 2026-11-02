@@ -19,6 +19,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,7 +85,9 @@ fun PrefCountDialog(
     val momoCount = remember(messages) { messages.count { it.senderId == 2 } }
 
     val myName = if (mySenderCode == 2) "Momo" else "Kanu"
-    val partnerName = if (mySenderCode == 2) "Kanu" else "Momo"
+    val dynamicPartnerName by PrefNameManager.partnerDisplayNameFlow.collectAsState()
+    val partnerName = dynamicPartnerName.ifBlank { if (mySenderCode == 2) "Kanu" else "Momo" }
+
     val myCount = if (mySenderCode == 2) momoCount else kanuCount
     val partnerCount = if (mySenderCode == 2) kanuCount else momoCount
 
