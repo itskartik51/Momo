@@ -1,10 +1,13 @@
 package com.personal.momo.UI_Screens.Chat.Preference
 
+import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.VideoView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationEndReason
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -91,6 +94,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.Chat.StatusEngine
 import com.personal.momo.UI_Screens.Chat.StatusItem
@@ -99,6 +107,7 @@ import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import kotlin.math.abs
 
 private val BackArrowIcon: ImageVector by lazy {
@@ -182,10 +191,25 @@ fun PrefStatusPlayer(
     val coroutineScope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
 
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            repeatMode = Player.REPEAT_MODE_OFF
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
     var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
     val currentStatus = statuses.getOrNull(currentIndex) ?: statuses.last()
 
-    var progress by remember(currentIndex) { mutableFloatStateOf(0f) }
+    val animProgress = remember(currentIndex) { Animatable(0f) }
+    var videoProgress by remember(currentIndex) { mutableFloatStateOf(0f) }
+    var videoDurationMs by remember(currentStatus.id) { mutableLongStateOf(0L) }
+
     var isUserPaused by remember { mutableStateOf(false) }
     var isMenuOpen by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -249,6 +273,16 @@ fun PrefStatusPlayer(
         }
     }
 
+    LaunchedEffect(currentIndex, statuses) {
+        val nextIndex = currentIndex + 1
+        if (nextIndex < statuses.size) {
+            val nextStatus = statuses[nextIndex]
+            if (!StatusEngine.isStatusCached(context, nextStatus)) {
+                StatusEngine.ensureStatusDownloaded(context, nextStatus)
+            }
+        }
+    }
+
     LaunchedEffect(currentStatus.id, isOwnStatus, isMediaDownloaded) {
         if (!isOwnStatus && currentStatus.id.isNotBlank() && countedStatusIds.add(currentStatus.id)) {
             StatusEngine.incrementStatusViewCount(currentStatus)
@@ -270,23 +304,80 @@ fun PrefStatusPlayer(
     val isVideo = currentStatus.mediaType == 2
     val photoDurationMs = 10_000L
 
-    LaunchedEffect(currentIndex, isPausedEffective, isVideo, isMediaDownloaded) {
-        if (!isVideo && isMediaDownloaded) {
-            val startTime = System.currentTimeMillis() - (progress * photoDurationMs).toLong()
-            while (!isPausedEffective && progress < 1f) {
-                val elapsed = System.currentTimeMillis() - startTime
-                progress = (elapsed.toFloat() / photoDurationMs.toFloat()).coerceIn(0f, 1f)
-                delay(16L)
-            }
-            if (!isPausedEffective && progress >= 1f) {
-                if (currentIndex < statuses.lastIndex) {
-                    currentIndex++
-                } else {
-                    onDismiss()
+    DisposableEffect(exoPlayer, currentStatus.id) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                isVideoBuffering = state == Player.STATE_BUFFERING
+                if (state == Player.STATE_READY) {
+                    videoDurationMs = exoPlayer.duration.coerceAtLeast(1L)
+                } else if (state == Player.STATE_ENDED) {
+                    videoProgress = 1f
+                    if (currentIndex < statuses.lastIndex) {
+                        currentIndex++
+                    } else {
+                        onDismiss()
+                    }
                 }
             }
         }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+        }
     }
+
+    LaunchedEffect(currentStatus.id, cachedLocalFile, isVideo) {
+        if (isVideo && cachedLocalFile != null && cachedLocalFile.exists()) {
+            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.fromFile(cachedLocalFile)))
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = !isPausedEffective
+        }
+    }
+
+    LaunchedEffect(isPausedEffective, isVideo) {
+        if (isVideo) {
+            exoPlayer.playWhenReady = !isPausedEffective
+        }
+    }
+
+    LaunchedEffect(currentStatus.id, isVideo, isPausedEffective, isVideoBuffering, videoDurationMs) {
+        if (isVideo && cachedLocalFile != null && cachedLocalFile.exists()) {
+            while (!isPausedEffective && !isVideoBuffering && videoDurationMs > 0L) {
+                val pos = exoPlayer.currentPosition.coerceAtLeast(0L)
+                videoProgress = (pos.toFloat() / videoDurationMs.toFloat()).coerceIn(0f, 1f)
+                delay(24L)
+            }
+        }
+    }
+
+    LaunchedEffect(currentIndex, isPausedEffective, isVideo, isMediaDownloaded) {
+        if (!isVideo && isMediaDownloaded) {
+            if (!isPausedEffective) {
+                val currentVal = animProgress.value
+                val remainingDuration = ((1f - currentVal) * photoDurationMs).toLong().coerceAtLeast(0L)
+                if (remainingDuration > 0L) {
+                    val result = animProgress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = remainingDuration.toInt(),
+                            easing = LinearEasing
+                        )
+                    )
+                    if (result.endReason == AnimationEndReason.Finished && animProgress.value >= 0.999f) {
+                        if (currentIndex < statuses.lastIndex) {
+                            currentIndex++
+                        } else {
+                            onDismiss()
+                        }
+                    }
+                }
+            } else {
+                animProgress.stop()
+            }
+        }
+    }
+
+    val currentDisplayProgress = if (isVideo) videoProgress else animProgress.value
 
     val backgroundAlpha = remember(animatedDragOffsetY) {
         (1f - (animatedDragOffsetY / 650f)).coerceIn(0.4f, 1f)
@@ -376,7 +467,7 @@ fun PrefStatusPlayer(
                                     val screenWidth = size.width
                                     val tapX = down.position.x
                                     if (tapX < screenWidth * 0.32f) {
-                                        if (currentIndex > 0) currentIndex-- else progress = 0f
+                                        if (currentIndex > 0) currentIndex-- else animProgress.snapTo(0f)
                                     } else {
                                         if (currentIndex < statuses.lastIndex) currentIndex++ else onDismiss()
                                     }
@@ -394,63 +485,22 @@ fun PrefStatusPlayer(
             ) {
                 if (cachedLocalFile != null && cachedLocalFile.exists() && cachedLocalFile.length() > 0L) {
                     if (isVideo) {
-                        var videoViewRef by remember(currentStatus.id) { mutableStateOf<VideoView?>(null) }
-                        var videoDurationMs by remember(currentStatus.id) { mutableLongStateOf(0L) }
-
-                        DisposableEffect(currentStatus.id) {
-                            onDispose {
-                                videoViewRef?.stopPlayback()
-                                videoViewRef = null
-                            }
-                        }
-
-                        LaunchedEffect(currentStatus.id, isPausedEffective, isVideoBuffering, videoDurationMs) {
-                            while (!isPausedEffective && !isVideoBuffering && videoDurationMs > 0L) {
-                                val vv = videoViewRef
-                                if (vv != null && vv.isPlaying) {
-                                    val pos = vv.currentPosition.toLong().coerceAtLeast(0L)
-                                    progress = (pos.toFloat() / videoDurationMs.toFloat()).coerceIn(0f, 1f)
-                                }
-                                delay(30L)
-                            }
-                        }
-
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
                             factory = { ctx ->
-                                VideoView(ctx).apply {
+                                PlayerView(ctx).apply {
                                     layoutParams = FrameLayout.LayoutParams(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
-                                    setVideoPath(cachedLocalFile.absolutePath)
-                                    setOnPreparedListener { mp ->
-                                        isVideoBuffering = false
-                                        videoDurationMs = mp.duration.toLong().coerceAtLeast(1L)
-                                        mp.isLooping = false
-                                        if (!isPausedEffective) start()
-                                    }
-                                    setOnCompletionListener {
-                                        progress = 1f
-                                        if (currentIndex < statuses.lastIndex) {
-                                            currentIndex++
-                                        } else {
-                                            onDismiss()
-                                        }
-                                    }
-                                    setOnErrorListener { _, _, _ ->
-                                        isVideoBuffering = false
-                                        true
-                                    }
-                                    videoViewRef = this
+                                    useController = false
+                                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    player = exoPlayer
                                 }
                             },
                             update = { view ->
-                                videoViewRef = view
-                                if (isPausedEffective) {
-                                    if (view.isPlaying) view.pause()
-                                } else if (!isVideoBuffering && !view.isPlaying) {
-                                    view.start()
+                                if (view.player != exoPlayer) {
+                                    view.player = exoPlayer
                                 }
                             }
                         )
@@ -537,7 +587,7 @@ fun PrefStatusPlayer(
                         for (i in statuses.indices) {
                             val segmentFill = when {
                                 i < currentIndex -> 1f
-                                i == currentIndex -> progress
+                                i == currentIndex -> currentDisplayProgress
                                 else -> 0f
                             }
 
