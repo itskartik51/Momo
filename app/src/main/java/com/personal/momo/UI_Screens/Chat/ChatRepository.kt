@@ -244,15 +244,25 @@ object ChatRepository {
 
             val validIds = list.map { it.id }.toSet()
             var hadOrphanQuotes = false
+            val now = System.currentTimeMillis()
+
             for (i in list.indices) {
                 val msg = list[i]
-                if (msg.replyToId != null && msg.replyToId !in validIds) {
-                    list[i] = msg.copy(
-                        replyToId = null,
-                        replyToText = null,
-                        replyToSenderId = null
-                    )
-                    hadOrphanQuotes = true
+                if (msg.replyToId != null) {
+                    val isStatusQuote = msg.replyToId.startsWith("STATUS_")
+                    val isStatusExpired = if (isStatusQuote) {
+                        val ts = msg.replyToId.removePrefix("STATUS_").toLongOrNull() ?: 0L
+                        ts > 0L && (now - ts >= 24 * 60 * 60 * 1000L)
+                    } else false
+
+                    if ((!isStatusQuote && msg.replyToId !in validIds) || isStatusExpired) {
+                        list[i] = msg.copy(
+                            replyToId = null,
+                            replyToText = null,
+                            replyToSenderId = null
+                        )
+                        hadOrphanQuotes = true
+                    }
                 }
             }
 
@@ -265,6 +275,35 @@ object ChatRepository {
         } catch (e: Exception) {
             e.printStackTrace()
             isInitialized = true
+        }
+    }
+
+    suspend fun purgeExpiredStatusQuotes(context: Context, activeStatusIds: Set<String>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val appContext = context.applicationContext
+            ensureLoadedLocked(appContext)
+
+            val currentList = _messagesFlow.value.toMutableList()
+            var modified = false
+
+            for (i in currentList.indices) {
+                val msg = currentList[i]
+                if (msg.replyToId != null && msg.replyToId.startsWith("STATUS_")) {
+                    if (msg.replyToId !in activeStatusIds) {
+                        currentList[i] = msg.copy(
+                            replyToId = null,
+                            replyToText = null,
+                            replyToSenderId = null
+                        )
+                        modified = true
+                    }
+                }
+            }
+
+            if (modified) {
+                writeMessagesToFile(appContext, currentList)
+                _messagesFlow.value = currentList
+            }
         }
     }
 
