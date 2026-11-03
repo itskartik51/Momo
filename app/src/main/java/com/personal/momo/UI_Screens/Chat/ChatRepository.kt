@@ -244,25 +244,15 @@ object ChatRepository {
 
             val validIds = list.map { it.id }.toSet()
             var hadOrphanQuotes = false
-            val now = System.currentTimeMillis()
-
             for (i in list.indices) {
                 val msg = list[i]
-                if (msg.replyToId != null) {
-                    val isStatusQuote = msg.replyToId.startsWith("STATUS_")
-                    val isStatusExpired = if (isStatusQuote) {
-                        val ts = msg.replyToId.removePrefix("STATUS_").toLongOrNull() ?: 0L
-                        ts > 0L && (now - ts >= 24 * 60 * 60 * 1000L)
-                    } else false
-
-                    if ((!isStatusQuote && msg.replyToId !in validIds) || isStatusExpired) {
-                        list[i] = msg.copy(
-                            replyToId = null,
-                            replyToText = null,
-                            replyToSenderId = null
-                        )
-                        hadOrphanQuotes = true
-                    }
+                if (msg.replyToId != null && !msg.replyToId.startsWith("STATUS_") && msg.replyToId !in validIds) {
+                    list[i] = msg.copy(
+                        replyToId = null,
+                        replyToText = null,
+                        replyToSenderId = null
+                    )
+                    hadOrphanQuotes = true
                 }
             }
 
