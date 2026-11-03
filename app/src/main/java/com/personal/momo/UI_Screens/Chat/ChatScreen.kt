@@ -70,6 +70,13 @@ fun ChatScreen(
 
     val partnerChatAvatar by PrefProfileManager.partnerAvatarUrlFlow.collectAsState()
     val effectiveAvatarUrl = partnerChatAvatar.ifBlank { fallbackAvatarUrl }
+    val myAvatarUrl by PrefProfileManager.myAvatarUrlFlow.collectAsState()
+
+    val myStatuses by StatusEngine.myStatusesFlow.collectAsState()
+    val partnerStatuses by StatusEngine.partnerStatusesFlow.collectAsState()
+    val allActiveStatusIds = remember(myStatuses, partnerStatuses) {
+        (myStatuses.map { it.id } + partnerStatuses.map { it.id }).toSet()
+    }
 
     val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
     val messagesList by ChatRepository.messagesFlow.collectAsState()
@@ -100,12 +107,20 @@ fun ChatScreen(
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showFullScreenAvatar by remember { mutableStateOf(false) }
+    var viewingSingleStatus by remember { mutableStateOf<StatusItem?>(null) }
 
     var tempCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         PrefNameManager.init(context)
         PrefProfileManager.init(context)
+        StatusEngine.startListening(context)
+    }
+
+    LaunchedEffect(allActiveStatusIds) {
+        if (allActiveStatusIds.isNotEmpty()) {
+            ChatRepository.purgeExpiredStatusQuotes(context, allActiveStatusIds)
+        }
     }
 
     LaunchedEffect(inputText) {
@@ -222,6 +237,9 @@ fun ChatScreen(
 
     BackHandler {
         when {
+            viewingSingleStatus != null -> {
+                viewingSingleStatus = null
+            }
             showFullScreenAvatar -> {
                 showFullScreenAvatar = false
             }
@@ -281,6 +299,17 @@ fun ChatScreen(
             mediaPath = effectiveAvatarUrl,
             isVideo = false,
             onDismiss = { showFullScreenAvatar = false }
+        )
+    }
+
+    if (viewingSingleStatus != null) {
+        val st = viewingSingleStatus!!
+        PrefPlayer(
+            statuses = listOf(st),
+            displayName = if (st.senderId == myCode) "You" else partnerDisplayName,
+            avatarUrl = if (st.senderId == myCode) myAvatarUrl else effectiveAvatarUrl,
+            isOwnStatus = st.senderId == myCode,
+            onDismiss = { viewingSingleStatus = null }
         )
     }
 
@@ -347,6 +376,8 @@ fun ChatScreen(
                 val isHighlighted = message.id == highlightedMessageId
                 val replyToMsg = message.replyToId?.let { messageMap[it] }
 
+                val isStatusActive = message.replyToId?.let { allActiveStatusIds.contains(it) } ?: false
+
                 val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
                 val isNextSameSender = nextChronologicalMsg?.senderId == message.senderId
                 val isNextSameGroup = isNextSameSender && (nextChronologicalMsg?.let { isSameMinute(message.timestamp, it.timestamp) } ?: false)
@@ -356,6 +387,7 @@ fun ChatScreen(
                 MessageBubbleRow(
                     message = message,
                     replyToMessage = replyToMsg,
+                    isStatusActive = isStatusActive,
                     isOutgoing = isOutgoing,
                     isSelected = isSelected,
                     isHighlighted = isHighlighted,
@@ -376,27 +408,35 @@ fun ChatScreen(
                         replyingToMessage = targetMsg
                     },
                     onReplyClick = { targetReplyId ->
-                        val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
-                        if (targetIndex >= 0) {
-                            val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
-
-                            if (!isAlreadyVisible) {
-                                coroutineScope.launch {
-                                    val viewportHeight = listState.layoutInfo.viewportSize.height
-                                    val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
-                                    listState.animateScrollToItem(
-                                        index = targetIndex,
-                                        scrollOffset = centerOffset
-                                    )
-                                }
+                        if (targetReplyId.startsWith("STATUS_")) {
+                            val found = partnerStatuses.find { it.id == targetReplyId }
+                                ?: myStatuses.find { it.id == targetReplyId }
+                            if (found != null) {
+                                viewingSingleStatus = found
                             }
+                        } else {
+                            val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
+                            if (targetIndex >= 0) {
+                                val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
 
-                            highlightTimerJob?.cancel()
-                            highlightedMessageId = targetReplyId
-                            highlightTimerJob = coroutineScope.launch {
-                                delay(900L)
-                                if (highlightedMessageId == targetReplyId) {
-                                    highlightedMessageId = null
+                                if (!isAlreadyVisible) {
+                                    coroutineScope.launch {
+                                        val viewportHeight = listState.layoutInfo.viewportSize.height
+                                        val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
+                                        listState.animateScrollToItem(
+                                            index = targetIndex,
+                                            scrollOffset = centerOffset
+                                        )
+                                    }
+                                }
+
+                                highlightTimerJob?.cancel()
+                                highlightedMessageId = targetReplyId
+                                highlightTimerJob = coroutineScope.launch {
+                                    delay(900L)
+                                    if (highlightedMessageId == targetReplyId) {
+                                        highlightedMessageId = null
+                                    }
                                 }
                             }
                         }
