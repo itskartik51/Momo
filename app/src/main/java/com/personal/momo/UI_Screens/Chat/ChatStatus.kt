@@ -3,7 +3,9 @@ package com.personal.momo.UI_Screens.Chat
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
@@ -52,7 +54,8 @@ data class StatusItem(
     val mediaType: Int = 1, // 1: Photo, 2: Video
     val timestamp: Long = 0L,
     val caption: String = "",
-    val viewCount: Int = 0
+    val viewCount: Int = 0,
+    val blurPreview: String? = null
 )
 
 object StatusEngine {
@@ -69,8 +72,27 @@ object StatusEngine {
     private val _partnerStatusesFlow = MutableStateFlow<List<StatusItem>>(emptyList())
     val partnerStatusesFlow: StateFlow<List<StatusItem>> = _partnerStatusesFlow.asStateFlow()
 
+    private val _downloadProgressFlow = MutableStateFlow>(emptyMap())
+    val downloadProgressFlow: StateFlow> = _downloadProgressFlow.asStateFlow()
+
+    private val activeDownloadIds = mutableSetOf<String>()
+
     @Volatile
     private var isListening = false
+
+    fun getCacheFile(context: Context, status: StatusItem): File {
+        val baseMomoDir = MomoStorage.getMomoDir(context)
+        val cacheDir = File(baseMomoDir, "Media/Updates/.cache").apply {
+            if (!exists()) mkdirs()
+        }
+        val ext = if (status.mediaType == 2) "mp4" else "jpg"
+        return File(cacheDir, "${status.id}.$ext")
+    }
+
+    fun isStatusCached(context: Context, status: StatusItem): Boolean {
+        val file = getCacheFile(context, status)
+        return file.exists() && file.length() > 0L
+    }
 
     fun startListening(context: Context) {
         if (isListening) return
@@ -85,7 +107,7 @@ object StatusEngine {
 
         rootRef.child(myCode.toString()).addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                _myStatusesFlow.value = parseAndFilterStatuses(snapshot)
+                _myStatusesFlow.value = parseAndFilterStatuses(context, snapshot)
             }
 
             override fun onCancelled(error: DatabaseError) {}
@@ -93,44 +115,122 @@ object StatusEngine {
 
         rootRef.child(partnerCode.toString()).addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                _partnerStatusesFlow.value = parseAndFilterStatuses(snapshot)
+                val partnerList = parseAndFilterStatuses(context, snapshot)
+                _partnerStatusesFlow.value = partnerList
+
+                partnerList.forEach { status ->
+                    if (!isStatusCached(context, status)) {
+                        ensureStatusDownloaded(context, status)
+                    }
+                }
             }
 
             override fun onCancelled(error: DatabaseError) {}
         })
     }
 
-    private fun parseAndFilterStatuses(snapshot: DataSnapshot): List<StatusItem> {
+    private fun parseAndFilterStatuses(context: Context, snapshot: DataSnapshot): List<StatusItem> {
         val now = System.currentTimeMillis()
         val list = mutableListOf<StatusItem>()
 
         for (child in snapshot.children) {
-            val id = child.child("id").getValue(String::class.java).orEmpty()
+            val id = child.child("id").getValue(String::class.java).orEmpty().ifBlank { child.key.orEmpty() }
             val senderId = child.child("senderId").getValue(Int::class.java) ?: 0
             val mediaUrl = child.child("mediaUrl").getValue(String::class.java).orEmpty()
             val mediaType = child.child("mediaType").getValue(Int::class.java) ?: 1
             val timestamp = child.child("timestamp").getValue(Long::class.java) ?: 0L
             val caption = child.child("caption").getValue(String::class.java).orEmpty()
             val viewCount = child.child("viewCount").getValue(Int::class.java) ?: 0
+            val blurPreview = child.child("blurPreview").getValue(String::class.java)
 
             if (timestamp > 0L && (now - timestamp) < STATUS_EXPIRY_MILLIS && mediaUrl.isNotBlank()) {
                 list.add(
                     StatusItem(
-                        id = id.ifBlank { child.key.orEmpty() },
+                        id = id,
                         senderId = senderId,
                         mediaUrl = mediaUrl,
                         mediaType = mediaType,
                         timestamp = timestamp,
                         caption = caption,
-                        viewCount = viewCount
+                        viewCount = viewCount,
+                        blurPreview = blurPreview
                     )
                 )
             } else if (timestamp > 0L && (now - timestamp) >= STATUS_EXPIRY_MILLIS) {
                 child.ref.removeValue()
+
+                scope.launch {
+                    try {
+                        val ext = if (mediaType == 2) "mp4" else "jpg"
+                        storage.reference
+                            .child("status_media")
+                            .child(senderId.toString())
+                            .child("$id.$ext")
+                            .delete()
+
+                        val cacheFile = getCacheFile(context, StatusItem(id = id, mediaType = mediaType))
+                        if (cacheFile.exists()) cacheFile.delete()
+                    } catch (_: Exception) {}
+                }
             }
         }
 
         return list.sortedBy { it.timestamp }
+    }
+
+    fun ensureStatusDownloaded(context: Context, status: StatusItem) {
+        if (status.id.isBlank() || status.mediaUrl.isBlank()) return
+        val cacheFile = getCacheFile(context, status)
+        if (cacheFile.exists() && cacheFile.length() > 0L) return
+
+        synchronized(activeDownloadIds) {
+            if (activeDownloadIds.contains(status.id)) return
+            activeDownloadIds.add(status.id)
+        }
+
+        scope.launch {
+            try {
+                val tempFile = File(cacheFile.parentFile, "${cacheFile.name}.tmp")
+                val url = URL(status.mediaUrl)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15000
+                    readTimeout = 20000
+                    instanceFollowRedirects = true
+                }
+
+                if (conn.responseCode in 200..299) {
+                    val totalLength = conn.contentLength.toFloat()
+                    conn.inputStream.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            val buffer = ByteArray(8192)
+                            var read: Int
+                            var totalRead = 0L
+
+                            while (input.read(buffer).also { read = it } != -1) {
+                                output.write(buffer, 0, read)
+                                totalRead += read
+
+                                if (totalLength > 0f) {
+                                    val prog = (totalRead / totalLength).coerceIn(0f, 1f)
+                                    _downloadProgressFlow.value = _downloadProgressFlow.value + (status.id to prog)
+                                }
+                            }
+                        }
+                    }
+
+                    if (tempFile.exists() && tempFile.length() > 0L) {
+                        tempFile.renameTo(cacheFile)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                synchronized(activeDownloadIds) {
+                    activeDownloadIds.remove(status.id)
+                }
+                _downloadProgressFlow.value = _downloadProgressFlow.value - status.id
+            }
+        }
     }
 
     fun incrementStatusViewCount(status: StatusItem) {
@@ -155,7 +255,7 @@ object StatusEngine {
         })
     }
 
-    fun saveStatusToUpdates(
+    fun saveStatusToDevice(
         context: Context,
         status: StatusItem,
         onResult: (Boolean) -> Unit
@@ -170,17 +270,19 @@ object StatusEngine {
 
                 val ext = if (status.mediaType == 2) "mp4" else "jpg"
                 val prefix = if (status.mediaType == 2) "VID" else "IMG"
-                val safeId = status.id.ifBlank { System.currentTimeMillis().toString() }
-                val targetFile = File(updatesDir, "${prefix}_${safeId}.$ext")
+                val targetFile = File(updatesDir, "${prefix}_${status.id}.$ext")
 
                 if (targetFile.exists() && targetFile.length() > 0L) {
                     withContext(Dispatchers.Main) { onResult(true) }
                     return@launch
                 }
 
-                val mediaUrl = status.mediaUrl
-                val success = if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
-                    val conn = (URL(mediaUrl).openConnection() as HttpURLConnection).apply {
+                val cacheFile = getCacheFile(appContext, status)
+                val success = if (cacheFile.exists() && cacheFile.length() > 0L) {
+                    cacheFile.copyTo(targetFile, overwrite = true)
+                    true
+                } else {
+                    val conn = (URL(status.mediaUrl).openConnection() as HttpURLConnection).apply {
                         connectTimeout = 15000
                         readTimeout = 20000
                         instanceFollowRedirects = true
@@ -195,24 +297,47 @@ object StatusEngine {
                     } else {
                         false
                     }
-                } else {
-                    val sourceFile = File(mediaUrl)
-                    if (sourceFile.exists()) {
-                        sourceFile.copyTo(targetFile, overwrite = true)
-                        true
-                    } else {
-                        false
-                    }
                 }
 
-                withContext(Dispatchers.Main) {
-                    onResult(success)
-                }
+                withContext(Dispatchers.Main) { onResult(success) }
             } catch (e: Exception) {
                 e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    onResult(false)
-                }
+                withContext(Dispatchers.Main) { onResult(false) }
+            }
+        }
+    }
+
+    fun deleteStatus(
+        context: Context,
+        status: StatusItem,
+        onComplete: (Boolean) -> Unit
+    ) {
+        val appContext = context.applicationContext
+        val currentUserId = CacheManager.getAppUserId(appContext)
+        val isMomo = currentUserId.equals("Momo", ignoreCase = true)
+        val myCode = if (isMomo) 2 else 1
+
+        scope.launch {
+            try {
+                database.getReference(RTDB_PATH_STATUS)
+                    .child(myCode.toString())
+                    .child(status.id)
+                    .removeValue()
+
+                val ext = if (status.mediaType == 2) "mp4" else "jpg"
+                storage.reference
+                    .child("status_media")
+                    .child(myCode.toString())
+                    .child("${status.id}.$ext")
+                    .delete()
+
+                val cacheFile = getCacheFile(appContext, status)
+                if (cacheFile.exists()) cacheFile.delete()
+
+                withContext(Dispatchers.Main) { onComplete(true) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) { onComplete(false) }
             }
         }
     }
@@ -240,11 +365,37 @@ object StatusEngine {
                     .child(myCode.toString())
                     .child("$statusId.$extension")
 
+                var blurBase64: String? = null
+                val cacheFile = getCacheFile(
+                    context,
+                    StatusItem(id = statusId, mediaType = if (isVideo) 2 else 1)
+                )
+
                 val uploadTask = if (isVideo) {
+                    try {
+                        val retriever = MediaMetadataRetriever()
+                        retriever.setDataSource(context, mediaUri)
+                        val frame = retriever.getFrameAtTime(0)
+                        if (frame != null) blurBase64 = generateBlurPreview(frame)
+                        retriever.release()
+                    } catch (_: Exception) {}
+
+                    context.contentResolver.openInputStream(mediaUri)?.use { input ->
+                        FileOutputStream(cacheFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
                     storageRef.putFile(mediaUri)
                 } else {
                     val compressedBytes = compressImageUri(context, mediaUri)
                     if (compressedBytes != null) {
+                        try {
+                            val bmp = BitmapFactory.decodeByteArray(compressedBytes, 0, compressedBytes.size)
+                            if (bmp != null) blurBase64 = generateBlurPreview(bmp)
+                        } catch (_: Exception) {}
+
+                        cacheFile.writeBytes(compressedBytes)
                         storageRef.putBytes(compressedBytes)
                     } else {
                         storageRef.putFile(mediaUri)
@@ -260,7 +411,8 @@ object StatusEngine {
                             "mediaType" to (if (isVideo) 2 else 1),
                             "timestamp" to System.currentTimeMillis(),
                             "caption" to caption.trim(),
-                            "viewCount" to 0
+                            "viewCount" to 0,
+                            "blurPreview" to (blurBase64 ?: "")
                         )
 
                         database.getReference(RTDB_PATH_STATUS)
@@ -293,6 +445,17 @@ object StatusEngine {
         }
     }
 
+    private fun generateBlurPreview(bitmap: Bitmap): String? {
+        return try {
+            val small = Bitmap.createScaledBitmap(bitmap, 24, 24, true)
+            val baos = ByteArrayOutputStream()
+            small.compress(Bitmap.CompressFormat.JPEG, 45, baos)
+            Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun compressImageUri(context: Context, uri: Uri): ByteArray? {
         return try {
             val input = context.contentResolver.openInputStream(uri) ?: return null
@@ -319,6 +482,16 @@ object StatusEngine {
         } catch (_: Exception) {
             null
         }
+    }
+}
+
+fun decodeBlurPreviewBitmap(base64Str: String?): Bitmap? {
+    if (base64Str.isNullOrBlank()) return null
+    return try {
+        val bytes = Base64.decode(base64Str, Base64.NO_WRAP)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (_: Exception) {
+        null
     }
 }
 
