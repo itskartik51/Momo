@@ -1,573 +1,473 @@
 package com.personal.momo.UI_Screens.Chat
 
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.media.MediaMetadataRetriever
+import android.app.Activity
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
-import android.util.Base64
-import androidx.compose.foundation.Canvas
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.MutableData
-import com.google.firebase.database.Transaction
-import com.google.firebase.database.ValueEventListener
-import com.google.firebase.storage.FirebaseStorage
+import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
-import com.personal.momo.UI_Screens.MomoPrimaryGradient
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
+import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
+import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
-typealias StatusProgressMap = Map<String, Float>
+@Composable
+fun ChatScreen(
+    onBack: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentUserId by CacheManager.appUserIdFlow.collectAsState()
+    val fallbackAvatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
-data class StatusItem(
-    val id: String = "",
-    val senderId: Int = 0,
-    val mediaUrl: String = "",
-    val mediaType: Int = 1, // 1: Photo, 2: Video
-    val timestamp: Long = 0L,
-    val caption: String = "",
-    val viewCount: Int = 0,
-    val blurPreview: String? = null
-)
+    val isMomo = currentUserId.equals("Momo", ignoreCase = true)
+    val myCode = if (isMomo) 2 else 1
 
-object StatusEngine {
-    private const val RTDB_PATH_STATUS = "momo_chat/status"
-    private const val STATUS_EXPIRY_MILLIS = 24 * 60 * 60 * 1000L
+    val dynamicPartnerName by PrefNameManager.partnerDisplayNameFlow.collectAsState()
+    val partnerDisplayName = dynamicPartnerName.ifBlank { if (isMomo) "Kanu" else "Momo" }
 
-    private val database by lazy { FirebaseDatabase.getInstance() }
-    private val storage by lazy { FirebaseStorage.getInstance() }
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val partnerChatAvatar by PrefProfileManager.partnerAvatarUrlFlow.collectAsState()
+    val effectiveAvatarUrl = partnerChatAvatar.ifBlank { fallbackAvatarUrl }
 
-    private val _myStatusesFlow = MutableStateFlow<List<StatusItem>>(emptyList())
-    val myStatusesFlow: StateFlow<List<StatusItem>> = _myStatusesFlow.asStateFlow()
+    val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
+    val messagesList by ChatRepository.messagesFlow.collectAsState()
+    val reversedMessages = remember(messagesList) { messagesList.asReversed() }
+    val messageMap = remember(messagesList) { messagesList.associateBy { it.id } }
 
-    private val _partnerStatusesFlow = MutableStateFlow<List<StatusItem>>(emptyList())
-    val partnerStatusesFlow: StateFlow<List<StatusItem>> = _partnerStatusesFlow.asStateFlow()
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    var inputText by remember { mutableStateOf("") }
+    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
+    var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
-    private val _downloadProgressFlow = MutableStateFlow<StatusProgressMap>(emptyMap())
-    val downloadProgressFlow: StateFlow<StatusProgressMap> = _downloadProgressFlow.asStateFlow()
+    var highlightedMessageId by remember { mutableStateOf<String?>(null) }
+    var highlightTimerJob by remember { mutableStateOf<Job?>(null) }
 
-    private val activeDownloadIds = mutableSetOf<String>()
+    var selectedMessageIds by remember { mutableStateOf(setOf<String>()) }
+    val isSelectionMode = selectedMessageIds.isNotEmpty()
 
-    @Volatile
-    private var isListening = false
-
-    fun getCacheFile(context: Context, status: StatusItem): File {
-        val baseMomoDir = MomoStorage.getMomoDir(context)
-        val cacheDir = File(baseMomoDir, "Media/Updates/.cache").apply {
-            if (!exists()) mkdirs()
-        }
-        val ext = if (status.mediaType == 2) "mp4" else "jpg"
-        return File(cacheDir, "${status.id}.$ext")
+    val selectedMessages = remember(selectedMessageIds, messagesList) {
+        messagesList.filter { it.id in selectedMessageIds }
+    }
+    val canEdit = remember(selectedMessages, myCode) {
+        selectedMessages.size == 1 && selectedMessages.first().senderId == myCode
+    }
+    val canUnsend = remember(selectedMessages, myCode) {
+        selectedMessages.isNotEmpty() && selectedMessages.all { it.senderId == myCode }
     }
 
-    fun isStatusCached(context: Context, status: StatusItem): Boolean {
-        val file = getCacheFile(context, status)
-        return file.exists() && file.length() > 0L
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showFullScreenAvatar by remember { mutableStateOf(false) }
+
+    var tempCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        PrefNameManager.init(context)
+        PrefProfileManager.init(context)
     }
 
-    fun decodeBlur(base64Str: String?): Bitmap? {
-        if (base64Str.isNullOrBlank()) return null
-        return try {
-            val bytes = Base64.decode(base64Str, Base64.NO_WRAP)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        } catch (_: Exception) {
-            null
+    LaunchedEffect(inputText) {
+        if (inputText.trim().isNotEmpty() && editingMessage == null) {
+            ChatEngine.setTyping(context, true)
+            delay(2500L)
+            ChatEngine.setTyping(context, false)
+        } else {
+            ChatEngine.setTyping(context, false)
         }
     }
 
-    fun startListening(context: Context) {
-        if (isListening) return
-        isListening = true
-
-        val currentUserId = CacheManager.getAppUserId(context)
-        val isMomo = currentUserId.equals("Momo", ignoreCase = true)
-        val myCode = if (isMomo) 2 else 1
-        val partnerCode = if (isMomo) 1 else 2
-
-        val rootRef = database.getReference(RTDB_PATH_STATUS)
-
-        rootRef.child(myCode.toString()).addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                _myStatusesFlow.value = parseAndFilterStatuses(context, snapshot)
-            }
-
-            override fun onCancelled(error: DatabaseError) {}
-        })
-
-        rootRef.child(partnerCode.toString()).addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val partnerList = parseAndFilterStatuses(context, snapshot)
-                _partnerStatusesFlow.value = partnerList
-
-                partnerList.forEach { status ->
-                    if (!isStatusCached(context, status)) {
-                        ensureStatusDownloaded(context, status)
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            val photoUri = tempCameraUriString?.let { Uri.parse(it) }
+            if (photoUri != null) {
+                val caption = inputText.trim()
+                ChatEngine.setTyping(context, false)
+                ChatEngine.sendMediaMessage(
+                    context = context,
+                    mediaUri = photoUri,
+                    mediaType = 1,
+                    caption = caption,
+                    replyToId = replyingToMessage?.id,
+                    replyToText = replyingToMessage?.text,
+                    replyToSenderId = replyingToMessage?.senderId
+                )
+                inputText = ""
+                replyingToMessage = null
+                editingMessage = null
+                coroutineScope.launch {
+                    if (reversedMessages.isNotEmpty()) {
+                        listState.animateScrollToItem(0)
                     }
                 }
             }
-
-            override fun onCancelled(error: DatabaseError) {}
-        })
+        }
     }
 
-    private fun parseAndFilterStatuses(context: Context, snapshot: DataSnapshot): List<StatusItem> {
-        val now = System.currentTimeMillis()
-        val list = mutableListOf<StatusItem>()
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val mimeType = context.contentResolver.getType(uri) ?: ""
+            val isVideo = mimeType.startsWith("video", ignoreCase = true)
+            val mediaType = if (isVideo) 2 else 1
+            val caption = inputText.trim()
 
-        for (child in snapshot.children) {
-            val id = child.child("id").getValue(String::class.java).orEmpty().ifBlank { child.key.orEmpty() }
-            val senderId = child.child("senderId").getValue(Int::class.java) ?: 0
-            val mediaUrl = child.child("mediaUrl").getValue(String::class.java).orEmpty()
-            val mediaType = child.child("mediaType").getValue(Int::class.java) ?: 1
-            val timestamp = child.child("timestamp").getValue(Long::class.java) ?: 0L
-            val caption = child.child("caption").getValue(String::class.java).orEmpty()
-            val viewCount = child.child("viewCount").getValue(Int::class.java) ?: 0
-            val blurPreview = child.child("blurPreview").getValue(String::class.java)
-
-            if (timestamp > 0L && (now - timestamp) < STATUS_EXPIRY_MILLIS && mediaUrl.isNotBlank()) {
-                list.add(
-                    StatusItem(
-                        id = id,
-                        senderId = senderId,
-                        mediaUrl = mediaUrl,
-                        mediaType = mediaType,
-                        timestamp = timestamp,
-                        caption = caption,
-                        viewCount = viewCount,
-                        blurPreview = blurPreview
-                    )
-                )
-            } else if (timestamp > 0L && (now - timestamp) >= STATUS_EXPIRY_MILLIS) {
-                child.ref.removeValue()
-
-                scope.launch {
-                    try {
-                        val ext = if (mediaType == 2) "mp4" else "jpg"
-                        storage.reference
-                            .child("status_media")
-                            .child(senderId.toString())
-                            .child("$id.$ext")
-                            .delete()
-
-                        val cacheFile = getCacheFile(context, StatusItem(id = id, mediaType = mediaType))
-                        if (cacheFile.exists()) cacheFile.delete()
-                    } catch (_: Exception) {}
+            ChatEngine.setTyping(context, false)
+            ChatEngine.sendMediaMessage(
+                context = context,
+                mediaUri = uri,
+                mediaType = mediaType,
+                caption = caption,
+                replyToId = replyingToMessage?.id,
+                replyToText = replyingToMessage?.text,
+                replyToSenderId = replyingToMessage?.senderId
+            )
+            inputText = ""
+            replyingToMessage = null
+            editingMessage = null
+            coroutineScope.launch {
+                if (reversedMessages.isNotEmpty()) {
+                    listState.animateScrollToItem(0)
                 }
             }
         }
-
-        return list.sortedBy { it.timestamp }
     }
 
-    fun ensureStatusDownloaded(context: Context, status: StatusItem) {
-        if (status.id.isBlank() || status.mediaUrl.isBlank()) return
-        val cacheFile = getCacheFile(context, status)
-        if (cacheFile.exists() && cacheFile.length() > 0L) return
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
+    val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
 
-        synchronized(activeDownloadIds) {
-            if (activeDownloadIds.contains(status.id)) return
-            activeDownloadIds.add(status.id)
+    val bgColor = MaterialTheme.colorScheme.background
+    SideEffect {
+        val window = (context as? Activity)?.window
+        if (window != null) {
+            val colorInt = bgColor.toArgb()
+            window.setBackgroundDrawable(ColorDrawable(colorInt))
+            window.decorView.setBackgroundColor(colorInt)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            ChatEngine.setChatScreenActive(context, true)
         }
 
-        scope.launch {
-            try {
-                val tempFile = File(cacheFile.parentFile, "${cacheFile.name}.tmp")
-                val url = URL(status.mediaUrl)
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 20000
-                    instanceFollowRedirects = true
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    ChatEngine.setChatScreenActive(context, true)
                 }
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP,
+                Lifecycle.Event.ON_DESTROY -> {
+                    ChatEngine.setTyping(context, false)
+                    ChatEngine.setChatScreenActive(context, false)
+                }
+                else -> {}
+            }
+        }
 
-                if (conn.responseCode in 200..299) {
-                    val totalLength = conn.contentLength.toFloat()
-                    conn.inputStream.use { input ->
-                        FileOutputStream(tempFile).use { output ->
-                            val buffer = ByteArray(8192)
-                            var read: Int
-                            var totalRead = 0L
+        lifecycleOwner.lifecycle.addObserver(observer)
 
-                            while (input.read(buffer).also { read = it } != -1) {
-                                output.write(buffer, 0, read)
-                                totalRead += read
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            ChatEngine.setTyping(context, false)
+            ChatEngine.setChatScreenActive(context, false)
+        }
+    }
 
-                                if (totalLength > 0f) {
-                                    val prog = (totalRead / totalLength).coerceIn(0f, 1f)
-                                    val updatedMap = _downloadProgressFlow.value.toMutableMap()
-                                    updatedMap[status.id] = prog
-                                    _downloadProgressFlow.value = updatedMap
+    BackHandler {
+        when {
+            showFullScreenAvatar -> {
+                showFullScreenAvatar = false
+            }
+            showDeleteDialog -> {
+                showDeleteDialog = false
+            }
+            isSelectionMode -> {
+                selectedMessageIds = emptySet()
+            }
+            editingMessage != null -> {
+                editingMessage = null
+                inputText = ""
+            }
+            replyingToMessage != null -> {
+                replyingToMessage = null
+            }
+            else -> {
+                ChatEngine.setTyping(context, false)
+                ChatEngine.setChatScreenActive(context, false)
+                onBack()
+            }
+        }
+    }
+
+    LaunchedEffect(messagesList.size) {
+        if (messagesList.isNotEmpty() && !isSelectionMode) {
+            listState.animateScrollToItem(0)
+        }
+    }
+
+    if (showDeleteDialog) {
+        DeleteMessagesDialog(
+            selectedCount = selectedMessageIds.size,
+            canUnsend = canUnsend,
+            onDismiss = {
+                showDeleteDialog = false
+            },
+            onDeleteForMe = {
+                val targets = selectedMessageIds
+                selectedMessageIds = emptySet()
+                showDeleteDialog = false
+                coroutineScope.launch {
+                    ChatRepository.deleteMessages(context, targets)
+                }
+            },
+            onUnsend = {
+                val targets = selectedMessageIds
+                selectedMessageIds = emptySet()
+                showDeleteDialog = false
+                ChatEngine.unsendMessages(context, targets)
+            }
+        )
+    }
+
+    if (showFullScreenAvatar && !effectiveAvatarUrl.isNullOrBlank()) {
+        PrefPlayer(
+            mediaPath = effectiveAvatarUrl,
+            isVideo = false,
+            onDismiss = { showFullScreenAvatar = false }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor)
+    ) {
+        if (isSelectionMode) {
+            SelectionTopHeader(
+                selectedCount = selectedMessageIds.size,
+                canEdit = canEdit,
+                onClearSelection = { selectedMessageIds = emptySet() },
+                onCopy = {
+                    ChatTool.copyMessagesToClipboard(context, messagesList, selectedMessageIds)
+                    selectedMessageIds = emptySet()
+                },
+                onEdit = {
+                    val target = selectedMessages.firstOrNull()
+                    if (target != null) {
+                        replyingToMessage = null
+                        editingMessage = target
+                        inputText = target.text
+                        selectedMessageIds = emptySet()
+                    }
+                },
+                onDelete = {
+                    showDeleteDialog = true
+                }
+            )
+        } else {
+            ChatTopHeader(
+                partnerName = partnerDisplayName,
+                avatarUrl = effectiveAvatarUrl,
+                inChat = partnerPresence.inChat,
+                lastSeen = partnerPresence.lastSeen,
+                isTyping = partnerPresence.isTyping,
+                onAvatarClick = {
+                    if (!effectiveAvatarUrl.isNullOrBlank()) {
+                        showFullScreenAvatar = true
+                    }
+                },
+                onBack = {
+                    ChatEngine.setTyping(context, false)
+                    ChatEngine.setChatScreenActive(context, false)
+                    onBack()
+                }
+            )
+        }
+
+        LazyColumn(
+            state = listState,
+            reverseLayout = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clipToBounds(),
+            contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.Bottom
+        ) {
+            itemsIndexed(reversedMessages, key = { _, message -> message.id }) { index, message ->
+                val isOutgoing = message.senderId == myCode
+                val isSelected = selectedMessageIds.contains(message.id)
+                val isHighlighted = message.id == highlightedMessageId
+                val replyToMsg = message.replyToId?.let { messageMap[it] }
+
+                val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
+                val isNextSameSender = nextChronologicalMsg?.senderId == message.senderId
+                val isNextSameGroup = isNextSameSender && (nextChronologicalMsg?.let { isSameMinute(message.timestamp, it.timestamp) } ?: false)
+                val isLastInGroup = !isNextSameGroup
+                val isLastInSenderGroup = !isNextSameSender
+
+                MessageBubbleRow(
+                    message = message,
+                    replyToMessage = replyToMsg,
+                    isOutgoing = isOutgoing,
+                    isSelected = isSelected,
+                    isHighlighted = isHighlighted,
+                    isSelectionMode = isSelectionMode,
+                    isLastInGroup = isLastInGroup,
+                    isLastInSenderGroup = isLastInSenderGroup,
+                    myCode = myCode,
+                    partnerDisplayName = partnerDisplayName,
+                    onToggleSelect = { id ->
+                        selectedMessageIds = if (selectedMessageIds.contains(id)) {
+                            selectedMessageIds - id
+                        } else {
+                            selectedMessageIds + id
+                        }
+                    },
+                    onSwipeToReply = { targetMsg ->
+                        editingMessage = null
+                        replyingToMessage = targetMsg
+                    },
+                    onReplyClick = { targetReplyId ->
+                        val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
+                        if (targetIndex >= 0) {
+                            val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
+
+                            if (!isAlreadyVisible) {
+                                coroutineScope.launch {
+                                    val viewportHeight = listState.layoutInfo.viewportSize.height
+                                    val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
+                                    listState.animateScrollToItem(
+                                        index = targetIndex,
+                                        scrollOffset = centerOffset
+                                    )
+                                }
+                            }
+
+                            highlightTimerJob?.cancel()
+                            highlightedMessageId = targetReplyId
+                            highlightTimerJob = coroutineScope.launch {
+                                delay(900L)
+                                if (highlightedMessageId == targetReplyId) {
+                                    highlightedMessageId = null
                                 }
                             }
                         }
                     }
-
-                    if (tempFile.exists() && tempFile.length() > 0L) {
-                        tempFile.renameTo(cacheFile)
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                synchronized(activeDownloadIds) {
-                    activeDownloadIds.remove(status.id)
-                }
-                val updatedMap = _downloadProgressFlow.value.toMutableMap()
-                updatedMap.remove(status.id)
-                _downloadProgressFlow.value = updatedMap
-            }
-        }
-    }
-
-    fun incrementStatusViewCount(status: StatusItem) {
-        if (status.id.isBlank() || status.senderId <= 0) return
-        val viewRef = database.getReference(RTDB_PATH_STATUS)
-            .child(status.senderId.toString())
-            .child(status.id)
-            .child("viewCount")
-
-        viewRef.runTransaction(object : Transaction.Handler {
-            override fun doTransaction(currentData: MutableData): Transaction.Result {
-                val current = currentData.getValue(Int::class.java) ?: 0
-                currentData.value = current + 1
-                return Transaction.success(currentData)
-            }
-
-            override fun onComplete(
-                error: DatabaseError?,
-                committed: Boolean,
-                currentData: DataSnapshot?
-            ) {}
-        })
-    }
-
-    fun saveStatusToDevice(
-        context: Context,
-        status: StatusItem,
-        onResult: (Boolean) -> Unit
-    ) {
-        val appContext = context.applicationContext
-        scope.launch {
-            try {
-                val cacheFile = getCacheFile(appContext, status)
-                val isVideo = status.mediaType == 2
-
-                if (cacheFile.exists() && cacheFile.length() > 0L) {
-                    val saved = MomoStorage.saveStatusMediaToUpdates(
-                        context = appContext,
-                        sourceFile = cacheFile,
-                        statusId = status.id,
-                        isVideo = isVideo
-                    )
-                    withContext(Dispatchers.Main) { onResult(saved) }
-                } else {
-                    ensureStatusDownloaded(appContext, status)
-                    val freshlyCached = getCacheFile(appContext, status)
-                    val saved = if (freshlyCached.exists() && freshlyCached.length() > 0L) {
-                        MomoStorage.saveStatusMediaToUpdates(
-                            context = appContext,
-                            sourceFile = freshlyCached,
-                            statusId = status.id,
-                            isVideo = isVideo
-                        )
-                    } else false
-
-                    withContext(Dispatchers.Main) { onResult(saved) }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                withContext(Dispatchers.Main) { onResult(false) }
-            }
-        }
-    }
-
-    fun deleteStatus(
-        context: Context,
-        status: StatusItem,
-        onComplete: (Boolean) -> Unit
-    ) {
-        val appContext = context.applicationContext
-        val currentUserId = CacheManager.getAppUserId(appContext)
-        val isMomo = currentUserId.equals("Momo", ignoreCase = true)
-        val myCode = if (isMomo) 2 else 1
-
-        scope.launch {
-            try {
-                database.getReference(RTDB_PATH_STATUS)
-                    .child(myCode.toString())
-                    .child(status.id)
-                    .removeValue()
-
-                val ext = if (status.mediaType == 2) "mp4" else "jpg"
-                storage.reference
-                    .child("status_media")
-                    .child(myCode.toString())
-                    .child("${status.id}.$ext")
-                    .delete()
-
-                val cacheFile = getCacheFile(appContext, status)
-                if (cacheFile.exists()) cacheFile.delete()
-
-                withContext(Dispatchers.Main) { onComplete(true) }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                withContext(Dispatchers.Main) { onComplete(false) }
-            }
-        }
-    }
-
-    fun uploadStatus(
-        context: Context,
-        mediaUri: Uri,
-        isVideo: Boolean,
-        caption: String,
-        onProgress: (Boolean) -> Unit,
-        onComplete: (Boolean) -> Unit
-    ) {
-        val currentUserId = CacheManager.getAppUserId(context)
-        val isMomo = currentUserId.equals("Momo", ignoreCase = true)
-        val myCode = if (isMomo) 2 else 1
-
-        onProgress(true)
-
-        scope.launch {
-            try {
-                val statusId = "STATUS_${System.currentTimeMillis()}"
-                val extension = if (isVideo) "mp4" else "jpg"
-                val storageRef = storage.reference
-                    .child("status_media")
-                    .child(myCode.toString())
-                    .child("$statusId.$extension")
-
-                var blurBase64: String? = null
-                val cacheFile = getCacheFile(
-                    context,
-                    StatusItem(id = statusId, mediaType = if (isVideo) 2 else 1)
                 )
+            }
+        }
 
-                val uploadTask = if (isVideo) {
-                    try {
-                        val retriever = MediaMetadataRetriever()
-                        retriever.setDataSource(context, mediaUri)
-                        val frame = retriever.getFrameAtTime(0)
-                        if (frame != null) blurBase64 = generateBlurPreview(frame)
-                        retriever.release()
-                    } catch (_: Exception) {}
-
-                    context.contentResolver.openInputStream(mediaUri)?.use { input ->
-                        FileOutputStream(cacheFile).use { output ->
-                            input.copyTo(output)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = bottomInsetDp)
+        ) {
+            ChatInputBar(
+                text = inputText,
+                onTextChanged = { inputText = it },
+                replyingToMessage = replyingToMessage,
+                onCancelReply = { replyingToMessage = null },
+                editingMessage = editingMessage,
+                onCancelEdit = {
+                    editingMessage = null
+                    inputText = ""
+                },
+                myCode = myCode,
+                partnerDisplayName = partnerDisplayName,
+                onCameraClick = {
+                    val cacheFolder = File(context.cacheDir, "camera_captures").apply {
+                        if (!exists()) mkdirs()
+                    }
+                    val photoFile = File(cacheFolder, "CAM_${System.currentTimeMillis()}.jpg")
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.provider",
+                        photoFile
+                    )
+                    tempCameraUriString = uri.toString()
+                    cameraLauncher.launch(uri)
+                },
+                onGalleryClick = {
+                    galleryLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                    )
+                },
+                onSend = {
+                    val cleanText = inputText.trim()
+                    if (cleanText.isNotEmpty()) {
+                        val activeEdit = editingMessage
+                        if (activeEdit != null) {
+                            ChatEngine.editMessage(context, activeEdit.id, cleanText)
+                            editingMessage = null
+                            inputText = ""
+                        } else {
+                            ChatEngine.setTyping(context, false)
+                            ChatEngine.sendMessage(
+                                context = context,
+                                text = cleanText,
+                                replyToId = replyingToMessage?.id,
+                                replyToText = null,
+                                replyToSenderId = null
+                            )
+                            inputText = ""
+                            replyingToMessage = null
+                            coroutineScope.launch {
+                                if (reversedMessages.isNotEmpty()) {
+                                    listState.animateScrollToItem(0)
+                                }
+                            }
                         }
                     }
-
-                    storageRef.putFile(mediaUri)
-                } else {
-                    val compressedBytes = compressImageUri(context, mediaUri)
-                    if (compressedBytes != null) {
-                        try {
-                            val bmp = BitmapFactory.decodeByteArray(compressedBytes, 0, compressedBytes.size)
-                            if (bmp != null) blurBase64 = generateBlurPreview(bmp)
-                        } catch (_: Exception) {}
-
-                        cacheFile.writeBytes(compressedBytes)
-                        storageRef.putBytes(compressedBytes)
-                    } else {
-                        storageRef.putFile(mediaUri)
-                    }
                 }
-
-                uploadTask.addOnSuccessListener {
-                    storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
-                        val statusMap = hashMapOf<String, Any>(
-                            "id" to statusId,
-                            "senderId" to myCode,
-                            "mediaUrl" to downloadUri.toString(),
-                            "mediaType" to (if (isVideo) 2 else 1),
-                            "timestamp" to System.currentTimeMillis(),
-                            "caption" to caption.trim(),
-                            "viewCount" to 0,
-                            "blurPreview" to (blurBase64 ?: "")
-                        )
-
-                        database.getReference(RTDB_PATH_STATUS)
-                            .child(myCode.toString())
-                            .child(statusId)
-                            .setValue(statusMap)
-                            .addOnSuccessListener {
-                                onProgress(false)
-                                onComplete(true)
-                            }
-                            .addOnFailureListener {
-                                onProgress(false)
-                                onComplete(false)
-                            }
-                    }.addOnFailureListener {
-                        onProgress(false)
-                        onComplete(false)
-                    }
-                }.addOnFailureListener {
-                    onProgress(false)
-                    onComplete(false)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    onProgress(false)
-                    onComplete(false)
-                }
-            }
+            )
         }
-    }
-
-    private fun generateBlurPreview(bitmap: Bitmap): String? {
-        return try {
-            val small = Bitmap.createScaledBitmap(bitmap, 24, 24, true)
-            val baos = ByteArrayOutputStream()
-            small.compress(Bitmap.CompressFormat.JPEG, 45, baos)
-            Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun compressImageUri(context: Context, uri: Uri): ByteArray? {
-        return try {
-            val input = context.contentResolver.openInputStream(uri) ?: return null
-            val original = BitmapFactory.decodeStream(input)
-            input.close()
-            if (original == null) return null
-
-            val maxDimension = 1280
-            val width = original.width
-            val height = original.height
-
-            val scaled = if (width > maxDimension || height > maxDimension) {
-                val ratio = width.toFloat() / height.toFloat()
-                val targetW = if (ratio > 1) maxDimension else (maxDimension * ratio).toInt()
-                val targetH = if (ratio > 1) (maxDimension / ratio).toInt() else maxDimension
-                Bitmap.createScaledBitmap(original, targetW, targetH, true)
-            } else {
-                original
-            }
-
-            val baos = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
-            baos.toByteArray()
-        } catch (_: Exception) {
-            null
-        }
-    }
-}
-
-@Composable
-fun SegmentedStatusRing(
-    statusCount: Int,
-    modifier: Modifier = Modifier,
-    ringGap: Dp = 2.5.dp,
-    strokeWidth: Dp = 2.5.dp,
-    content: @Composable () -> Unit
-) {
-    if (statusCount <= 0) {
-        Box(modifier = modifier, contentAlignment = Alignment.Center) {
-            content()
-        }
-    } else {
-        Box(
-            modifier = modifier,
-            contentAlignment = Alignment.Center
-        ) {
-            Canvas(modifier = Modifier.matchParentSize()) {
-                val strokePx = strokeWidth.toPx()
-                val arcSize = Size(size.width - strokePx, size.height - strokePx)
-                val topLeft = Offset(strokePx / 2f, strokePx / 2f)
-
-                if (statusCount == 1) {
-                    drawArc(
-                        brush = MomoPrimaryGradient,
-                        startAngle = -90f,
-                        sweepAngle = 360f,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcSize,
-                        style = Stroke(width = strokePx, cap = StrokeCap.Round)
-                    )
-                } else {
-                    val gapAngle = if (statusCount > 8) 6f else 9f
-                    val totalGap = gapAngle * statusCount
-                    val sweepPerSegment = (360f - totalGap) / statusCount
-
-                    for (i in 0 until statusCount) {
-                        val startAngle = -90f + i * (sweepPerSegment + gapAngle) + (gapAngle / 2f)
-                        drawArc(
-                            brush = MomoPrimaryGradient,
-                            startAngle = startAngle,
-                            sweepAngle = sweepPerSegment,
-                            useCenter = false,
-                            topLeft = topLeft,
-                            size = arcSize,
-                            style = Stroke(width = strokePx, cap = StrokeCap.Round)
-                        )
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier.padding(ringGap + strokeWidth),
-                contentAlignment = Alignment.Center
-            ) {
-                content()
-            }
-        }
-    }
-}
-
-fun formatStatusTime(timestamp: Long): String {
-    if (timestamp <= 0L) return ""
-    return try {
-        val dt = LocalDateTime.ofInstant(
-            Instant.ofEpochMilli(timestamp),
-            ZoneId.systemDefault()
-        )
-        val today = LocalDate.now()
-        val targetDate = dt.toLocalDate()
-        val timeStr = dt.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH))
-
-        when (targetDate) {
-            today -> "today at $timeStr"
-            today.minusDays(1) -> "yesterday at $timeStr"
-            else -> "${dt.format(DateTimeFormatter.ofPattern("dd MMM", Locale.ENGLISH))} at $timeStr"
-        }
-    } catch (_: Exception) {
-        ""
     }
 }
