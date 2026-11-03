@@ -246,6 +246,15 @@ fun InboxScreen(
             displayName = partnerDisplayName,
             avatarUrl = effectiveAvatarUrl,
             isOwnStatus = false,
+            onReplySend = { status, replyText ->
+                ChatEngine.sendMessage(
+                    context = context,
+                    text = replyText,
+                    replyToId = status.id,
+                    replyToText = status.caption.ifBlank { if (status.mediaType == 2) "Video" else "Photo" },
+                    replyToSenderId = status.senderId
+                )
+            },
             onDismiss = { viewingPartnerStatus = false }
         )
     }
