@@ -26,13 +26,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -81,7 +82,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -231,7 +234,8 @@ fun PrefPlayer(
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
         )
     ) {
         Box(
@@ -299,8 +303,11 @@ fun PrefPlayer(
     }
 
     val context = LocalContext.current
+    val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+
     var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
     val currentStatus = statuses.getOrNull(currentIndex) ?: statuses.last()
 
@@ -316,6 +323,18 @@ fun PrefPlayer(
     var replyInputText by remember { mutableStateOf("") }
     var isReplyFocused by remember { mutableStateOf(false) }
     var showReplySentToast by remember { mutableStateOf(false) }
+
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
+    val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
+    val isKeyboardOpen = imeBottom > 0
+
+    LaunchedEffect(isKeyboardOpen) {
+        if (!isKeyboardOpen && isReplyFocused) {
+            focusManager.clearFocus()
+            isReplyFocused = false
+        }
+    }
 
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val animatedDragOffsetY by animateFloatAsState(
@@ -345,7 +364,7 @@ fun PrefPlayer(
         when {
             showDeleteConfirmDialog -> showDeleteConfirmDialog = false
             isMenuOpen -> isMenuOpen = false
-            isReplyFocused || replyInputText.isNotEmpty() -> {
+            isKeyboardOpen || isReplyFocused || replyInputText.isNotEmpty() -> {
                 focusManager.clearFocus()
                 replyInputText = ""
                 isReplyFocused = false
@@ -372,7 +391,8 @@ fun PrefPlayer(
         }
     }
 
-    val isPausedEffective = isUserPaused || isMenuOpen || showDeleteConfirmDialog || !isMediaDownloaded || isImmersiveCleanMode || isCaptionExpanded || isReplyFocused || replyInputText.isNotEmpty()
+    val isReplying = isKeyboardOpen || isReplyFocused
+    val isPausedEffective = isUserPaused || isMenuOpen || showDeleteConfirmDialog || !isMediaDownloaded || isImmersiveCleanMode || isCaptionExpanded || isReplying
     val isVideo = currentStatus.mediaType == 2
     val photoDurationMs = 10_000L
 
@@ -403,19 +423,18 @@ fun PrefPlayer(
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = backgroundAlpha))
-                .statusBarsPadding()
-                .navigationBarsPadding()
                 .graphicsLayer {
                     translationY = animatedDragOffsetY
                 }
-                .pointerInput(currentIndex, isImmersiveCleanMode, isCaptionExpanded, isReplyFocused) {
+                .pointerInput(currentIndex, isImmersiveCleanMode, isCaptionExpanded, isKeyboardOpen, isReplyFocused) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var isDrag = false
@@ -424,7 +443,7 @@ fun PrefPlayer(
 
                         val holdJob = coroutineScope.launch {
                             delay(200L)
-                            if (!isDrag && !isImmersiveCleanMode && !isCaptionExpanded && !isReplyFocused) {
+                            if (!isDrag && !isImmersiveCleanMode && !isCaptionExpanded && !isKeyboardOpen && !isReplyFocused) {
                                 isUserPaused = true
                                 isHold = true
                             }
@@ -447,11 +466,11 @@ fun PrefPlayer(
                                         isHold = false
                                     }
 
-                                    if (deltaY > 0f && !isCaptionExpanded && !isReplyFocused) {
+                                    if (deltaY > 0f && !isCaptionExpanded && !isKeyboardOpen && !isReplyFocused) {
                                         totalDragY = deltaY
                                         dragOffsetY = deltaY
                                         change.consume()
-                                    } else if (deltaY < -35f && !isImmersiveCleanMode && !isCaptionExpanded && !isReplyFocused) {
+                                    } else if (deltaY < -35f && !isImmersiveCleanMode && !isCaptionExpanded && !isKeyboardOpen && !isReplyFocused) {
                                         isImmersiveCleanMode = true
                                         change.consume()
                                     }
@@ -472,7 +491,7 @@ fun PrefPlayer(
                             }
                         } else {
                             if (!down.isConsumed) {
-                                if (isReplyFocused || replyInputText.isNotEmpty()) {
+                                if (isKeyboardOpen || isReplyFocused) {
                                     focusManager.clearFocus()
                                     isReplyFocused = false
                                 } else if (isImmersiveCleanMode) {
@@ -494,7 +513,9 @@ fun PrefPlayer(
                 }
         ) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .height(configuration.screenHeightDp.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (cachedLocalFile != null && cachedLocalFile.exists() && cachedLocalFile.length() > 0L) {
@@ -632,6 +653,7 @@ fun PrefPlayer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.Black.copy(alpha = 0.45f))
+                        .statusBarsPadding()
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Row(
@@ -756,7 +778,7 @@ fun PrefPlayer(
                                     .background(Color.White.copy(alpha = 0.15f))
                                     .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = EyeStatusIcon,
@@ -797,10 +819,10 @@ fun PrefPlayer(
                             DropdownMenu(
                                 expanded = isMenuOpen,
                                 onDismissRequest = { isMenuOpen = false },
-                                modifier = Modifier
-                                    .widthIn(min = 105.dp, max = 135.dp)
-                                    .background(Color(0xFF222328), RoundedCornerShape(14.dp))
-                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                                modifier = Modifier.widthIn(min = 105.dp, max = 135.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                containerColor = Color(0xFF222328),
+                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
                             ) {
                                 DropdownMenuItem(
                                     text = {
@@ -851,7 +873,7 @@ fun PrefPlayer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .imePadding()
+                    .padding(bottom = bottomInsetDp)
             ) {
                 if (currentStatus.caption.isNotBlank()) {
                     AnimatedVisibility(
@@ -924,8 +946,8 @@ fun PrefPlayer(
                                 .fillMaxWidth()
                                 .heightIn(min = 44.dp, max = 100.dp)
                                 .clip(RoundedCornerShape(22.dp))
-                                .background(Color(0xFF171922).copy(alpha = 0.88f))
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(22.dp))
+                                .background(Color(0xFF171922).copy(alpha = 0.90f))
+                                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
                                 .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1003,8 +1025,7 @@ fun PrefPlayer(
                 exit = fadeOut(animationSpec = tween(180)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .imePadding()
-                    .padding(bottom = 26.dp)
+                    .padding(bottom = bottomInsetDp + 18.dp)
             ) {
                 Box(
                     modifier = Modifier
