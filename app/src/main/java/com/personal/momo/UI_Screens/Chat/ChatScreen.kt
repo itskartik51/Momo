@@ -276,7 +276,7 @@ fun ChatScreen(
         )
     }
 
-    if (showFullScreenAvatar && effectiveAvatarUrl.isNotBlank()) {
+    if (showFullScreenAvatar && !effectiveAvatarUrl.isNullOrBlank()) {
         PrefPlayer(
             mediaPath = effectiveAvatarUrl,
             isVideo = false,
@@ -318,7 +318,11 @@ fun ChatScreen(
                 inChat = partnerPresence.inChat,
                 lastSeen = partnerPresence.lastSeen,
                 isTyping = partnerPresence.isTyping,
-                onAvatarClick = { showFullScreenAvatar = true },
+                onAvatarClick = {
+                    if (!effectiveAvatarUrl.isNullOrBlank()) {
+                        showFullScreenAvatar = true
+                    }
+                },
                 onBack = {
                     ChatEngine.setTyping(context, false)
                     ChatEngine.setChatScreenActive(context, false)
