@@ -6,10 +6,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +55,7 @@ import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private val MomoCrimsonHighlightBase = Color(0xFFFF2E63)
 
@@ -84,22 +84,6 @@ internal fun MessageBubbleRow(
 
     val offsetX = remember { Animatable(0f) }
     var isTriggered by remember { mutableStateOf(false) }
-
-    val draggableState = rememberDraggableState { delta ->
-        if (!isSelectionMode) {
-            val current = offsetX.value
-            val newRaw = (current + delta).coerceAtLeast(0f)
-            coroutineScope.launch {
-                offsetX.snapTo(newRaw)
-            }
-            if (newRaw >= triggerThresholdPx && !isTriggered) {
-                isTriggered = true
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            } else if (newRaw < triggerThresholdPx && isTriggered) {
-                isTriggered = false
-            }
-        }
-    }
 
     val bubbleShape = if (isOutgoing) {
         RoundedCornerShape(
@@ -159,27 +143,73 @@ internal fun MessageBubbleRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(rowBackgroundColor)
-            .draggable(
-                state = draggableState,
-                orientation = Orientation.Horizontal,
-                enabled = !isSelectionMode,
-                onDragStopped = {
-                    val wasTriggered = isTriggered
-                    if (wasTriggered) {
-                        onSwipeToReply(message)
-                    }
-                    coroutineScope.launch {
-                        offsetX.animateTo(
-                            targetValue = 0f,
-                            animationSpec = tween(
-                                durationMillis = 180,
-                                easing = FastOutSlowInEasing
-                            )
-                        )
-                        isTriggered = false
+            .pointerInput(message.id, isSelectionMode) {
+                if (isSelectionMode) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var isHorizontalDrag = false
+                    var isDirectionLocked = false
+                    var totalX = 0f
+                    var totalY = 0f
+
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+
+                            val dragX = change.position.x - change.previousPosition.x
+                            val dragY = change.position.y - change.previousPosition.y
+
+                            totalX += dragX
+                            totalY += dragY
+
+                            if (!isDirectionLocked) {
+                                val absX = abs(totalX)
+                                val absY = abs(totalY)
+                                val touchSlop = viewConfiguration.touchSlop
+
+                                if (absX > touchSlop || absY > touchSlop) {
+                                    isDirectionLocked = true
+                                    if (totalX > 0f && absX > absY * 1.6f) {
+                                        isHorizontalDrag = true
+                                    }
+                                }
+                            }
+
+                            if (isHorizontalDrag) {
+                                change.consume()
+                                val current = offsetX.value
+                                val newRaw = (current + dragX).coerceAtLeast(0f)
+                                offsetX.snapTo(newRaw)
+                                if (newRaw >= triggerThresholdPx && !isTriggered) {
+                                    isTriggered = true
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                } else if (newRaw < triggerThresholdPx && isTriggered) {
+                                    isTriggered = false
+                                }
+                            }
+                        }
+                    } finally {
+                        if (isHorizontalDrag) {
+                            val wasTriggered = isTriggered
+                            if (wasTriggered) {
+                                onSwipeToReply(message)
+                            }
+                            coroutineScope.launch {
+                                offsetX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = tween(
+                                        durationMillis = 180,
+                                        easing = FastOutSlowInEasing
+                                    )
+                                )
+                                isTriggered = false
+                            }
+                        }
                     }
                 }
-            )
+            }
             .pointerInput(message.id, isSelectionMode) {
                 detectTapGestures(
                     onLongPress = {
