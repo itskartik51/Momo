@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,7 +35,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -426,9 +423,10 @@ fun PrefProfileDialog(
         }
     }
 
-    if (showFullScreenMyAvatar) {
-        FullScreenImageViewer(
-            imageUrl = myAvatarUrl,
+    if (showFullScreenMyAvatar && myAvatarUrl.isNotBlank()) {
+        PrefPlayer(
+            mediaPath = myAvatarUrl,
+            isVideo = false,
             onDismiss = { showFullScreenMyAvatar = false }
         )
     }
@@ -600,73 +598,6 @@ fun PrefProfileDialog(
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun FullScreenImageViewer(
-    imageUrl: String?,
-    onDismiss: () -> Unit
-) {
-    BackHandler {
-        onDismiss()
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = "Profile Expanded",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
-            } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.40f),
-                        modifier = Modifier.size(120.dp)
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(top = 16.dp, start = 16.dp)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.60f))
-                    .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
-                    .bounceClick(scaleDown = 0.94f) {
-                        onDismiss()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = CloseDialogIcon,
-                    contentDescription = "Close Preview",
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
     }
