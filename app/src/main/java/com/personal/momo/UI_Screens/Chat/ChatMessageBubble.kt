@@ -13,12 +13,15 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,9 +48,13 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
+import com.personal.momo.UI_Screens.MomoRedLight
+import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 
 private val MomoCrimsonHighlightBase = Color(0xFFFF2E63)
@@ -56,6 +63,7 @@ private val MomoCrimsonHighlightBase = Color(0xFFFF2E63)
 internal fun MessageBubbleRow(
     message: ChatMessage,
     replyToMessage: ChatMessage? = null,
+    isStatusActive: Boolean = true,
     isOutgoing: Boolean,
     isSelected: Boolean,
     isHighlighted: Boolean,
@@ -140,7 +148,9 @@ internal fun MessageBubbleRow(
 
     val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.dp
 
-    val hasReply = replyToMessage != null
+    val isStatusReply = message.replyToId?.startsWith("STATUS_") == true && !message.replyToText.isNullOrBlank() && isStatusActive
+    val hasReply = (replyToMessage != null) || isStatusReply
+
     val isMedia = message.mediaType > 0
     val pureEmojiCount = remember(message.text) { if (!isMedia) getPureEmojiCount(message.text) else 0 }
     val isFloatingEmoji = !hasReply && !isMedia && (pureEmojiCount in 1..3)
@@ -269,6 +279,7 @@ internal fun MessageBubbleRow(
                             BubbleMessageContent(
                                 message = message,
                                 replyToMessage = replyToMessage,
+                                isStatusReply = isStatusReply,
                                 isOutgoing = isOutgoing,
                                 isLastInGroup = isLastInGroup,
                                 formattedTime = formattedTime,
@@ -279,6 +290,71 @@ internal fun MessageBubbleRow(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun StatusReplySnippet(
+    caption: String,
+    isOutgoing: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .bounceClick(scaleDown = 0.96f) {
+                onClick()
+            },
+        shape = RoundedCornerShape(8.dp),
+        color = if (isOutgoing) Color.Black.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(if (isOutgoing) Color.White else MomoRedLight)
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Reply to your status",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isOutgoing) Color.White else MomoRedLight,
+                    maxLines = 1,
+                    style = TextStyle(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = caption.ifBlank { "Status" },
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isOutgoing) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 15.sp,
+                    style = TextStyle(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false)
+                    )
+                )
             }
         }
     }
@@ -349,6 +425,7 @@ private fun FloatingEmojiContent(
 private fun BubbleMessageContent(
     message: ChatMessage,
     replyToMessage: ChatMessage?,
+    isStatusReply: Boolean = false,
     isOutgoing: Boolean,
     isLastInGroup: Boolean,
     formattedTime: String,
@@ -366,11 +443,17 @@ private fun BubbleMessageContent(
     else
         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
 
-    val hasReply = replyToMessage != null
+    val hasReply = (replyToMessage != null) || isStatusReply
 
     Layout(
         content = {
-            if (hasReply && replyToMessage != null) {
+            if (isStatusReply) {
+                StatusReplySnippet(
+                    caption = message.replyToText.orEmpty(),
+                    isOutgoing = isOutgoing,
+                    onClick = { onReplyClick(message.replyToId.orEmpty()) }
+                )
+            } else if (replyToMessage != null) {
                 QuotedReplySnippet(
                     replyMessage = replyToMessage,
                     myCode = myCode,
