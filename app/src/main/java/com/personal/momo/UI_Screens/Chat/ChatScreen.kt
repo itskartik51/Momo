@@ -7,6 +7,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -144,6 +152,11 @@ private val DeleteIcon: ImageVector by lazy {
         fill = SolidColor(Color.White)
     ).build()
 }
+
+data class LastSeenDetails(
+    val prefix: String,
+    val time: String
+)
 
 @Composable
 fun ChatScreen(
@@ -822,31 +835,85 @@ private fun ChatTopHeader(
                         )
                     )
                 } else {
-                    val lastSeenText = if (lastSeen > 0L) {
-                        "Last seen ${formatLastSeenTime(lastSeen)}"
+                    val lastSeenDetails = remember(lastSeen) { getLastSeenDetails(lastSeen) }
+
+                    if (lastSeenDetails != null) {
+                        var showPrefix by remember(lastSeen) { mutableStateOf(true) }
+
+                        LaunchedEffect(lastSeen, inChat, isTyping) {
+                            if (!inChat && !isTyping) {
+                                showPrefix = true
+                                delay(2500L)
+                                showPrefix = false
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            AnimatedVisibility(
+                                visible = showPrefix,
+                                enter = fadeIn(tween(200)) + expandHorizontally(
+                                    animationSpec = tween(300),
+                                    expandFrom = Alignment.Start
+                                ),
+                                exit = fadeOut(tween(250)) +
+                                    shrinkHorizontally(
+                                        animationSpec = tween(400, easing = FastOutSlowInEasing),
+                                        shrinkTowards = Alignment.Start
+                                    ) +
+                                    slideOutHorizontally(
+                                        targetOffsetX = { -it },
+                                        animationSpec = tween(400, easing = FastOutSlowInEasing)
+                                    )
+                            ) {
+                                Text(
+                                    text = lastSeenDetails.prefix,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                        lineHeight = 14.sp
+                                    )
+                                )
+                            }
+
+                            Text(
+                                text = lastSeenDetails.time,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                style = TextStyle(
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    lineHeight = 14.sp
+                                )
+                            )
+                        }
                     } else {
-                        "Offline"
-                    }
-                    Text(
-                        text = lastSeenText,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(
-                            platformStyle = PlatformTextStyle(includeFontPadding = false),
-                            lineHeight = 14.sp
+                        Text(
+                            text = "Offline",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                lineHeight = 14.sp
+                            )
                         )
-                    )
+                    }
                 }
             }
         }
     }
 }
 
-private fun formatLastSeenTime(timestamp: Long): String {
-    if (timestamp <= 0L) return ""
+private fun getLastSeenDetails(timestamp: Long): LastSeenDetails? {
+    if (timestamp <= 0L) return null
     return try {
         val dt = LocalDateTime.ofInstant(
             Instant.ofEpochMilli(timestamp),
@@ -856,12 +923,13 @@ private fun formatLastSeenTime(timestamp: Long): String {
         val targetDate = dt.toLocalDate()
         val timeStr = dt.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH))
 
-        when (targetDate) {
-            today -> timeStr
-            today.minusDays(1) -> "yesterday at $timeStr"
-            else -> "${dt.format(DateTimeFormatter.ofPattern("dd MMM", Locale.ENGLISH))} at $timeStr"
+        val prefixStr = when (targetDate) {
+            today -> "last seen today at "
+            today.minusDays(1) -> "last seen yesterday at "
+            else -> "last seen ${dt.format(DateTimeFormatter.ofPattern("dd MMM", Locale.ENGLISH))} at "
         }
+        LastSeenDetails(prefix = prefixStr, time = timeStr)
     } catch (_: Exception) {
-        ""
+        null
     }
 }
