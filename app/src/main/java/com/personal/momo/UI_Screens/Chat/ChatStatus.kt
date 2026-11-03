@@ -3,7 +3,6 @@ package com.personal.momo.UI_Screens.Chat
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.MediaScannerConnection
 import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
@@ -20,7 +19,8 @@ import androidx.compose.ui.unit.dp
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ServerValue
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.storage.FirebaseStorage
 import com.personal.momo.Cache.CacheManager
@@ -133,68 +133,86 @@ object StatusEngine {
         return list.sortedBy { it.timestamp }
     }
 
-    fun incrementViewCount(statusItem: StatusItem) {
-        if (statusItem.id.isBlank() || statusItem.senderId <= 0) return
-        database.getReference(RTDB_PATH_STATUS)
-            .child(statusItem.senderId.toString())
-            .child(statusItem.id)
+    fun incrementStatusViewCount(status: StatusItem) {
+        if (status.id.isBlank() || status.senderId <= 0) return
+        val viewRef = database.getReference(RTDB_PATH_STATUS)
+            .child(status.senderId.toString())
+            .child(status.id)
             .child("viewCount")
-            .setValue(ServerValue.increment(1))
+
+        viewRef.runTransaction(object : Transaction.Handler {
+            override fun doTransaction(currentData: MutableData): Transaction.Result {
+                val current = currentData.getValue(Int::class.java) ?: 0
+                currentData.value = current + 1
+                return Transaction.success(currentData)
+            }
+
+            override fun onComplete(
+                error: DatabaseError?,
+                committed: Boolean,
+                currentData: DataSnapshot?
+            ) {}
+        })
     }
 
     fun saveStatusToUpdates(
         context: Context,
-        statusItem: StatusItem,
+        status: StatusItem,
         onResult: (Boolean) -> Unit
     ) {
         val appContext = context.applicationContext
         scope.launch {
-            val success = try {
-                val updatesDir = MomoStorage.getUpdatesDir(appContext)
-                val ext = if (statusItem.mediaType == 2) "mp4" else "jpg"
-                val cleanId = statusItem.id.ifBlank { "STATUS_${statusItem.timestamp}" }
-                val destFile = File(updatesDir, "${cleanId}.$ext")
+            try {
+                val baseMomoDir = MomoStorage.getMomoDir(appContext)
+                val updatesDir = File(baseMomoDir, "Media/Updates").apply {
+                    if (!exists()) mkdirs()
+                }
 
-                if (destFile.exists() && destFile.length() > 0L) {
-                    true
-                } else {
-                    val url = URL(statusItem.mediaUrl)
-                    val conn = url.openConnection() as HttpURLConnection
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 20000
-                    conn.instanceFollowRedirects = true
+                val ext = if (status.mediaType == 2) "mp4" else "jpg"
+                val prefix = if (status.mediaType == 2) "VID" else "IMG"
+                val safeId = status.id.ifBlank { System.currentTimeMillis().toString() }
+                val targetFile = File(updatesDir, "${prefix}_${safeId}.$ext")
 
+                if (targetFile.exists() && targetFile.length() > 0L) {
+                    withContext(Dispatchers.Main) { onResult(true) }
+                    return@launch
+                }
+
+                val mediaUrl = status.mediaUrl
+                val success = if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
+                    val conn = (URL(mediaUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 15000
+                        readTimeout = 20000
+                        instanceFollowRedirects = true
+                    }
                     if (conn.responseCode in 200..299) {
-                        val tempFile = File(updatesDir, "${cleanId}_tmp.$ext")
                         conn.inputStream.use { input ->
-                            FileOutputStream(tempFile).use { output ->
+                            FileOutputStream(targetFile).use { output ->
                                 input.copyTo(output)
                             }
                         }
-                        if (tempFile.length() > 0L) {
-                            tempFile.renameTo(destFile)
-                            MediaScannerConnection.scanFile(
-                                appContext,
-                                arrayOf(destFile.absolutePath),
-                                null,
-                                null
-                            )
-                            true
-                        } else {
-                            tempFile.delete()
-                            false
-                        }
+                        targetFile.exists() && targetFile.length() > 0L
+                    } else {
+                        false
+                    }
+                } else {
+                    val sourceFile = File(mediaUrl)
+                    if (sourceFile.exists()) {
+                        sourceFile.copyTo(targetFile, overwrite = true)
+                        true
                     } else {
                         false
                     }
                 }
+
+                withContext(Dispatchers.Main) {
+                    onResult(success)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
-                false
-            }
-
-            withContext(Dispatchers.Main) {
-                onResult(success)
+                withContext(Dispatchers.Main) {
+                    onResult(false)
+                }
             }
         }
     }
@@ -308,7 +326,7 @@ object StatusEngine {
 fun SegmentedStatusRing(
     statusCount: Int,
     modifier: Modifier = Modifier,
-    ringGap: Dp = 3.dp,
+    ringGap: Dp = 2.5.dp,
     strokeWidth: Dp = 2.5.dp,
     content: @Composable () -> Unit
 ) {
@@ -337,7 +355,7 @@ fun SegmentedStatusRing(
                         style = Stroke(width = strokePx, cap = StrokeCap.Round)
                     )
                 } else {
-                    val gapAngle = if (statusCount > 8) 3.5f else 5.5f
+                    val gapAngle = if (statusCount > 8) 6f else 9f
                     val totalGap = gapAngle * statusCount
                     val sweepPerSegment = (360f - totalGap) / statusCount
 
@@ -375,12 +393,12 @@ fun formatStatusTime(timestamp: Long): String {
         )
         val today = LocalDate.now()
         val targetDate = dt.toLocalDate()
-        val timeStr = dt.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)).lowercase(Locale.ENGLISH)
+        val timeStr = dt.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH))
 
         when (targetDate) {
-            today -> "Today, $timeStr"
-            today.minusDays(1) -> "Yesterday, $timeStr"
-            else -> "${dt.format(DateTimeFormatter.ofPattern("dd MMM", Locale.ENGLISH))}, $timeStr"
+            today -> "today at $timeStr"
+            today.minusDays(1) -> "yesterday at $timeStr"
+            else -> "${dt.format(DateTimeFormatter.ofPattern("dd MMM", Locale.ENGLISH))} at $timeStr"
         }
     } catch (_: Exception) {
         ""
