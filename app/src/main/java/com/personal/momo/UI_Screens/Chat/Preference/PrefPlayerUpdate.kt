@@ -173,6 +173,27 @@ private val StatusSendIcon: ImageVector by lazy {
 }
 
 @Composable
+fun PrefPlayerUpdate(
+    statuses: List<StatusItem>,
+    displayName: String,
+    avatarUrl: String?,
+    isOwnStatus: Boolean,
+    initialIndex: Int = 0,
+    onReplySend: ((status: StatusItem, replyText: String) -> Unit)? = null,
+    onDismiss: () -> Unit
+) {
+    PrefStatusPlayer(
+        statuses = statuses,
+        displayName = displayName,
+        avatarUrl = avatarUrl,
+        isOwnStatus = isOwnStatus,
+        initialIndex = initialIndex,
+        onReplySend = onReplySend,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
 fun PrefStatusPlayer(
     statuses: List<StatusItem>,
     displayName: String,
@@ -207,6 +228,7 @@ fun PrefStatusPlayer(
     var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
     val currentStatus = statuses.getOrNull(currentIndex) ?: statuses.last()
 
+    var restartTrigger by remember { mutableIntStateOf(0) }
     val animProgress = remember(currentIndex) { Animatable(0f) }
     var videoProgress by remember(currentIndex) { mutableFloatStateOf(0f) }
     var videoDurationMs by remember(currentStatus.id) { mutableLongStateOf(0L) }
@@ -354,7 +376,11 @@ fun PrefStatusPlayer(
         }
     }
 
-    LaunchedEffect(currentIndex, isPausedEffective, isVideo, isMediaDownloaded) {
+    LaunchedEffect(currentIndex, restartTrigger) {
+        animProgress.snapTo(0f)
+    }
+
+    LaunchedEffect(currentIndex, restartTrigger, isPausedEffective, isVideo, isMediaDownloaded) {
         if (!isVideo && isMediaDownloaded) {
             if (!isPausedEffective) {
                 val currentVal = animProgress.value
@@ -478,9 +504,17 @@ fun PrefStatusPlayer(
                                     val screenWidth = size.width
                                     val tapX = down.position.x
                                     if (tapX < screenWidth * 0.32f) {
-                                        if (currentIndex > 0) currentIndex-- else animProgress.snapTo(0f)
+                                        if (currentIndex > 0) {
+                                            currentIndex--
+                                        } else {
+                                            restartTrigger++
+                                        }
                                     } else {
-                                        if (currentIndex < statuses.lastIndex) currentIndex++ else onDismiss()
+                                        if (currentIndex < statuses.lastIndex) {
+                                            currentIndex++
+                                        } else {
+                                            onDismiss()
+                                        }
                                     }
                                 }
                             }
