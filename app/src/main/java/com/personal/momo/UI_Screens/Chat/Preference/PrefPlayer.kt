@@ -3,7 +3,6 @@ package com.personal.momo.UI_Screens.Chat.Preference
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.VideoView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -50,11 +49,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.Chat.StatusItem
 import com.personal.momo.UI_Screens.bounceClick
@@ -278,28 +283,54 @@ private fun VideoPlayerContent(
     controlsVisible: Boolean,
     onToggleControls: () -> Unit
 ) {
-    var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
+    val context = LocalContext.current
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            repeatMode = Player.REPEAT_MODE_OFF
+        }
+    }
+
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(true) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var isDraggingSlider by remember { mutableStateOf(false) }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_READY) {
+                    durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                } else if (playbackState == Player.STATE_ENDED) {
+                    isPlaying = false
+                    currentPositionMs = durationMs
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
         onDispose {
-            videoViewRef?.stopPlayback()
-            videoViewRef = null
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    LaunchedEffect(uri) {
+        if (uri != null) {
+            exoPlayer.setMediaItem(MediaItem.fromUri(uri))
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
         }
     }
 
     LaunchedEffect(isPlaying, isDraggingSlider) {
         while (isPlaying && !isDraggingSlider) {
-            videoViewRef?.let { vv ->
-                if (vv.isPlaying) {
-                    currentPositionMs = vv.currentPosition.toLong().coerceAtLeast(0L)
-                }
-            }
-            delay(200L)
+            currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+            delay(120L)
         }
     }
 
@@ -316,32 +347,21 @@ private fun VideoPlayerContent(
         if (uri != null) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
-                factory = { context ->
-                    VideoView(context).apply {
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                        setVideoURI(uri)
-                        setOnPreparedListener { mp ->
-                            isBuffering = false
-                            durationMs = mp.duration.toLong().coerceAtLeast(0L)
-                            start()
-                            isPlaying = true
-                        }
-                        setOnCompletionListener {
-                            isPlaying = false
-                            currentPositionMs = durationMs
-                        }
-                        setOnErrorListener { _, _, _ ->
-                            isBuffering = false
-                            true
-                        }
-                        videoViewRef = this
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        player = exoPlayer
                     }
                 },
                 update = { view ->
-                    videoViewRef = view
+                    if (view.player != exoPlayer) {
+                        view.player = exoPlayer
+                    }
                 }
             )
         }
@@ -367,17 +387,14 @@ private fun VideoPlayerContent(
                     .background(Color.Black.copy(alpha = 0.55f))
                     .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                     .bounceClick(scaleDown = 0.94f) {
-                        val vv = videoViewRef ?: return@bounceClick
                         if (isPlaying) {
-                            vv.pause()
-                            isPlaying = false
+                            exoPlayer.pause()
                         } else {
                             if (currentPositionMs >= durationMs && durationMs > 0L) {
-                                vv.seekTo(0)
+                                exoPlayer.seekTo(0L)
                                 currentPositionMs = 0L
                             }
-                            vv.start()
-                            isPlaying = true
+                            exoPlayer.play()
                         }
                     },
                 contentAlignment = Alignment.Center
@@ -424,7 +441,7 @@ private fun VideoPlayerContent(
                             currentPositionMs = (fraction * durationMs).toLong()
                         },
                         onValueChangeFinished = {
-                            videoViewRef?.seekTo(currentPositionMs.toInt())
+                            exoPlayer.seekTo(currentPositionMs)
                             isDraggingSlider = false
                         },
                         colors = SliderDefaults.colors(
