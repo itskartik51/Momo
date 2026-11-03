@@ -3,88 +3,41 @@ package com.personal.momo.UI_Screens.Chat
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaScannerConnection
 import android.net.Uri
-import android.view.ViewGroup
-import android.widget.FrameLayout
-import android.widget.VideoView
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.storage.FirebaseStorage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
-import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -98,7 +51,8 @@ data class StatusItem(
     val mediaUrl: String = "",
     val mediaType: Int = 1, // 1: Photo, 2: Video
     val timestamp: Long = 0L,
-    val caption: String = ""
+    val caption: String = "",
+    val viewCount: Int = 0
 )
 
 object StatusEngine {
@@ -157,6 +111,7 @@ object StatusEngine {
             val mediaType = child.child("mediaType").getValue(Int::class.java) ?: 1
             val timestamp = child.child("timestamp").getValue(Long::class.java) ?: 0L
             val caption = child.child("caption").getValue(String::class.java).orEmpty()
+            val viewCount = child.child("viewCount").getValue(Int::class.java) ?: 0
 
             if (timestamp > 0L && (now - timestamp) < STATUS_EXPIRY_MILLIS && mediaUrl.isNotBlank()) {
                 list.add(
@@ -166,7 +121,8 @@ object StatusEngine {
                         mediaUrl = mediaUrl,
                         mediaType = mediaType,
                         timestamp = timestamp,
-                        caption = caption
+                        caption = caption,
+                        viewCount = viewCount
                     )
                 )
             } else if (timestamp > 0L && (now - timestamp) >= STATUS_EXPIRY_MILLIS) {
@@ -175,6 +131,72 @@ object StatusEngine {
         }
 
         return list.sortedBy { it.timestamp }
+    }
+
+    fun incrementViewCount(statusItem: StatusItem) {
+        if (statusItem.id.isBlank() || statusItem.senderId <= 0) return
+        database.getReference(RTDB_PATH_STATUS)
+            .child(statusItem.senderId.toString())
+            .child(statusItem.id)
+            .child("viewCount")
+            .setValue(ServerValue.increment(1))
+    }
+
+    fun saveStatusToUpdates(
+        context: Context,
+        statusItem: StatusItem,
+        onResult: (Boolean) -> Unit
+    ) {
+        val appContext = context.applicationContext
+        scope.launch {
+            val success = try {
+                val updatesDir = MomoStorage.getUpdatesDir(appContext)
+                val ext = if (statusItem.mediaType == 2) "mp4" else "jpg"
+                val cleanId = statusItem.id.ifBlank { "STATUS_${statusItem.timestamp}" }
+                val destFile = File(updatesDir, "${cleanId}.$ext")
+
+                if (destFile.exists() && destFile.length() > 0L) {
+                    true
+                } else {
+                    val url = URL(statusItem.mediaUrl)
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 20000
+                    conn.instanceFollowRedirects = true
+
+                    if (conn.responseCode in 200..299) {
+                        val tempFile = File(updatesDir, "${cleanId}_tmp.$ext")
+                        conn.inputStream.use { input ->
+                            FileOutputStream(tempFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        if (tempFile.length() > 0L) {
+                            tempFile.renameTo(destFile)
+                            MediaScannerConnection.scanFile(
+                                appContext,
+                                arrayOf(destFile.absolutePath),
+                                null,
+                                null
+                            )
+                            true
+                        } else {
+                            tempFile.delete()
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+
+            withContext(Dispatchers.Main) {
+                onResult(success)
+            }
+        }
     }
 
     fun uploadStatus(
@@ -219,7 +241,8 @@ object StatusEngine {
                             "mediaUrl" to downloadUri.toString(),
                             "mediaType" to (if (isVideo) 2 else 1),
                             "timestamp" to System.currentTimeMillis(),
-                            "caption" to caption.trim()
+                            "caption" to caption.trim(),
+                            "viewCount" to 0
                         )
 
                         database.getReference(RTDB_PATH_STATUS)
@@ -256,7 +279,7 @@ object StatusEngine {
         return try {
             val input = context.contentResolver.openInputStream(uri) ?: return null
             val original = BitmapFactory.decodeStream(input)
-            input.close() ?: return null
+            input.close()
             if (original == null) return null
 
             val maxDimension = 1280
@@ -338,258 +361,6 @@ fun SegmentedStatusRing(
                 contentAlignment = Alignment.Center
             ) {
                 content()
-            }
-        }
-    }
-}
-
-@Composable
-fun StatusViewerDialog(
-    statuses: List<StatusItem>,
-    displayName: String,
-    avatarUrl: String?,
-    initialIndex: Int = 0,
-    onDismiss: () -> Unit
-) {
-    if (statuses.isEmpty()) {
-        onDismiss()
-        return
-    }
-
-    var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
-    val currentStatus = statuses.getOrNull(currentIndex) ?: return
-
-    var progress by remember { mutableFloatStateOf(0f) }
-    var isPaused by remember { mutableStateOf(false) }
-
-    val isVideo = currentStatus.mediaType == 2
-    val displayDurationMs = if (isVideo) 15000L else 5000L
-
-    BackHandler {
-        onDismiss()
-    }
-
-    LaunchedEffect(currentIndex, isPaused) {
-        val startTime = System.currentTimeMillis() - (progress * displayDurationMs).toLong()
-        while (!isPaused && progress < 1f) {
-            val elapsed = System.currentTimeMillis() - startTime
-            progress = (elapsed.toFloat() / displayDurationMs.toFloat()).coerceIn(0f, 1f)
-            delay(16L)
-        }
-
-        if (!isPaused && progress >= 1f) {
-            if (currentIndex < statuses.lastIndex) {
-                progress = 0f
-                currentIndex++
-            } else {
-                onDismiss()
-            }
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(currentIndex) {
-                    detectTapGestures(
-                        onPress = {
-                            isPaused = true
-                            tryAwaitRelease()
-                            isPaused = false
-                        },
-                        onTap = { offset ->
-                            val screenWidth = size.width
-                            if (offset.x < screenWidth * 0.32f) {
-                                if (currentIndex > 0) {
-                                    progress = 0f
-                                    currentIndex--
-                                } else {
-                                    progress = 0f
-                                }
-                            } else {
-                                if (currentIndex < statuses.lastIndex) {
-                                    progress = 0f
-                                    currentIndex++
-                                } else {
-                                    onDismiss()
-                                }
-                            }
-                        }
-                    )
-                }
-        ) {
-            if (isVideo) {
-                var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
-
-                DisposableEffect(currentStatus.mediaUrl) {
-                    onDispose {
-                        videoViewRef?.stopPlayback()
-                        videoViewRef = null
-                    }
-                }
-
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { context ->
-                        VideoView(context).apply {
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            setVideoURI(Uri.parse(currentStatus.mediaUrl))
-                            setOnPreparedListener { mp ->
-                                mp.isLooping = true
-                                start()
-                            }
-                            videoViewRef = this
-                        }
-                    },
-                    update = { view ->
-                        if (isPaused) {
-                            view.pause()
-                        } else {
-                            if (!view.isPlaying) view.start()
-                        }
-                    }
-                )
-            } else {
-                AsyncImage(
-                    model = currentStatus.mediaUrl,
-                    contentDescription = "Status Image",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .statusBarsPadding()
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    for (i in statuses.indices) {
-                        val segmentProgress = when {
-                            i < currentIndex -> 1f
-                            i == currentIndex -> progress
-                            else -> 0f
-                        }
-
-                        LinearProgressIndicator(
-                            progress = { segmentProgress },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(2.5.dp)
-                                .clip(RoundedCornerShape(2.dp)),
-                            color = Color.White,
-                            trackColor = Color.White.copy(alpha = 0.30f)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!avatarUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = avatarUrl,
-                                contentDescription = "Status Author",
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.70f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(10.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = displayName,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
-                        Text(
-                            text = formatStatusTime(currentStatus.timestamp),
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.75f)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.35f))
-                            .bounceClick(scaleDown = 0.94f) {
-                                onDismiss()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            if (currentStatus.caption.isNotBlank()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .background(Color.Black.copy(alpha = 0.65f))
-                        .navigationBarsPadding()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = currentStatus.caption,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                        lineHeight = 20.sp
-                    )
-                }
             }
         }
     }
