@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,7 +33,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -187,8 +187,7 @@ fun PrefPlayer(
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            usePlatformDefaultWidth = false
         )
     ) {
         Box(
@@ -243,9 +242,9 @@ fun PrefPlayer(
 @Composable
 fun PrefPlayer(
     statuses: List<StatusItem>,
-    isOwner: Boolean,
     displayName: String,
     avatarUrl: String?,
+    isOwnStatus: Boolean,
     initialIndex: Int = 0,
     onDismiss: () -> Unit
 ) {
@@ -254,40 +253,33 @@ fun PrefPlayer(
         return
     }
 
-    val context = LocalContext.current
-    var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
-    val safeIndex = currentIndex.coerceIn(0, statuses.lastIndex)
-    val currentStatus = statuses.getOrNull(safeIndex) ?: return
-
-    var progress by remember(safeIndex) { mutableFloatStateOf(0f) }
-    var isPaused by remember { mutableStateOf(false) }
-    var isVideoBuffering by remember(safeIndex) { mutableStateOf(currentStatus.mediaType == 2) }
-
-    var isSaving by remember( currentStatus.id ) { mutableStateOf(false) }
-    var isSaved by remember( currentStatus.id ) { mutableStateOf(false) }
-    var saveFeedbackText by remember { mutableStateOf<String?>(null) }
-
-    val isVideo = currentStatus.mediaType == 2
-    val photoDurationMs = 10_000L
-
     BackHandler {
         onDismiss()
     }
 
-    LaunchedEffect(currentStatus.id, isOwner) {
-        if (!isOwner) {
-            StatusEngine.incrementViewCount(currentStatus)
+    val context = LocalContext.current
+    var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
+    val currentStatus = statuses.getOrNull(currentIndex) ?: statuses.last()
+
+    var progress by remember(currentIndex) { mutableFloatStateOf(0f) }
+    var isPaused by remember { mutableStateOf(false) }
+    var isVideoBuffering by remember(currentIndex) { mutableStateOf(currentStatus.mediaType == 2) }
+
+    var isSaving by remember(currentStatus.id) { mutableStateOf(false) }
+    var isSaved by remember(currentStatus.id) { mutableStateOf(false) }
+
+    val countedStatusIds = remember { mutableSetOf<String>() }
+
+    LaunchedEffect(currentStatus.id, isOwnStatus) {
+        if (!isOwnStatus && currentStatus.id.isNotBlank() && countedStatusIds.add(currentStatus.id)) {
+            StatusEngine.incrementStatusViewCount(currentStatus)
         }
     }
 
-    LaunchedEffect(saveFeedbackText) {
-        if (saveFeedbackText != null) {
-            delay(1800L)
-            saveFeedbackText = null
-        }
-    }
+    val isVideo = currentStatus.mediaType == 2
+    val photoDurationMs = 10_000L
 
-    LaunchedEffect(safeIndex, isPaused, isVideo) {
+    LaunchedEffect(currentIndex, isPaused, isVideo) {
         if (!isVideo) {
             val startTime = System.currentTimeMillis() - (progress * photoDurationMs).toLong()
             while (!isPaused && progress < 1f) {
@@ -296,8 +288,8 @@ fun PrefPlayer(
                 delay(16L)
             }
             if (!isPaused && progress >= 1f) {
-                if (safeIndex < statuses.lastIndex) {
-                    currentIndex = safeIndex + 1
+                if (currentIndex < statuses.lastIndex) {
+                    currentIndex++
                 } else {
                     onDismiss()
                 }
@@ -310,117 +302,123 @@ fun PrefPlayer(
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            usePlatformDefaultWidth = false
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .pointerInput(safeIndex, statuses.size) {
-                    detectTapGestures(
-                        onPress = {
-                            isPaused = true
-                            tryAwaitRelease()
-                            isPaused = false
-                        },
-                        onTap = { offset ->
-                            val width = size.width
-                            if (offset.x < width * 0.30f) {
-                                if (safeIndex > 0) {
-                                    currentIndex = safeIndex - 1
-                                } else {
-                                    progress = 0f
-                                }
-                            } else {
-                                if (safeIndex < statuses.lastIndex) {
-                                    currentIndex = safeIndex + 1
-                                } else {
-                                    onDismiss()
-                                }
-                            }
-                        }
-                    )
-                }
+                .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-            if (isVideo) {
-                var videoViewRef by remember(currentStatus.id) { mutableStateOf<VideoView?>(null) }
-                var videoDurationMs by remember(currentStatus.id) { mutableLongStateOf(0L) }
-
-                DisposableEffect(currentStatus.id) {
-                    onDispose {
-                        videoViewRef?.stopPlayback()
-                        videoViewRef = null
-                    }
-                }
-
-                LaunchedEffect(currentStatus.id, isPaused, isVideoBuffering) {
-                    while (!isPaused && !isVideoBuffering) {
-                        val vv = videoViewRef
-                        if (vv != null && vv.isPlaying && videoDurationMs > 0L) {
-                            progress = (vv.currentPosition.toFloat() / videoDurationMs.toFloat()).coerceIn(0f, 1f)
-                        }
-                        delay(30L)
-                    }
-                }
-
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        VideoView(ctx).apply {
-                            layoutParams = FrameLayout.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            setVideoURI(Uri.parse(currentStatus.mediaUrl))
-                            setOnPreparedListener { mp ->
-                                isVideoBuffering = false
-                                videoDurationMs = mp.duration.toLong().coerceAtLeast(1L)
-                                mp.isLooping = false
-                                if (!isPaused) start()
-                            }
-                            setOnCompletionListener {
-                                progress = 1f
-                                if (safeIndex < statuses.lastIndex) {
-                                    currentIndex = safeIndex + 1
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(currentIndex, statuses.size) {
+                        detectTapGestures(
+                            onPress = {
+                                isPaused = true
+                                tryAwaitRelease()
+                                isPaused = false
+                            },
+                            onTap = { tapOffset ->
+                                val widthPx = size.width
+                                if (tapOffset.x < widthPx * 0.32f) {
+                                    if (currentIndex > 0) {
+                                        currentIndex--
+                                    } else {
+                                        progress = 0f
+                                    }
                                 } else {
-                                    onDismiss()
+                                    if (currentIndex < statuses.lastIndex) {
+                                        currentIndex++
+                                    } else {
+                                        onDismiss()
+                                    }
                                 }
                             }
-                            setOnErrorListener { _, _, _ ->
-                                isVideoBuffering = false
-                                true
-                            }
-                            videoViewRef = this
-                        }
+                        )
                     },
-                    update = { view ->
-                        videoViewRef = view
-                        if (isPaused) {
-                            if (view.isPlaying) view.pause()
-                        } else if (!isVideoBuffering && !view.isPlaying) {
-                            view.start()
+                contentAlignment = Alignment.Center
+            ) {
+                if (isVideo) {
+                    var videoViewRef by remember(currentStatus.id) { mutableStateOf<VideoView?>(null) }
+                    var videoDurationMs by remember(currentStatus.id) { mutableLongStateOf(0L) }
+
+                    DisposableEffect(currentStatus.id) {
+                        onDispose {
+                            videoViewRef?.stopPlayback()
+                            videoViewRef = null
                         }
                     }
-                )
 
-                if (isVideoBuffering) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier
-                            .size(42.dp)
-                            .align(Alignment.Center)
+                    LaunchedEffect(currentStatus.id, isPaused, isVideoBuffering, videoDurationMs) {
+                        while (!isPaused && !isVideoBuffering && videoDurationMs > 0L) {
+                            val vv = videoViewRef
+                            if (vv != null && vv.isPlaying) {
+                                val pos = vv.currentPosition.toLong().coerceAtLeast(0L)
+                                progress = (pos.toFloat() / videoDurationMs.toFloat()).coerceIn(0f, 1f)
+                            }
+                            delay(30L)
+                        }
+                    }
+
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            VideoView(ctx).apply {
+                                layoutParams = FrameLayout.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                setVideoURI(Uri.parse(currentStatus.mediaUrl))
+                                setOnPreparedListener { mp ->
+                                    isVideoBuffering = false
+                                    videoDurationMs = mp.duration.toLong().coerceAtLeast(1L)
+                                    mp.isLooping = false
+                                    if (!isPaused) start()
+                                }
+                                setOnCompletionListener {
+                                    progress = 1f
+                                    if (currentIndex < statuses.lastIndex) {
+                                        currentIndex++
+                                    } else {
+                                        onDismiss()
+                                    }
+                                }
+                                setOnErrorListener { _, _, _ ->
+                                    isVideoBuffering = false
+                                    true
+                                }
+                                videoViewRef = this
+                            }
+                        },
+                        update = { view ->
+                            videoViewRef = view
+                            if (isPaused) {
+                                if (view.isPlaying) view.pause()
+                            } else if (!isVideoBuffering && !view.isPlaying) {
+                                view.start()
+                            }
+                        }
+                    )
+
+                    if (isVideoBuffering) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(42.dp)
+                        )
+                    }
+                } else {
+                    AsyncImage(
+                        model = currentStatus.mediaUrl,
+                        contentDescription = "Status Photo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
                     )
                 }
-            } else {
-                AsyncImage(
-                    model = currentStatus.mediaUrl,
-                    contentDescription = "Status Media",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
             }
 
             Column(
@@ -428,29 +426,33 @@ fun PrefPlayer(
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
                     .background(Color.Black.copy(alpha = 0.45f))
-                    .statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     for (i in statuses.indices) {
-                        val segmentProgress = when {
-                            i < safeIndex -> 1f
-                            i == safeIndex -> progress
+                        val segmentFill = when {
+                            i < currentIndex -> 1f
+                            i == currentIndex -> progress
                             else -> 0f
                         }
 
-                        LinearProgressIndicator(
-                            progress = { segmentProgress },
+                        Box(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(2.5.dp)
-                                .clip(RoundedCornerShape(2.dp)),
-                            color = Color.White,
-                            trackColor = Color.White.copy(alpha = 0.30f)
-                        )
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(Color.White.copy(alpha = 0.30f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(segmentFill.coerceIn(0f, 1f))
+                                    .background(Color.White)
+                            )
+                        }
                     }
                 }
 
@@ -477,7 +479,7 @@ fun PrefPlayer(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     Box(
                         modifier = Modifier
@@ -530,8 +532,10 @@ fun PrefPlayer(
                         Text(
                             text = formatStatusTime(currentStatus.timestamp),
                             fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
                             color = Color.White.copy(alpha = 0.78f),
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 lineHeight = 14.sp
@@ -539,26 +543,24 @@ fun PrefPlayer(
                         )
                     }
 
-                    if (isOwner && currentStatus.viewCount > 0) {
+                    if (isOwnStatus && currentStatus.viewCount > 0) {
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(Color.Black.copy(alpha = 0.50f))
-                                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.15f))
+                                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = EyeStatusIcon,
                                 contentDescription = "Views",
                                 tint = Color.White,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
-
-                            Spacer(modifier = Modifier.width(5.dp))
-
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "${currentStatus.viewCount}",
+                                text = currentStatus.viewCount.toString(),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color.White
@@ -568,52 +570,64 @@ fun PrefPlayer(
                         Spacer(modifier = Modifier.width(8.dp))
                     }
 
-                    Box(
+                    Row(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.50f))
-                            .border(1.dp, Color.White.copy(alpha = 0.20f), CircleShape)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White.copy(alpha = 0.18f))
+                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
                             .bounceClick(scaleDown = 0.94f) {
                                 if (!isSaving && !isSaved) {
                                     isSaving = true
                                     StatusEngine.saveStatusToUpdates(context, currentStatus) { success ->
                                         isSaving = false
-                                        if (success) {
-                                            isSaved = true
-                                            saveFeedbackText = "Saved to Updates"
-                                        } else {
-                                            saveFeedbackText = "Failed to save"
-                                        }
+                                        if (success) isSaved = true
                                     }
                                 }
-                            },
-                        contentAlignment = Alignment.Center
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        when {
-                            isSaving -> {
-                                CircularProgressIndicator(
-                                    color = Color.White,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            isSaved -> {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Saved",
-                                    tint = Color(0xFF25D366),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            else -> {
-                                Icon(
-                                    imageVector = DownloadStatusIcon,
-                                    contentDescription = "Save to Updates",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = "Saving...",
+                                fontSize = 12.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
+                        } else if (isSaved) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color(0xFF25D366),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Saved",
+                                fontSize = 12.sp,
+                                color = Color(0xFF25D366),
+                                fontWeight = FontWeight.Medium
+                            )
+                        } else {
+                            Icon(
+                                imageVector = DownloadStatusIcon,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Save",
+                                fontSize = 12.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
@@ -625,7 +639,6 @@ fun PrefPlayer(
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
                         .background(Color.Black.copy(alpha = 0.65f))
-                        .navigationBarsPadding()
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -638,11 +651,245 @@ fun PrefPlayer(
                     )
                 }
             }
+        }
+    }
+}
 
-            AnimatedVisibility(
-                visible = saveFeedbackText != null,
-                enter = fadeIn(),
-                exit = fadeOut(),
+@Composable
+private fun PhotoViewerContent(
+    mediaTarget: Any?,
+    onToggleControls: () -> Unit
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (scale > 1.05f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            scale = 2.5f
+                            offset = Offset.Zero
+                        }
+                    },
+                    onTap = {
+                        onToggleControls()
+                    }
+                )
+            }
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    val newScale = (scale * zoom).coerceIn(1f, 5f)
+                    scale = newScale
+                    if (newScale > 1f) {
+                        offset += pan
+                    } else {
+                        offset = Offset.Zero
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = mediaTarget,
+            contentDescription = "Photo Preview",
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
+            contentScale = ContentScale.Fit
+        )
+    }
+}
+
+@Composable
+private fun VideoPlayerContent(
+    uri: Uri?,
+    controlsVisible: Boolean,
+    onToggleControls: () -> Unit
+) {
+    var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(true) }
+    var currentPositionMs by remember { mutableLongStateOf(0L) }
+    var durationMs by remember { mutableLongStateOf(0L) }
+    var isDraggingSlider by remember { mutableStateOf(false) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            videoViewRef?.stopPlayback()
+            videoViewRef = null
+        }
+    }
+
+    LaunchedEffect(isPlaying, isDraggingSlider) {
+        while (isPlaying && !isDraggingSlider) {
+            videoViewRef?.let { vv ->
+                if (vv.isPlaying) {
+                    currentPositionMs = vv.currentPosition.toLong().coerceAtLeast(0L)
+                }
+            }
+            delay(200L)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onToggleControls() }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (uri != null) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    VideoView(context).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        setVideoURI(uri)
+                        setOnPreparedListener { mp ->
+                            isBuffering = false
+                            durationMs = mp.duration.toLong().coerceAtLeast(0L)
+                            start()
+                            isPlaying = true
+                        }
+                        setOnCompletionListener {
+                            isPlaying = false
+                            currentPositionMs = durationMs
+                        }
+                        setOnErrorListener { _, _, _ ->
+                            isBuffering = false
+                            true
+                        }
+                        videoViewRef = this
+                    }
+                },
+                update = { view ->
+                    videoViewRef = view
+                }
+            )
+        }
+
+        if (isBuffering) {
+            CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = 3.dp,
+                modifier = Modifier.size(44.dp)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = controlsVisible && !isBuffering,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                    .bounceClick(scaleDown = 0.94f) {
+                        val vv = videoViewRef ?: return@bounceClick
+                        if (isPlaying) {
+                            vv.pause()
+                            isPlaying = false
+                        } else {
+                            if (currentPositionMs >= durationMs && durationMs > 0L) {
+                                vv.seekTo(0)
+                                currentPositionMs = 0L
+                            }
+                            vv.start()
+                            isPlaying = true
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) PauseIcon else PlayIcon,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = controlsVisible && !isBuffering,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = formatDuration(currentPositionMs),
+                        fontSize = 12.5.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Slider(
+                        value = if (durationMs > 0L) (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f,
+                        onValueChange = { fraction ->
+                            isDraggingSlider = true
+                            currentPositionMs = (fraction * durationMs).toLong()
+                        },
+                        onValueChangeFinished = {
+                            videoViewRef?.seekTo(currentPositionMs.toInt())
+                            isDraggingSlider = false
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = Color(0xFFFF2E63),
+                            inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Text(
+                        text = formatDuration(durationMs),
+                        fontSize = 12.5.sp,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = (millis / 1000).coerceAtLeast(0)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format(Locale.ENGLISH, "%02d:%02d", minutes, seconds)
+}
