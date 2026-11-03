@@ -58,6 +58,34 @@ object MomoStorage {
         if (!exists()) mkdirs()
     }
 
+    fun saveStatusMediaToUpdates(
+        context: Context,
+        sourceFile: File,
+        statusId: String,
+        isVideo: Boolean
+    ): Boolean {
+        return try {
+            val updatesDir = getUpdatesDir(context)
+            val ext = if (isVideo) "mp4" else "jpg"
+            val prefix = if (isVideo) "VID" else "IMG"
+            val targetFile = File(updatesDir, "${prefix}_${statusId}.$ext")
+
+            if (targetFile.exists() && targetFile.length() > 0L) {
+                return true
+            }
+
+            if (sourceFile.exists() && sourceFile.length() > 0L) {
+                sourceFile.copyTo(targetFile, overwrite = true)
+                targetFile.exists() && targetFile.length() > 0L
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     fun resolveLocalMediaFile(context: Context, localPath: String?): File? {
         if (localPath.isNullOrBlank()) return null
 
