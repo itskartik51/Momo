@@ -6,11 +6,18 @@ import android.widget.FrameLayout
 import android.widget.VideoView
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -22,13 +29,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +60,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,8 +92,10 @@ import com.personal.momo.UI_Screens.Chat.decodeBlurPreviewBitmap
 import com.personal.momo.UI_Screens.Chat.formatStatusTime
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
+import kotlin.math.abs
 
 private val BackArrowIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -261,6 +274,7 @@ fun PrefPlayer(
     }
 
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
     val currentStatus = statuses.getOrNull(currentIndex) ?: statuses.last()
 
@@ -268,6 +282,17 @@ fun PrefPlayer(
     var isUserPaused by remember { mutableStateOf(false) }
     var isMenuOpen by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    var isImmersiveCleanMode by remember { mutableStateOf(false) }
+    var isCaptionExpanded by remember(currentStatus.id) { mutableStateOf(false) }
+    var isCaptionOverflowing by remember(currentStatus.id) { mutableStateOf(false) }
+
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    val animatedDragOffsetY by animateFloatAsState(
+        targetValue = dragOffsetY,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "dragOffsetYAnim"
+    )
 
     var isVideoBuffering by remember(currentIndex) { mutableStateOf(currentStatus.mediaType == 2) }
     var isSavedLocally by remember(currentStatus.id) { mutableStateOf(false) }
@@ -290,6 +315,8 @@ fun PrefPlayer(
         when {
             showDeleteConfirmDialog -> showDeleteConfirmDialog = false
             isMenuOpen -> isMenuOpen = false
+            isCaptionExpanded -> isCaptionExpanded = false
+            isImmersiveCleanMode -> isImmersiveCleanMode = false
             else -> onDismiss()
         }
     }
@@ -303,7 +330,7 @@ fun PrefPlayer(
         }
     }
 
-    val isPausedEffective = isUserPaused || isMenuOpen || showDeleteConfirmDialog || !isMediaDownloaded
+    val isPausedEffective = isUserPaused || isMenuOpen || showDeleteConfirmDialog || !isMediaDownloaded || isImmersiveCleanMode || isCaptionExpanded
     val isVideo = currentStatus.mediaType == 2
     val photoDurationMs = 10_000L
 
@@ -325,6 +352,10 @@ fun PrefPlayer(
         }
     }
 
+    val backgroundAlpha = remember(animatedDragOffsetY) {
+        (1f - (animatedDragOffsetY / 650f)).coerceIn(0.4f, 1f)
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -336,38 +367,89 @@ fun PrefPlayer(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(Color.Black.copy(alpha = backgroundAlpha))
                 .statusBarsPadding()
                 .navigationBarsPadding()
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(currentIndex, statuses.size) {
-                        detectTapGestures(
-                            onPress = {
+                .graphicsLayer {
+                    translationY = animatedDragOffsetY
+                }
+                .pointerInput(currentIndex, isImmersiveCleanMode, isCaptionExpanded) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var isDrag = false
+                        var totalDragY = 0f
+                        var isHold = false
+
+                        val holdJob = coroutineScope.launch {
+                            delay(200L)
+                            if (!isDrag && !isImmersiveCleanMode && !isCaptionExpanded) {
                                 isUserPaused = true
-                                tryAwaitRelease()
-                                isUserPaused = false
-                            },
-                            onTap = { tapOffset ->
-                                val widthPx = size.width
-                                if (tapOffset.x < widthPx * 0.32f) {
-                                    if (currentIndex > 0) {
-                                        currentIndex--
-                                    } else {
-                                        progress = 0f
+                                isHold = true
+                            }
+                        }
+
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+
+                                val deltaY = change.position.y - down.position.y
+                                val deltaX = change.position.x - down.position.x
+
+                                if (abs(deltaY) > 20f && abs(deltaY) > abs(deltaX)) {
+                                    isDrag = true
+                                    holdJob.cancel()
+                                    if (isHold) {
+                                        isUserPaused = false
+                                        isHold = false
                                     }
-                                } else {
-                                    if (currentIndex < statuses.lastIndex) {
-                                        currentIndex++
-                                    } else {
-                                        onDismiss()
+
+                                    if (deltaY > 0f && !isCaptionExpanded) {
+                                        totalDragY = deltaY
+                                        dragOffsetY = deltaY
+                                        change.consume()
+                                    } else if (deltaY < -35f && !isImmersiveCleanMode && !isCaptionExpanded) {
+                                        isImmersiveCleanMode = true
+                                        change.consume()
                                     }
                                 }
                             }
-                        )
-                    },
+                        } finally {
+                            holdJob.cancel()
+                            if (isHold) {
+                                isUserPaused = false
+                            }
+                        }
+
+                        if (isDrag) {
+                            if (totalDragY > 130.dp.toPx()) {
+                                onDismiss()
+                            } else {
+                                dragOffsetY = 0f
+                            }
+                        } else {
+                            if (!down.isConsumed) {
+                                if (isImmersiveCleanMode) {
+                                    isImmersiveCleanMode = false
+                                } else if (isCaptionExpanded) {
+                                    isCaptionExpanded = false
+                                } else {
+                                    val screenWidth = size.width
+                                    val tapX = down.position.x
+                                    if (tapX < screenWidth * 0.32f) {
+                                        if (currentIndex > 0) currentIndex-- else progress = 0f
+                                    } else {
+                                        if (currentIndex < statuses.lastIndex) currentIndex++ else onDismiss()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 if (cachedLocalFile != null && cachedLocalFile.exists() && cachedLocalFile.length() > 0L) {
@@ -493,214 +575,222 @@ fun PrefPlayer(
                 }
             }
 
-            Column(
+            AnimatedVisibility(
+                visible = !isImmersiveCleanMode,
+                enter = fadeIn(animationSpec = tween(220)),
+                exit = fadeOut(animationSpec = tween(220)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.45f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    for (i in statuses.indices) {
-                        val segmentFill = when {
-                            i < currentIndex -> 1f
-                            i == currentIndex -> progress
-                            else -> 0f
-                        }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        for (i in statuses.indices) {
+                            val segmentFill = when {
+                                i < currentIndex -> 1f
+                                i == currentIndex -> progress
+                                else -> 0f
+                            }
 
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(2.5.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(Color.White.copy(alpha = 0.30f))
-                        ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(segmentFill.coerceIn(0f, 1f))
-                                    .background(Color.White)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .bounceClick(scaleDown = 0.94f) {
-                                onDismiss()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = BackArrowIcon,
-                            contentDescription = "Back",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                            .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!avatarUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = avatarUrl,
-                                contentDescription = "Uploader Avatar",
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.75f),
-                                modifier = Modifier.size(20.dp)
-                            )
+                                    .weight(1f)
+                                    .height(2.5.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Color.White.copy(alpha = 0.30f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(segmentFill.coerceIn(0f, 1f))
+                                        .background(Color.White)
+                                )
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = displayName,
-                            fontSize = 15.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                                lineHeight = 18.sp
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(1.5.dp))
-
-                        Text(
-                            text = formatStatusTime(currentStatus.timestamp),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Normal,
-                            color = Color.White.copy(alpha = 0.78f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                                lineHeight = 14.sp
-                            )
-                        )
-                    }
-
-                    if (isOwnStatus && currentStatus.viewCount > 0) {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color.White.copy(alpha = 0.15f))
-                                .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = EyeStatusIcon,
-                                contentDescription = "Views",
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = currentStatus.viewCount.toString(),
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
-
-                    Box {
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
                                 .bounceClick(scaleDown = 0.94f) {
-                                    isMenuOpen = true
+                                    onDismiss()
                                 },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = MoreVertIcon,
-                                contentDescription = "Options",
+                                imageVector = BackArrowIcon,
+                                contentDescription = "Back",
                                 tint = Color.White,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
-                        DropdownMenu(
-                            expanded = isMenuOpen,
-                            onDismissRequest = { isMenuOpen = false },
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Box(
                             modifier = Modifier
-                                .background(Color(0xFF222328), RoundedCornerShape(12.dp))
-                                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = if (isSavedLocally) "Saved" else "Save",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = if (isSavedLocally) Color(0xFF25D366) else Color.White
-                                    )
-                                },
-                                onClick = {
-                                    isMenuOpen = false
-                                    if (!isSavedLocally) {
-                                        StatusEngine.saveStatusToDevice(context, currentStatus) { success ->
-                                            if (success) isSavedLocally = true
-                                        }
-                                    }
-                                }
+                            if (!avatarUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = avatarUrl,
+                                    contentDescription = "Uploader Avatar",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = Color.White.copy(alpha = 0.75f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = displayName,
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    lineHeight = 18.sp
+                                )
                             )
 
-                            if (isOwnStatus) {
+                            Spacer(modifier = Modifier.height(1.5.dp))
+
+                            Text(
+                                text = formatStatusTime(currentStatus.timestamp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = Color.White.copy(alpha = 0.78f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    lineHeight = 14.sp
+                                )
+                            )
+                        }
+
+                        if (isOwnStatus && currentStatus.viewCount > 0) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = EyeStatusIcon,
+                                    contentDescription = "Views",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = currentStatus.viewCount.toString(),
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+
+                        Box {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .bounceClick(scaleDown = 0.94f) {
+                                        isMenuOpen = true
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = MoreVertIcon,
+                                    contentDescription = "Options",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = isMenuOpen,
+                                onDismissRequest = { isMenuOpen = false },
+                                modifier = Modifier
+                                    .background(Color(0xFF222328), RoundedCornerShape(12.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                            ) {
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            text = "Delete",
+                                            text = if (isSavedLocally) "Saved" else "Save",
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFFFF4D4D)
+                                            color = if (isSavedLocally) Color(0xFF25D366) else Color.White
                                         )
                                     },
                                     onClick = {
                                         isMenuOpen = false
-                                        showDeleteConfirmDialog = true
+                                        if (!isSavedLocally) {
+                                            StatusEngine.saveStatusToDevice(context, currentStatus) { success ->
+                                                if (success) isSavedLocally = true
+                                            }
+                                        }
                                     }
                                 )
+
+                                if (isOwnStatus) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "Delete",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = Color(0xFFFF4D4D)
+                                            )
+                                        },
+                                        onClick = {
+                                            isMenuOpen = false
+                                            showDeleteConfirmDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -708,21 +798,63 @@ fun PrefPlayer(
             }
 
             if (currentStatus.caption.isNotBlank()) {
-                Box(
+                AnimatedVisibility(
+                    visible = !isImmersiveCleanMode,
+                    enter = fadeIn(animationSpec = tween(220)),
+                    exit = fadeOut(animationSpec = tween(220)),
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .background(Color.Black.copy(alpha = 0.65f))
-                        .padding(horizontal = 20.dp, vertical = 14.dp),
-                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = currentStatus.caption,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White,
-                        lineHeight = 20.sp
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.70f))
+                            .padding(horizontal = 20.dp, vertical = 14.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            val scrollState = rememberScrollState()
+                            val textModifier = if (isCaptionExpanded) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 240.dp)
+                                    .verticalScroll(scrollState)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            }
+
+                            Text(
+                                text = currentStatus.caption,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White,
+                                lineHeight = 21.sp,
+                                maxLines = if (isCaptionExpanded) Int.MAX_VALUE else 3,
+                                overflow = TextOverflow.Ellipsis,
+                                onTextLayout = { textLayoutResult ->
+                                    if (!isCaptionExpanded) {
+                                        isCaptionOverflowing = textLayoutResult.hasVisualOverflow || textLayoutResult.lineCount > 3
+                                    }
+                                },
+                                modifier = textModifier
+                            )
+
+                            if (isCaptionOverflowing || isCaptionExpanded) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (isCaptionExpanded) "Show less" else "Read more",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF34B7F1),
+                                    modifier = Modifier
+                                        .bounceClick(scaleDown = 0.94f) {
+                                            isCaptionExpanded = !isCaptionExpanded
+                                        }
+                                        .padding(vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -737,7 +869,7 @@ fun PrefPlayer(
                             .padding(horizontal = 28.dp),
                         shape = RoundedCornerShape(18.dp),
                         color = Color(0xFF222328),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
                     ) {
                         Column(
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
