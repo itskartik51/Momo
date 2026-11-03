@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.media.ExifInterface
 import android.media.MediaMetadataRetriever
 import android.util.Base64
+import android.util.LruCache
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -44,11 +45,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +59,21 @@ import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
 import com.personal.momo.UI_Screens.bounceClick
 import java.io.File
 import java.util.Locale
+
+internal object MediaRenderCache {
+    private val ratioCache = LruCache<String, Float>(300)
+    private val blurCache = LruCache<String, Bitmap>(150)
+    private val fileCache = LruCache<String, File>(300)
+
+    fun getAspectRatio(id: String): Float? = ratioCache.get(id)
+    fun putAspectRatio(id: String, ratio: Float) { ratioCache.put(id, ratio) }
+
+    fun getBlurBitmap(key: String): Bitmap? = blurCache.get(key)
+    fun putBlurBitmap(key: String, bitmap: Bitmap) { blurCache.put(key, bitmap) }
+
+    fun getFile(path: String): File? = fileCache.get(path)
+    fun putFile(path: String, file: File) { fileCache.put(path, file) }
+}
 
 private val PlayArrowIcon: ImageVector by lazy {
     ImageVector.Builder(
@@ -106,25 +120,44 @@ internal fun MediaBubbleMessageContent(
     onReplyClick: (String) -> Unit
 ) {
     val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
     val hasReply = replyToMessage != null
     val hasCaption = message.text.isNotBlank()
 
     val mediaFile = remember(message.localPath) {
-        MomoStorage.resolveLocalMediaFile(context, message.localPath)
+        val path = message.localPath
+        if (path.isNullOrBlank()) null
+        else {
+            MediaRenderCache.getFile(path) ?: run {
+                val resolved = MomoStorage.resolveLocalMediaFile(context, path)
+                if (resolved != null) MediaRenderCache.putFile(path, resolved)
+                resolved
+            }
+        }
     }
 
     val blurBitmap = remember(message.blurPreview) {
-        decodeBlurPreviewBitmap(message.blurPreview)
+        val b64 = message.blurPreview
+        if (b64.isNullOrBlank()) null
+        else {
+            MediaRenderCache.getBlurBitmap(b64) ?: run {
+                val decoded = decodeBlurPreviewBitmap(b64)
+                if (decoded != null) MediaRenderCache.putBlurBitmap(b64, decoded)
+                decoded
+            }
+        }
     }
 
-    val mediaAspectRatio = remember(mediaFile, blurBitmap) {
-        when {
-            mediaFile != null -> calculateMediaAspectRatio(mediaFile, message.mediaType == 2)
-            blurBitmap != null && blurBitmap.width > 0 && blurBitmap.height > 0 -> {
-                (blurBitmap.width.toFloat() / blurBitmap.height.toFloat()).coerceIn(0.68f, 1.75f)
+    val mediaAspectRatio = remember(message.id, mediaFile, blurBitmap) {
+        MediaRenderCache.getAspectRatio(message.id) ?: run {
+            val ratio = when {
+                mediaFile != null -> calculateMediaAspectRatio(mediaFile, message.mediaType == 2)
+                blurBitmap != null && blurBitmap.width > 0 && blurBitmap.height > 0 -> {
+                    (blurBitmap.width.toFloat() / blurBitmap.height.toFloat()).coerceIn(0.68f, 1.75f)
+                }
+                else -> 1f
             }
-            else -> 1f
+            MediaRenderCache.putAspectRatio(message.id, ratio)
+            ratio
         }
     }
 
@@ -201,10 +234,6 @@ internal fun MediaBubbleMessageContent(
                 .background(Color.Black.copy(alpha = 0.28f))
                 .pointerInput(message.id, isSelectionMode, mediaFile != null) {
                     detectTapGestures(
-                        onLongPress = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleSelect(message.id)
-                        },
                         onTap = {
                             if (isSelectionMode) {
                                 onToggleSelect(message.id)
@@ -413,7 +442,7 @@ internal fun MediaBubbleMessageContent(
     }
 }
 
-private fun decodeBlurPreviewBitmap(base64Str: String?): Bitmap? {
+internal fun decodeBlurPreviewBitmap(base64Str: String?): Bitmap? {
     if (base64Str.isNullOrBlank()) return null
     return try {
         val bytes = Base64.decode(base64Str, Base64.NO_WRAP)
