@@ -21,8 +21,9 @@ import java.io.File
  *   └── Media/
  *       ├── Photos/
  *       │   └── Sent/
- *       └── Videos/
- *           └── Sent/
+ *       ├── Videos/
+ *       │   └── Sent/
+ *       └── Updates/
  */
 object MomoStorage {
     fun getMomoDir(context: Context): File {
@@ -53,6 +54,10 @@ object MomoStorage {
         if (!exists()) mkdirs()
     }
 
+    fun getUpdatesDir(context: Context): File = File(getMomoDir(context), "Media/Updates").apply {
+        if (!exists()) mkdirs()
+    }
+
     fun resolveLocalMediaFile(context: Context, localPath: String?): File? {
         if (localPath.isNullOrBlank()) return null
 
@@ -71,6 +76,9 @@ object MomoStorage {
 
             val candidateRecvVideo = File(getVideosDir(context), localPath)
             if (candidateRecvVideo.exists() && candidateRecvVideo.length() > 0L) return candidateRecvVideo
+
+            val candidateUpdates = File(getUpdatesDir(context), localPath)
+            if (candidateUpdates.exists() && candidateUpdates.length() > 0L) return candidateUpdates
         }
 
         val directFile = File(localPath)
