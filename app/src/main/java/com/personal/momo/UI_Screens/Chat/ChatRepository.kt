@@ -65,21 +65,16 @@ object MomoStorage {
         isVideo: Boolean
     ): Boolean {
         return try {
+            if (!sourceFile.exists() || sourceFile.length() <= 0L) return false
             val updatesDir = getUpdatesDir(context)
             val ext = if (isVideo) "mp4" else "jpg"
             val prefix = if (isVideo) "VID" else "IMG"
-            val targetFile = File(updatesDir, "${prefix}_${statusId}.$ext")
+            val safeId = statusId.ifBlank { System.currentTimeMillis().toString() }
+            val targetFile = File(updatesDir, "${prefix}_${safeId}.$ext")
 
-            if (targetFile.exists() && targetFile.length() > 0L) {
-                return true
-            }
-
-            if (sourceFile.exists() && sourceFile.length() > 0L) {
-                sourceFile.copyTo(targetFile, overwrite = true)
-                targetFile.exists() && targetFile.length() > 0L
-            } else {
-                false
-            }
+            if (targetFile.exists() && targetFile.length() > 0L) return true
+            sourceFile.copyTo(targetFile, overwrite = true)
+            targetFile.exists() && targetFile.length() > 0L
         } catch (e: Exception) {
             e.printStackTrace()
             false
