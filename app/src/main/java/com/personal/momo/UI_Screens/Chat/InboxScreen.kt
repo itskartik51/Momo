@@ -231,19 +231,21 @@ fun InboxScreen(
     }
 
     if (viewingMyStatus && myStatuses.isNotEmpty()) {
-        StatusViewerDialog(
+        PrefPlayer(
             statuses = myStatuses,
             displayName = "You",
             avatarUrl = myAvatarUrl,
+            isOwnStatus = true,
             onDismiss = { viewingMyStatus = false }
         )
     }
 
     if (viewingPartnerStatus && partnerStatuses.isNotEmpty()) {
-        StatusViewerDialog(
+        PrefPlayer(
             statuses = partnerStatuses,
             displayName = partnerDisplayName,
             avatarUrl = effectiveAvatarUrl,
+            isOwnStatus = false,
             onDismiss = { viewingPartnerStatus = false }
         )
     }
@@ -409,7 +411,7 @@ private fun MyStatusRow(
                 orientation = Orientation.Horizontal,
                 enabled = hasStatus
             )
-            .bounceClick(scaleDown = 0.96f) {
+            .bounceClick(scaleDown = 0.94f) {
                 if (!hasStatus) {
                     onAddClick()
                 } else {
@@ -434,12 +436,12 @@ private fun MyStatusRow(
             ) {
                 SegmentedStatusRing(
                     statusCount = statuses.size,
-                    ringGap = 3.dp,
+                    ringGap = 2.5.dp,
                     strokeWidth = 2.5.dp
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                             .border(
@@ -463,7 +465,7 @@ private fun MyStatusRow(
                                 imageVector = Icons.Default.Person,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             )
                         }
 
@@ -475,7 +477,7 @@ private fun MyStatusRow(
                                 contentAlignment = Alignment.Center
                             ) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
+                                    modifier = Modifier.size(22.dp),
                                     color = Color.White,
                                     strokeWidth = 2.5.dp
                                 )
@@ -496,7 +498,7 @@ private fun MyStatusRow(
                     ) {
                         Icon(
                             imageVector = PlusIcon,
-                            contentDescription = "Add Status",
+                            contentDescription = "Add Update",
                             tint = Color.White,
                             modifier = Modifier.size(13.dp)
                         )
@@ -531,14 +533,14 @@ private fun MyStatusRow(
                     } else {
                         "Disappears after 24 hours"
                     },
-                    fontSize = 12.5.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = TextStyle(
                         platformStyle = PlatformTextStyle(includeFontPadding = false),
-                        lineHeight = 15.sp
+                        lineHeight = 14.sp
                     )
                 )
             }
@@ -560,7 +562,7 @@ private fun MyStatusRow(
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(MomoPrimaryGradient)
-                        .bounceClick(scaleDown = 0.92f) {
+                        .bounceClick(scaleDown = 0.94f) {
                             onAddClick()
                         },
                     contentAlignment = Alignment.Center
@@ -614,12 +616,12 @@ private fun InboxChatRow(
             ) {
                 SegmentedStatusRing(
                     statusCount = partnerStatuses.size,
-                    ringGap = 3.dp,
+                    ringGap = 2.5.dp,
                     strokeWidth = 2.5.dp
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                             .border(
@@ -646,7 +648,7 @@ private fun InboxChatRow(
                                 imageVector = Icons.Default.Person,
                                 contentDescription = "Avatar Fallback",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(26.dp)
                             )
                         }
                     }
