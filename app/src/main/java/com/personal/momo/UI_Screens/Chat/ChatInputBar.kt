@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -43,6 +44,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +55,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
@@ -114,6 +118,21 @@ private val CloseIcon: ImageVector by lazy {
     ).addPath(
         pathData = PathParser().parsePathString(
             "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val InputPlayIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "InputPlay",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M8 5v14l11-7z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -344,7 +363,7 @@ private fun EditPreviewBar(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = message.text.ifBlank { if (message.mediaType == 2) "Video" else "Photo" },
+                    text = message.text.ifBlank { if (message.mediaType == 2) "🎥 Video" else "📷 Photo" },
                     fontSize = 12.5.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -386,14 +405,40 @@ private fun ReplyPreviewBar(
     partnerDisplayName: String,
     onCancelReply: () -> Unit
 ) {
+    val context = LocalContext.current
     val isMyMessage = message.senderId == myCode
     val accentColor = if (isMyMessage) MomoRedLight else AquaMintColor
     val senderName = if (isMyMessage) "You" else partnerDisplayName
 
+    val isMedia = message.mediaType > 0
     val previewText = when {
         message.mediaType == 1 -> if (message.text.isNotBlank()) "📷 ${message.text}" else "📷 Photo"
         message.mediaType == 2 -> if (message.text.isNotBlank()) "🎥 ${message.text}" else "🎥 Video"
-        else -> message.text
+        else -> message.text.ifBlank { "Message" }
+    }
+
+    val mediaFile = remember(message.localPath) {
+        val path = message.localPath
+        if (path.isNullOrBlank()) null
+        else {
+            MediaRenderCache.getFile(path) ?: run {
+                val resolved = MomoStorage.resolveLocalMediaFile(context, path)
+                if (resolved != null) MediaRenderCache.putFile(path, resolved)
+                resolved
+            }
+        }
+    }
+
+    val blurBitmap = remember(message.blurPreview) {
+        val b64 = message.blurPreview
+        if (b64.isNullOrBlank()) null
+        else {
+            MediaRenderCache.getBlurBitmap(b64) ?: run {
+                val decoded = decodeBlurPreviewBitmap(b64)
+                if (decoded != null) MediaRenderCache.putBlurBitmap(b64, decoded)
+                decoded
+            }
+        }
     }
 
     Surface(
@@ -454,7 +499,42 @@ private fun ReplyPreviewBar(
                 )
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            if (isMedia) {
+                Box(
+                    modifier = Modifier
+                        .padding(end = 6.dp)
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.Black.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (mediaFile != null || blurBitmap != null) {
+                        AsyncImage(
+                            model = mediaFile ?: blurBitmap,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    if (message.mediaType == 2) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.55f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = InputPlayIcon,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(11.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
             Box(
                 modifier = Modifier
