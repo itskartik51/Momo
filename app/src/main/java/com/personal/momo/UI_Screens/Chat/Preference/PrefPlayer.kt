@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -29,17 +30,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,10 +53,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
@@ -71,6 +77,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.Chat.StatusEngine
 import com.personal.momo.UI_Screens.Chat.StatusItem
+import com.personal.momo.UI_Screens.Chat.decodeBlurPreviewBitmap
 import com.personal.momo.UI_Screens.Chat.formatStatusTime
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.delay
@@ -122,16 +129,16 @@ private val PauseIcon: ImageVector by lazy {
     ).build()
 }
 
-private val DownloadStatusIcon: ImageVector by lazy {
+private val MoreVertIcon: ImageVector by lazy {
     ImageVector.Builder(
-        name = "DownloadStatus",
+        name = "MoreVert",
         defaultWidth = 24.dp,
         defaultHeight = 24.dp,
         viewportWidth = 24f,
         viewportHeight = 24f
     ).addPath(
         pathData = PathParser().parsePathString(
-            "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"
+            "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -253,41 +260,62 @@ fun PrefPlayer(
         return
     }
 
-    BackHandler {
-        onDismiss()
-    }
-
     val context = LocalContext.current
     var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
     val currentStatus = statuses.getOrNull(currentIndex) ?: statuses.last()
 
     var progress by remember(currentIndex) { mutableFloatStateOf(0f) }
-    var isPaused by remember { mutableStateOf(false) }
-    var isVideoBuffering by remember(currentIndex) { mutableStateOf(currentStatus.mediaType == 2) }
+    var isUserPaused by remember { mutableStateOf(false) }
+    var isMenuOpen by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
-    var isSaving by remember(currentStatus.id) { mutableStateOf(false) }
-    var isSaved by remember(currentStatus.id) { mutableStateOf(false) }
+    var isVideoBuffering by remember(currentIndex) { mutableStateOf(currentStatus.mediaType == 2) }
+    var isSavedLocally by remember(currentStatus.id) { mutableStateOf(false) }
+
+    val downloadProgressMap by StatusEngine.downloadProgressFlow.collectAsState()
+    val activeDownloadProgress = downloadProgressMap[currentStatus.id]
+    val isMediaDownloaded = StatusEngine.isStatusCached(context, currentStatus)
+
+    val cachedLocalFile = remember(currentStatus.id, isMediaDownloaded) {
+        if (isMediaDownloaded) StatusEngine.getCacheFile(context, currentStatus) else null
+    }
+
+    val blurBitmap = remember(currentStatus.blurPreview) {
+        decodeBlurPreviewBitmap(currentStatus.blurPreview)
+    }
 
     val countedStatusIds = remember { mutableSetOf<String>() }
 
-    LaunchedEffect(currentStatus.id, isOwnStatus) {
-        if (!isOwnStatus && currentStatus.id.isNotBlank() && countedStatusIds.add(currentStatus.id)) {
-            StatusEngine.incrementStatusViewCount(currentStatus)
+    BackHandler {
+        when {
+            showDeleteConfirmDialog -> showDeleteConfirmDialog = false
+            isMenuOpen -> isMenuOpen = false
+            else -> onDismiss()
         }
     }
 
+    LaunchedEffect(currentStatus.id, isOwnStatus, isMediaDownloaded) {
+        if (!isOwnStatus && currentStatus.id.isNotBlank() && countedStatusIds.add(currentStatus.id)) {
+            StatusEngine.incrementStatusViewCount(currentStatus)
+        }
+        if (!isMediaDownloaded) {
+            StatusEngine.ensureStatusDownloaded(context, currentStatus)
+        }
+    }
+
+    val isPausedEffective = isUserPaused || isMenuOpen || showDeleteConfirmDialog || !isMediaDownloaded
     val isVideo = currentStatus.mediaType == 2
     val photoDurationMs = 10_000L
 
-    LaunchedEffect(currentIndex, isPaused, isVideo) {
-        if (!isVideo) {
+    LaunchedEffect(currentIndex, isPausedEffective, isVideo, isMediaDownloaded) {
+        if (!isVideo && isMediaDownloaded) {
             val startTime = System.currentTimeMillis() - (progress * photoDurationMs).toLong()
-            while (!isPaused && progress < 1f) {
+            while (!isPausedEffective && progress < 1f) {
                 val elapsed = System.currentTimeMillis() - startTime
                 progress = (elapsed.toFloat() / photoDurationMs.toFloat()).coerceIn(0f, 1f)
                 delay(16L)
             }
-            if (!isPaused && progress >= 1f) {
+            if (!isPausedEffective && progress >= 1f) {
                 if (currentIndex < statuses.lastIndex) {
                     currentIndex++
                 } else {
@@ -318,9 +346,9 @@ fun PrefPlayer(
                     .pointerInput(currentIndex, statuses.size) {
                         detectTapGestures(
                             onPress = {
-                                isPaused = true
+                                isUserPaused = true
                                 tryAwaitRelease()
-                                isPaused = false
+                                isUserPaused = false
                             },
                             onTap = { tapOffset ->
                                 val widthPx = size.width
@@ -342,82 +370,126 @@ fun PrefPlayer(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                if (isVideo) {
-                    var videoViewRef by remember(currentStatus.id) { mutableStateOf<VideoView?>(null) }
-                    var videoDurationMs by remember(currentStatus.id) { mutableLongStateOf(0L) }
+                if (cachedLocalFile != null && cachedLocalFile.exists() && cachedLocalFile.length() > 0L) {
+                    if (isVideo) {
+                        var videoViewRef by remember(currentStatus.id) { mutableStateOf<VideoView?>(null) }
+                        var videoDurationMs by remember(currentStatus.id) { mutableLongStateOf(0L) }
 
-                    DisposableEffect(currentStatus.id) {
-                        onDispose {
-                            videoViewRef?.stopPlayback()
-                            videoViewRef = null
-                        }
-                    }
-
-                    LaunchedEffect(currentStatus.id, isPaused, isVideoBuffering, videoDurationMs) {
-                        while (!isPaused && !isVideoBuffering && videoDurationMs > 0L) {
-                            val vv = videoViewRef
-                            if (vv != null && vv.isPlaying) {
-                                val pos = vv.currentPosition.toLong().coerceAtLeast(0L)
-                                progress = (pos.toFloat() / videoDurationMs.toFloat()).coerceIn(0f, 1f)
+                        DisposableEffect(currentStatus.id) {
+                            onDispose {
+                                videoViewRef?.stopPlayback()
+                                videoViewRef = null
                             }
-                            delay(30L)
                         }
-                    }
 
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            VideoView(ctx).apply {
-                                layoutParams = FrameLayout.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                setVideoURI(Uri.parse(currentStatus.mediaUrl))
-                                setOnPreparedListener { mp ->
-                                    isVideoBuffering = false
-                                    videoDurationMs = mp.duration.toLong().coerceAtLeast(1L)
-                                    mp.isLooping = false
-                                    if (!isPaused) start()
+                        LaunchedEffect(currentStatus.id, isPausedEffective, isVideoBuffering, videoDurationMs) {
+                            while (!isPausedEffective && !isVideoBuffering && videoDurationMs > 0L) {
+                                val vv = videoViewRef
+                                if (vv != null && vv.isPlaying) {
+                                    val pos = vv.currentPosition.toLong().coerceAtLeast(0L)
+                                    progress = (pos.toFloat() / videoDurationMs.toFloat()).coerceIn(0f, 1f)
                                 }
-                                setOnCompletionListener {
-                                    progress = 1f
-                                    if (currentIndex < statuses.lastIndex) {
-                                        currentIndex++
-                                    } else {
-                                        onDismiss()
+                                delay(30L)
+                            }
+                        }
+
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                VideoView(ctx).apply {
+                                    layoutParams = FrameLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    setVideoPath(cachedLocalFile.absolutePath)
+                                    setOnPreparedListener { mp ->
+                                        isVideoBuffering = false
+                                        videoDurationMs = mp.duration.toLong().coerceAtLeast(1L)
+                                        mp.isLooping = false
+                                        if (!isPausedEffective) start()
                                     }
+                                    setOnCompletionListener {
+                                        progress = 1f
+                                        if (currentIndex < statuses.lastIndex) {
+                                            currentIndex++
+                                        } else {
+                                            onDismiss()
+                                        }
+                                    }
+                                    setOnErrorListener { _, _, _ ->
+                                        isVideoBuffering = false
+                                        true
+                                    }
+                                    videoViewRef = this
                                 }
-                                setOnErrorListener { _, _, _ ->
-                                    isVideoBuffering = false
-                                    true
+                            },
+                            update = { view ->
+                                videoViewRef = view
+                                if (isPausedEffective) {
+                                    if (view.isPlaying) view.pause()
+                                } else if (!isVideoBuffering && !view.isPlaying) {
+                                    view.start()
                                 }
-                                videoViewRef = this
                             }
-                        },
-                        update = { view ->
-                            videoViewRef = view
-                            if (isPaused) {
-                                if (view.isPlaying) view.pause()
-                            } else if (!isVideoBuffering && !view.isPlaying) {
-                                view.start()
-                            }
-                        }
-                    )
+                        )
 
-                    if (isVideoBuffering) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(42.dp)
+                        if (isVideoBuffering) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(42.dp)
+                            )
+                        }
+                    } else {
+                        AsyncImage(
+                            model = cachedLocalFile,
+                            contentDescription = "Status Photo",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
                         )
                     }
                 } else {
-                    AsyncImage(
-                        model = currentStatus.mediaUrl,
-                        contentDescription = "Status Photo",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
+                    if (blurBitmap != null) {
+                        Image(
+                            bitmap = blurBitmap.asImageBitmap(),
+                            contentDescription = "Blurred Preview",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(20.dp),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.35f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val progressPercent = ((activeDownloadProgress ?: 0f) * 100f).toInt().coerceIn(0, 100)
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.Black.copy(alpha = 0.65f))
+                                .border(1.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(20.dp))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                progress = { (activeDownloadProgress ?: 0f).coerceIn(0f, 1f) },
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Download : $progressPercent%",
+                                fontSize = 12.5.sp,
+                                color = Color.White,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
                 }
             }
 
@@ -567,67 +639,69 @@ fun PrefPlayer(
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
 
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.18f))
-                            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
-                            .bounceClick(scaleDown = 0.94f) {
-                                if (!isSaving && !isSaved) {
-                                    isSaving = true
-                                    StatusEngine.saveStatusToUpdates(context, currentStatus) { success ->
-                                        isSaving = false
-                                        if (success) isSaved = true
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .bounceClick(scaleDown = 0.94f) {
+                                    isMenuOpen = true
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = MoreVertIcon,
+                                contentDescription = "Options",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = isMenuOpen,
+                            onDismissRequest = { isMenuOpen = false },
+                            modifier = Modifier
+                                .background(Color(0xFF222328), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (isSavedLocally) "Saved" else "Save",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isSavedLocally) Color(0xFF25D366) else Color.White
+                                    )
+                                },
+                                onClick = {
+                                    isMenuOpen = false
+                                    if (!isSavedLocally) {
+                                        StatusEngine.saveStatusToDevice(context, currentStatus) { success ->
+                                            if (success) isSavedLocally = true
+                                        }
                                     }
                                 }
+                            )
+
+                            if (isOwnStatus) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = "Delete",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFFFF4D4D)
+                                        )
+                                    },
+                                    onClick = {
+                                        isMenuOpen = false
+                                        showDeleteConfirmDialog = true
+                                    }
+                                )
                             }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (isSaving) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = "Saving...",
-                                fontSize = 12.sp,
-                                color = Color.White,
-                                fontWeight = FontWeight.Medium
-                            )
-                        } else if (isSaved) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color(0xFF25D366),
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Saved",
-                                fontSize = 12.sp,
-                                color = Color(0xFF25D366),
-                                fontWeight = FontWeight.Medium
-                            )
-                        } else {
-                            Icon(
-                                imageVector = DownloadStatusIcon,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Save",
-                                fontSize = 12.sp,
-                                color = Color.White,
-                                fontWeight = FontWeight.Medium
-                            )
                         }
                     }
                 }
@@ -649,6 +723,94 @@ fun PrefPlayer(
                         color = Color.White,
                         lineHeight = 20.sp
                     )
+                }
+            }
+
+            if (showDeleteConfirmDialog) {
+                Dialog(
+                    onDismissRequest = { showDeleteConfirmDialog = false },
+                    properties = DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 28.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        color = Color(0xFF222328),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
+                        ) {
+                            Text(
+                                text = "Delete update?",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "This status update will be deleted for everyone.",
+                                fontSize = 13.5.sp,
+                                color = Color.White.copy(alpha = 0.75f),
+                                lineHeight = 18.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .bounceClick(scaleDown = 0.94f) {
+                                            showDeleteConfirmDialog = false
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "Cancel",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White.copy(alpha = 0.85f)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFFFF3B30).copy(alpha = 0.15f))
+                                        .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                                        .bounceClick(scaleDown = 0.94f) {
+                                            showDeleteConfirmDialog = false
+                                            StatusEngine.deleteStatus(context, currentStatus) {
+                                                if (statuses.size <= 1) {
+                                                    onDismiss()
+                                                } else {
+                                                    if (currentIndex >= statuses.lastIndex) {
+                                                        currentIndex = (currentIndex - 1).coerceAtLeast(0)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = "Delete",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFF4D4D)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
