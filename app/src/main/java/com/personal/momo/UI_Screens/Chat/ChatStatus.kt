@@ -47,6 +47,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+typealias StatusProgressMap = Map<String, Float>
+
 data class StatusItem(
     val id: String = "",
     val senderId: Int = 0,
@@ -72,8 +74,8 @@ object StatusEngine {
     private val _partnerStatusesFlow = MutableStateFlow<List<StatusItem>>(emptyList())
     val partnerStatusesFlow: StateFlow<List<StatusItem>> = _partnerStatusesFlow.asStateFlow()
 
-    private val _downloadProgressFlow = MutableStateFlow>(emptyMap())
-    val downloadProgressFlow: StateFlow> = _downloadProgressFlow.asStateFlow()
+    private val _downloadProgressFlow = MutableStateFlow<StatusProgressMap>(emptyMap())
+    val downloadProgressFlow: StateFlow<StatusProgressMap> = _downloadProgressFlow.asStateFlow()
 
     private val activeDownloadIds = mutableSetOf<String>()
 
@@ -92,6 +94,16 @@ object StatusEngine {
     fun isStatusCached(context: Context, status: StatusItem): Boolean {
         val file = getCacheFile(context, status)
         return file.exists() && file.length() > 0L
+    }
+
+    fun decodeBlur(base64Str: String?): Bitmap? {
+        if (base64Str.isNullOrBlank()) return null
+        return try {
+            val bytes = Base64.decode(base64Str, Base64.NO_WRAP)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun startListening(context: Context) {
@@ -212,7 +224,9 @@ object StatusEngine {
 
                                 if (totalLength > 0f) {
                                     val prog = (totalRead / totalLength).coerceIn(0f, 1f)
-                                    _downloadProgressFlow.value = _downloadProgressFlow.value + (status.id to prog)
+                                    val updatedMap = _downloadProgressFlow.value.toMutableMap()
+                                    updatedMap[status.id] = prog
+                                    _downloadProgressFlow.value = updatedMap
                                 }
                             }
                         }
@@ -228,7 +242,9 @@ object StatusEngine {
                 synchronized(activeDownloadIds) {
                     activeDownloadIds.remove(status.id)
                 }
-                _downloadProgressFlow.value = _downloadProgressFlow.value - status.id
+                val updatedMap = _downloadProgressFlow.value.toMutableMap()
+                updatedMap.remove(status.id)
+                _downloadProgressFlow.value = updatedMap
             }
         }
     }
@@ -470,16 +486,6 @@ object StatusEngine {
         } catch (_: Exception) {
             null
         }
-    }
-}
-
-fun decodeBlurPreviewBitmap(base64Str: String?): Bitmap? {
-    if (base64Str.isNullOrBlank()) return null
-    return try {
-        val bytes = Base64.decode(base64Str, Base64.NO_WRAP)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    } catch (_: Exception) {
-        null
     }
 }
 
