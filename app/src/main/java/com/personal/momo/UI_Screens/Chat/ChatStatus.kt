@@ -263,43 +263,31 @@ object StatusEngine {
         val appContext = context.applicationContext
         scope.launch {
             try {
-                val baseMomoDir = MomoStorage.getMomoDir(appContext)
-                val updatesDir = File(baseMomoDir, "Media/Updates").apply {
-                    if (!exists()) mkdirs()
-                }
-
-                val ext = if (status.mediaType == 2) "mp4" else "jpg"
-                val prefix = if (status.mediaType == 2) "VID" else "IMG"
-                val targetFile = File(updatesDir, "${prefix}_${status.id}.$ext")
-
-                if (targetFile.exists() && targetFile.length() > 0L) {
-                    withContext(Dispatchers.Main) { onResult(true) }
-                    return@launch
-                }
-
                 val cacheFile = getCacheFile(appContext, status)
-                val success = if (cacheFile.exists() && cacheFile.length() > 0L) {
-                    cacheFile.copyTo(targetFile, overwrite = true)
-                    true
-                } else {
-                    val conn = (URL(status.mediaUrl).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 15000
-                        readTimeout = 20000
-                        instanceFollowRedirects = true
-                    }
-                    if (conn.responseCode in 200..299) {
-                        conn.inputStream.use { input ->
-                            FileOutputStream(targetFile).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        targetFile.exists() && targetFile.length() > 0L
-                    } else {
-                        false
-                    }
-                }
+                val isVideo = status.mediaType == 2
 
-                withContext(Dispatchers.Main) { onResult(success) }
+                if (cacheFile.exists() && cacheFile.length() > 0L) {
+                    val saved = MomoStorage.saveStatusMediaToUpdates(
+                        context = appContext,
+                        sourceFile = cacheFile,
+                        statusId = status.id,
+                        isVideo = isVideo
+                    )
+                    withContext(Dispatchers.Main) { onResult(saved) }
+                } else {
+                    ensureStatusDownloaded(appContext, status)
+                    val freshlyCached = getCacheFile(appContext, status)
+                    val saved = if (freshlyCached.exists() && freshlyCached.length() > 0L) {
+                        MomoStorage.saveStatusMediaToUpdates(
+                            context = appContext,
+                            sourceFile = freshlyCached,
+                            statusId = status.id,
+                            isVideo = isVideo
+                        )
+                    } else false
+
+                    withContext(Dispatchers.Main) { onResult(saved) }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) { onResult(false) }
