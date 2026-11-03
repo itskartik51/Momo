@@ -181,7 +181,9 @@ internal fun MessageBubbleRow(
                                 change.consume()
                                 val current = offsetX.value
                                 val newRaw = (current + dragX).coerceAtLeast(0f)
-                                offsetX.snapTo(newRaw)
+                                coroutineScope.launch {
+                                    offsetX.snapTo(newRaw)
+                                }
                                 if (newRaw >= triggerThresholdPx && !isTriggered) {
                                     isTriggered = true
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
