@@ -49,12 +49,12 @@ import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceMenuAction
 import com.personal.momo.UI_Screens.Chat.Preference.ChatPreferenceOption
-import com.personal.momo.UI_Screens.Chat.Preference.FullScreenImageViewer
 import com.personal.momo.UI_Screens.Chat.Preference.NotificationModeAppliedToast
 import com.personal.momo.UI_Screens.Chat.Preference.PrefCountDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNotificationDialog
+import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
@@ -162,9 +162,10 @@ fun InboxScreen(
         )
     }
 
-    if (showFullScreenAvatar) {
-        FullScreenImageViewer(
-            imageUrl = effectiveAvatarUrl,
+    if (showFullScreenAvatar && !effectiveAvatarUrl.isNullOrBlank()) {
+        PrefPlayer(
+            mediaPath = effectiveAvatarUrl,
+            isVideo = false,
             onDismiss = { showFullScreenAvatar = false }
         )
     }
@@ -244,7 +245,11 @@ fun InboxScreen(
                 isOutgoing = isOutgoing,
                 deliveryStatus = deliveryStatus,
                 unreadCount = unreadCount,
-                onAvatarClick = { showFullScreenAvatar = true },
+                onAvatarClick = {
+                    if (!effectiveAvatarUrl.isNullOrBlank()) {
+                        showFullScreenAvatar = true
+                    }
+                },
                 onClick = onChatClick
             )
         }
