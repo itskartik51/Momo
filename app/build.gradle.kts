@@ -12,8 +12,8 @@ android {
         applicationId = "com.personal.momo"
         minSdk = 24
         targetSdk = 34
-        versionCode = 32
-        versionName = "1.2405.32"
+        versionCode = 33
+        versionName = "1.2405.33"
 
         resourceConfigurations += listOf("en", "hi")
 
@@ -115,8 +115,10 @@ dependencies {
     // Agora Voice SDK for Realtime Calling
     implementation("io.agora.rtc:voice-sdk:4.3.1")
 
-    // AndroidX Media3 Transformer for Hardware-Accelerated Video Compression
+    // AndroidX Media3 Suite
     implementation("androidx.media3:media3-transformer:1.3.1")
     implementation("androidx.media3:media3-effect:1.3.1")
     implementation("androidx.media3:media3-common:1.3.1")
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-ui:1.3.1")
 }
