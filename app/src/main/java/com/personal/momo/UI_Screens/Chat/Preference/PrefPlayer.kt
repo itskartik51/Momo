@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -30,14 +31,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
@@ -66,6 +71,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -76,9 +82,12 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,6 +98,7 @@ import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.Chat.StatusEngine
 import com.personal.momo.UI_Screens.Chat.StatusItem
 import com.personal.momo.UI_Screens.Chat.formatStatusTime
+import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -166,6 +176,21 @@ private val EyeStatusIcon: ImageVector by lazy {
     ).addPath(
         pathData = PathParser().parsePathString(
             "M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val StatusSendIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "StatusSend",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -265,6 +290,7 @@ fun PrefPlayer(
     avatarUrl: String?,
     isOwnStatus: Boolean,
     initialIndex: Int = 0,
+    onReplySend: ((status: StatusItem, replyText: String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     if (statuses.isEmpty()) {
@@ -273,6 +299,7 @@ fun PrefPlayer(
     }
 
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
     var currentIndex by remember { mutableIntStateOf(initialIndex.coerceIn(0, statuses.lastIndex)) }
     val currentStatus = statuses.getOrNull(currentIndex) ?: statuses.last()
@@ -285,6 +312,10 @@ fun PrefPlayer(
     var isImmersiveCleanMode by remember { mutableStateOf(false) }
     var isCaptionExpanded by remember(currentStatus.id) { mutableStateOf(false) }
     var isCaptionOverflowing by remember(currentStatus.id) { mutableStateOf(false) }
+
+    var replyInputText by remember { mutableStateOf("") }
+    var isReplyFocused by remember { mutableStateOf(false) }
+    var showReplySentToast by remember { mutableStateOf(false) }
 
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
     val animatedDragOffsetY by animateFloatAsState(
@@ -314,6 +345,11 @@ fun PrefPlayer(
         when {
             showDeleteConfirmDialog -> showDeleteConfirmDialog = false
             isMenuOpen -> isMenuOpen = false
+            isReplyFocused || replyInputText.isNotEmpty() -> {
+                focusManager.clearFocus()
+                replyInputText = ""
+                isReplyFocused = false
+            }
             isCaptionExpanded -> isCaptionExpanded = false
             isImmersiveCleanMode -> isImmersiveCleanMode = false
             else -> onDismiss()
@@ -329,7 +365,14 @@ fun PrefPlayer(
         }
     }
 
-    val isPausedEffective = isUserPaused || isMenuOpen || showDeleteConfirmDialog || !isMediaDownloaded || isImmersiveCleanMode || isCaptionExpanded
+    LaunchedEffect(showReplySentToast) {
+        if (showReplySentToast) {
+            delay(1500L)
+            showReplySentToast = false
+        }
+    }
+
+    val isPausedEffective = isUserPaused || isMenuOpen || showDeleteConfirmDialog || !isMediaDownloaded || isImmersiveCleanMode || isCaptionExpanded || isReplyFocused || replyInputText.isNotEmpty()
     val isVideo = currentStatus.mediaType == 2
     val photoDurationMs = 10_000L
 
@@ -372,7 +415,7 @@ fun PrefPlayer(
                 .graphicsLayer {
                     translationY = animatedDragOffsetY
                 }
-                .pointerInput(currentIndex, isImmersiveCleanMode, isCaptionExpanded) {
+                .pointerInput(currentIndex, isImmersiveCleanMode, isCaptionExpanded, isReplyFocused) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var isDrag = false
@@ -381,7 +424,7 @@ fun PrefPlayer(
 
                         val holdJob = coroutineScope.launch {
                             delay(200L)
-                            if (!isDrag && !isImmersiveCleanMode && !isCaptionExpanded) {
+                            if (!isDrag && !isImmersiveCleanMode && !isCaptionExpanded && !isReplyFocused) {
                                 isUserPaused = true
                                 isHold = true
                             }
@@ -404,11 +447,11 @@ fun PrefPlayer(
                                         isHold = false
                                     }
 
-                                    if (deltaY > 0f && !isCaptionExpanded) {
+                                    if (deltaY > 0f && !isCaptionExpanded && !isReplyFocused) {
                                         totalDragY = deltaY
                                         dragOffsetY = deltaY
                                         change.consume()
-                                    } else if (deltaY < -35f && !isImmersiveCleanMode && !isCaptionExpanded) {
+                                    } else if (deltaY < -35f && !isImmersiveCleanMode && !isCaptionExpanded && !isReplyFocused) {
                                         isImmersiveCleanMode = true
                                         change.consume()
                                     }
@@ -429,7 +472,10 @@ fun PrefPlayer(
                             }
                         } else {
                             if (!down.isConsumed) {
-                                if (isImmersiveCleanMode) {
+                                if (isReplyFocused || replyInputText.isNotEmpty()) {
+                                    focusManager.clearFocus()
+                                    isReplyFocused = false
+                                } else if (isImmersiveCleanMode) {
                                     isImmersiveCleanMode = false
                                 } else if (isCaptionExpanded) {
                                     isCaptionExpanded = false
@@ -710,7 +756,7 @@ fun PrefPlayer(
                                     .background(Color.White.copy(alpha = 0.15f))
                                     .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = EyeStatusIcon,
@@ -752,8 +798,9 @@ fun PrefPlayer(
                                 expanded = isMenuOpen,
                                 onDismissRequest = { isMenuOpen = false },
                                 modifier = Modifier
-                                    .background(Color(0xFF222328), RoundedCornerShape(12.dp))
-                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                                    .widthIn(min = 105.dp, max = 135.dp)
+                                    .background(Color(0xFF222328), RoundedCornerShape(14.dp))
+                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
                             ) {
                                 DropdownMenuItem(
                                     text = {
@@ -764,6 +811,8 @@ fun PrefPlayer(
                                             color = if (isSavedLocally) Color(0xFF25D366) else Color.White
                                         )
                                     },
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(38.dp),
                                     onClick = {
                                         isMenuOpen = false
                                         if (!isSavedLocally) {
@@ -784,6 +833,8 @@ fun PrefPlayer(
                                                 color = Color(0xFFFF4D4D)
                                             )
                                         },
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(38.dp),
                                         onClick = {
                                             isMenuOpen = false
                                             showDeleteConfirmDialog = true
@@ -796,64 +847,178 @@ fun PrefPlayer(
                 }
             }
 
-            if (currentStatus.caption.isNotBlank()) {
-                AnimatedVisibility(
-                    visible = !isImmersiveCleanMode,
-                    enter = fadeIn(animationSpec = tween(220)),
-                    exit = fadeOut(animationSpec = tween(220)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color.Black.copy(alpha = 0.70f))
-                            .padding(horizontal = 20.dp, vertical = 14.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+            ) {
+                if (currentStatus.caption.isNotBlank()) {
+                    AnimatedVisibility(
+                        visible = !isImmersiveCleanMode,
+                        enter = fadeIn(animationSpec = tween(220)),
+                        exit = fadeOut(animationSpec = tween(220)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            val scrollState = rememberScrollState()
-                            val textModifier = if (isCaptionExpanded) {
-                                Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 240.dp)
-                                    .verticalScroll(scrollState)
-                            } else {
-                                Modifier.fillMaxWidth()
-                            }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.Black.copy(alpha = 0.70f))
+                                .padding(horizontal = 20.dp, vertical = 12.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                val scrollState = rememberScrollState()
+                                val textModifier = if (isCaptionExpanded) {
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 240.dp)
+                                        .verticalScroll(scrollState)
+                                } else {
+                                    Modifier.fillMaxWidth()
+                                }
 
-                            Text(
-                                text = currentStatus.caption,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White,
-                                lineHeight = 21.sp,
-                                maxLines = if (isCaptionExpanded) Int.MAX_VALUE else 3,
-                                overflow = TextOverflow.Ellipsis,
-                                onTextLayout = { textLayoutResult ->
-                                    if (!isCaptionExpanded) {
-                                        isCaptionOverflowing = textLayoutResult.hasVisualOverflow || textLayoutResult.lineCount > 3
-                                    }
-                                },
-                                modifier = textModifier
-                            )
-
-                            if (isCaptionOverflowing || isCaptionExpanded) {
-                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = if (isCaptionExpanded) "Show less" else "Read more",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF34B7F1),
-                                    modifier = Modifier
-                                        .bounceClick(scaleDown = 0.94f) {
-                                            isCaptionExpanded = !isCaptionExpanded
+                                    text = currentStatus.caption,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White,
+                                    lineHeight = 21.sp,
+                                    maxLines = if (isCaptionExpanded) Int.MAX_VALUE else 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    onTextLayout = { textLayoutResult ->
+                                        if (!isCaptionExpanded) {
+                                            isCaptionOverflowing = textLayoutResult.hasVisualOverflow || textLayoutResult.lineCount > 3
                                         }
-                                        .padding(vertical = 2.dp)
+                                    },
+                                    modifier = textModifier
                                 )
+
+                                if (isCaptionOverflowing || isCaptionExpanded) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (isCaptionExpanded) "Show less" else "Read more",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF34B7F1),
+                                        modifier = Modifier
+                                            .bounceClick(scaleDown = 0.94f) {
+                                                isCaptionExpanded = !isCaptionExpanded
+                                            }
+                                            .padding(vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
                     }
+                }
+
+                if (!isOwnStatus && !isImmersiveCleanMode) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 44.dp, max = 100.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(Color(0xFF171922).copy(alpha = 0.88f))
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(22.dp))
+                                .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(vertical = 4.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (replyInputText.isEmpty()) {
+                                    Text(
+                                        text = "Reply...",
+                                        fontSize = 15.sp,
+                                        color = Color.White.copy(alpha = 0.50f)
+                                    )
+                                }
+
+                                BasicTextField(
+                                    value = replyInputText,
+                                    onValueChange = { replyInputText = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onFocusChanged { isReplyFocused = it.isFocused },
+                                    textStyle = TextStyle(
+                                        fontSize = 15.sp,
+                                        color = Color.White
+                                    ),
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Sentences,
+                                        autoCorrect = true,
+                                        imeAction = ImeAction.Default
+                                    ),
+                                    cursorBrush = SolidColor(Color.White)
+                                )
+                            }
+
+                            if (replyInputText.trim().isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(MomoPrimaryGradient)
+                                        .bounceClick(scaleDown = 0.94f) {
+                                            val textToSend = replyInputText.trim()
+                                            if (textToSend.isNotEmpty()) {
+                                                onReplySend?.invoke(currentStatus, textToSend)
+                                                replyInputText = ""
+                                                focusManager.clearFocus()
+                                                isReplyFocused = false
+                                                showReplySentToast = true
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = StatusSendIcon,
+                                        contentDescription = "Send Reply",
+                                        tint = Color.White,
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .padding(start = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = showReplySentToast,
+                enter = fadeIn(animationSpec = tween(180)),
+                exit = fadeOut(animationSpec = tween(180)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .imePadding()
+                    .padding(bottom = 26.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color(0xFF222328).copy(alpha = 0.92f))
+                        .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = "Reply sent",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color.White
+                    )
                 }
             }
 
@@ -865,17 +1030,17 @@ fun PrefPlayer(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 28.dp),
-                        shape = RoundedCornerShape(18.dp),
+                            .padding(horizontal = 26.dp),
+                        shape = RoundedCornerShape(24.dp),
                         color = Color(0xFF222328),
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
+                            modifier = Modifier.padding(horizontal = 22.dp, vertical = 22.dp)
                         ) {
                             Text(
                                 text = "Delete update?",
-                                fontSize = 17.sp,
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
@@ -885,19 +1050,19 @@ fun PrefPlayer(
                             Text(
                                 text = "This status update will be deleted for everyone.",
                                 fontSize = 13.5.sp,
-                                color = Color.White.copy(alpha = 0.75f),
-                                lineHeight = 18.sp
+                                color = Color.White.copy(alpha = 0.70f),
+                                lineHeight = 18.5.sp
                             )
 
-                            Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(24.dp))
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
                                         .bounceClick(scaleDown = 0.94f) {
                                             showDeleteConfirmDialog = false
                                         }
@@ -905,19 +1070,18 @@ fun PrefPlayer(
                                 ) {
                                     Text(
                                         text = "Cancel",
-                                        fontSize = 14.sp,
+                                        fontSize = 14.5.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color.White.copy(alpha = 0.85f)
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
 
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0xFFFF3B30).copy(alpha = 0.15f))
-                                        .border(1.dp, Color(0xFFFF3B30).copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(MomoPrimaryGradient)
                                         .bounceClick(scaleDown = 0.94f) {
                                             showDeleteConfirmDialog = false
                                             StatusEngine.deleteStatus(context, currentStatus) {
@@ -930,13 +1094,13 @@ fun PrefPlayer(
                                                 }
                                             }
                                         }
-                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                        .padding(horizontal = 22.dp, vertical = 10.dp)
                                 ) {
                                     Text(
                                         text = "Delete",
-                                        fontSize = 14.sp,
+                                        fontSize = 14.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFFF4D4D)
+                                        color = Color.White
                                     )
                                 }
                             }
