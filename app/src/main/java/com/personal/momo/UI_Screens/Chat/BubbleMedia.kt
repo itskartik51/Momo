@@ -1,6 +1,5 @@
 package com.personal.momo.UI_Screens.Chat
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
@@ -55,11 +54,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.Chat.Media.MediaCompressor
+import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
 import com.personal.momo.UI_Screens.bounceClick
 import java.io.File
 import java.util.Locale
@@ -89,21 +86,6 @@ private val DownloadArrowIcon: ImageVector by lazy {
     ).addPath(
         pathData = PathParser().parsePathString(
             "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"
-        ).toNodes(),
-        fill = SolidColor(Color.White)
-    ).build()
-}
-
-private val CloseIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "Close",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).addPath(
-        pathData = PathParser().parsePathString(
-            "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -155,47 +137,14 @@ internal fun MediaBubbleMessageContent(
         label = "mediaProgressAnim"
     )
 
-    var showFullScreenPreview by remember { mutableStateOf(false) }
+    var showPrefPlayer by remember { mutableStateOf(false) }
 
-    if (showFullScreenPreview && mediaFile != null) {
-        Dialog(
-            onDismissRequest = { showFullScreenPreview = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = mediaFile,
-                    contentDescription = "Full Preview",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 42.dp, end = 20.dp)
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.65f))
-                        .bounceClick(scaleDown = 0.94f) {
-                            showFullScreenPreview = false
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = CloseIcon,
-                        contentDescription = "Close",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
+    if (showPrefPlayer && mediaFile != null) {
+        PrefPlayer(
+            mediaFile = mediaFile,
+            isVideo = message.mediaType == 2,
+            onDismiss = { showPrefPlayer = false }
+        )
     }
 
     val framePadding = 3.5.dp
@@ -260,24 +209,7 @@ internal fun MediaBubbleMessageContent(
                             if (isSelectionMode) {
                                 onToggleSelect(message.id)
                             } else if (mediaFile != null) {
-                                if (message.mediaType == 2) {
-                                    try {
-                                        val uri = FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.provider",
-                                            mediaFile
-                                        )
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(uri, "video/*")
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(Intent.createChooser(intent, "Play Video"))
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    }
-                                } else {
-                                    showFullScreenPreview = true
-                                }
+                                showPrefPlayer = true
                             }
                         }
                     )
