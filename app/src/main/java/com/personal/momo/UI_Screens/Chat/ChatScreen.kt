@@ -78,8 +78,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.personal.momo.Cache.CacheManager
-import com.personal.momo.UI_Screens.Chat.Preference.FullScreenImageViewer
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
+import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.Job
@@ -382,9 +382,10 @@ fun ChatScreen(
         )
     }
 
-    if (showFullScreenAvatar) {
-        FullScreenImageViewer(
-            imageUrl = effectiveAvatarUrl,
+    if (showFullScreenAvatar && effectiveAvatarUrl.isNotBlank()) {
+        PrefPlayer(
+            mediaPath = effectiveAvatarUrl,
+            isVideo = false,
             onDismiss = { showFullScreenAvatar = false }
         )
     }
