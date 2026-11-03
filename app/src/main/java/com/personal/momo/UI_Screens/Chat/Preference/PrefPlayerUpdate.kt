@@ -2,6 +2,7 @@ package com.personal.momo.UI_Screens.Chat.Preference
 
 import android.net.Uri
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -79,10 +80,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -94,6 +95,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -189,7 +191,6 @@ fun PrefStatusPlayer(
     val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
-    val configuration = LocalConfiguration.current
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -224,8 +225,11 @@ fun PrefStatusPlayer(
 
     val imeBottom = WindowInsets.ime.getBottom(density)
     val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
-    val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
     val isKeyboardOpen = imeBottom > 0
+
+    val bottomInsetDp = with(density) {
+        if (isKeyboardOpen) imeBottom.toDp() else navBarsBottom.toDp()
+    }
 
     LaunchedEffect(isKeyboardOpen) {
         if (!isKeyboardOpen && isReplyFocused) {
@@ -392,6 +396,13 @@ fun PrefStatusPlayer(
             decorFitsSystemWindows = false
         )
     ) {
+        val dialogView = LocalView.current
+        DisposableEffect(dialogView) {
+            val window = (dialogView.parent as? DialogWindowProvider)?.window
+            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            onDispose {}
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -478,9 +489,7 @@ fun PrefStatusPlayer(
                 }
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .height(configuration.screenHeightDp.dp),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 if (cachedLocalFile != null && cachedLocalFile.exists() && cachedLocalFile.length() > 0L) {
@@ -801,9 +810,9 @@ fun PrefStatusPlayer(
             ) {
                 if (currentStatus.caption.isNotBlank()) {
                     AnimatedVisibility(
-                        visible = !isImmersiveCleanMode,
-                        enter = fadeIn(animationSpec = tween(220)),
-                        exit = fadeOut(animationSpec = tween(220)),
+                        visible = !isImmersiveCleanMode && !isReplying,
+                        enter = fadeIn(animationSpec = tween(200)),
+                        exit = fadeOut(animationSpec = tween(200)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Box(
