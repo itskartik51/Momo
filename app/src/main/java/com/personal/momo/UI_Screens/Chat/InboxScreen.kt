@@ -1,7 +1,21 @@
 package com.personal.momo.UI_Screens.Chat
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -41,6 +56,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,6 +102,21 @@ private val InboxPendingClockIcon: ImageVector by lazy {
     ).build()
 }
 
+private val PlusIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Plus",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
 @Composable
 fun InboxScreen(
     onChatClick: () -> Unit = {}
@@ -103,17 +135,45 @@ fun InboxScreen(
     val partnerChatAvatar by PrefProfileManager.partnerAvatarUrlFlow.collectAsState()
     val effectiveAvatarUrl = partnerChatAvatar.ifBlank { fallbackAvatarUrl }
 
+    val myAvatarUrl by PrefProfileManager.myAvatarUrlFlow.collectAsState()
+
+    val myStatuses by StatusEngine.myStatusesFlow.collectAsState()
+    val partnerStatuses by StatusEngine.partnerStatusesFlow.collectAsState()
+
     var showMessageCountDialog by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
     var showFullScreenAvatar by remember { mutableStateOf(false) }
 
+    var viewingMyStatus by remember { mutableStateOf(false) }
+    var viewingPartnerStatus by remember { mutableStateOf(false) }
+    var isUploadingStatus by remember { mutableStateOf(false) }
+    var isAddRevealed by remember { mutableStateOf(false) }
+
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var toastTriggerKey by remember { mutableIntStateOf(0) }
 
+    val statusMediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val mimeType = context.contentResolver.getType(uri).orEmpty()
+            val isVideo = mimeType.startsWith("video", ignoreCase = true)
+            StatusEngine.uploadStatus(
+                context = context,
+                mediaUri = uri,
+                isVideo = isVideo,
+                caption = "",
+                onProgress = { isUploadingStatus = it },
+                onComplete = { isUploadingStatus = false }
+            )
+        }
+    }
+
     LaunchedEffect(Unit) {
         ChatEngine.startEngine(context)
+        StatusEngine.startListening(context)
         PrefNameManager.init(context)
         PrefProfileManager.init(context)
     }
@@ -167,6 +227,24 @@ fun InboxScreen(
             mediaPath = effectiveAvatarUrl,
             isVideo = false,
             onDismiss = { showFullScreenAvatar = false }
+        )
+    }
+
+    if (viewingMyStatus && myStatuses.isNotEmpty()) {
+        StatusViewerDialog(
+            statuses = myStatuses,
+            displayName = "You",
+            avatarUrl = myAvatarUrl,
+            onDismiss = { viewingMyStatus = false }
+        )
+    }
+
+    if (viewingPartnerStatus && partnerStatuses.isNotEmpty()) {
+        StatusViewerDialog(
+            statuses = partnerStatuses,
+            displayName = partnerDisplayName,
+            avatarUrl = effectiveAvatarUrl,
+            onDismiss = { viewingPartnerStatus = false }
         )
     }
 
@@ -235,18 +313,54 @@ fun InboxScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = "Updates",
+                fontSize = 17.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+            )
+
+            MyStatusRow(
+                myAvatarUrl = myAvatarUrl,
+                statuses = myStatuses,
+                isUploading = isUploadingStatus,
+                isAddRevealed = isAddRevealed,
+                onRevealChange = { isAddRevealed = it },
+                onAddClick = {
+                    isAddRevealed = false
+                    statusMediaPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                    )
+                },
+                onViewStatus = { viewingMyStatus = true }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "Chats",
+                fontSize = 17.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+            )
 
             InboxChatRow(
                 partnerName = partnerDisplayName,
                 avatarUrl = effectiveAvatarUrl,
+                partnerStatuses = partnerStatuses,
                 lastMessage = lastMessageText,
                 timestamp = lastTimestamp,
                 isOutgoing = isOutgoing,
                 deliveryStatus = deliveryStatus,
                 unreadCount = unreadCount,
                 onAvatarClick = {
-                    if (!effectiveAvatarUrl.isNullOrBlank()) {
+                    if (partnerStatuses.isNotEmpty()) {
+                        viewingPartnerStatus = true
+                    } else if (!effectiveAvatarUrl.isNullOrBlank()) {
                         showFullScreenAvatar = true
                     }
                 },
@@ -265,9 +379,209 @@ fun InboxScreen(
 }
 
 @Composable
+private fun MyStatusRow(
+    myAvatarUrl: String?,
+    statuses: List<StatusItem>,
+    isUploading: Boolean,
+    isAddRevealed: Boolean,
+    onRevealChange: (Boolean) -> Unit,
+    onAddClick: () -> Unit,
+    onViewStatus: () -> Unit
+) {
+    val hasStatus = statuses.isNotEmpty()
+    val latestStatus = statuses.lastOrNull()
+
+    val draggableState = rememberDraggableState { delta ->
+        if (hasStatus) {
+            if (delta < -14f) {
+                onRevealChange(true)
+            } else if (delta > 14f) {
+                onRevealChange(false)
+            }
+        }
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .draggable(
+                state = draggableState,
+                orientation = Orientation.Horizontal,
+                enabled = hasStatus
+            )
+            .bounceClick(scaleDown = 0.96f) {
+                if (!hasStatus) {
+                    onAddClick()
+                } else {
+                    if (isAddRevealed) {
+                        onRevealChange(false)
+                    } else {
+                        onViewStatus()
+                    }
+                }
+            },
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(58.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                SegmentedStatusRing(
+                    statusCount = statuses.size,
+                    ringGap = 3.dp,
+                    strokeWidth = 2.5.dp
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!myAvatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = myAvatarUrl,
+                                contentDescription = "My Avatar",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        if (isUploading) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.55f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.5.dp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!hasStatus && !isUploading) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .size(21.dp)
+                            .clip(CircleShape)
+                            .background(MomoPrimaryGradient)
+                            .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = PlusIcon,
+                            contentDescription = "Add Status",
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = if (hasStatus) "You" else "Add update",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        lineHeight = 19.sp
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(1.5.dp))
+
+                Text(
+                    text = if (hasStatus && latestStatus != null) {
+                        formatStatusTime(latestStatus.timestamp)
+                    } else {
+                        "Disappears after 24 hours"
+                    },
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = TextStyle(
+                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        lineHeight = 15.sp
+                    )
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isAddRevealed && hasStatus,
+                enter = slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(200)),
+                exit = slideOutHorizontally(
+                    targetOffsetX = { it },
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                ) + fadeOut(animationSpec = tween(180))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .padding(start = 10.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MomoPrimaryGradient)
+                        .bounceClick(scaleDown = 0.92f) {
+                            onAddClick()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = PlusIcon,
+                        contentDescription = "Add More Updates",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun InboxChatRow(
     partnerName: String,
     avatarUrl: String?,
+    partnerStatuses: List<StatusItem>,
     lastMessage: String,
     timestamp: Long,
     isOutgoing: Boolean,
@@ -291,40 +605,51 @@ private fun InboxChatRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                    .border(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        shape = CircleShape
-                    )
-                    .bounceClick(scaleDown = 0.94f) {
-                        onAvatarClick()
-                    },
+                modifier = Modifier.size(58.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (!avatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = avatarUrl,
-                        contentDescription = "Partner Avatar",
+                SegmentedStatusRing(
+                    statusCount = partnerStatuses.size,
+                    ringGap = 3.dp,
+                    strokeWidth = 2.5.dp
+                ) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Avatar Fallback",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.size(28.dp)
-                    )
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                shape = CircleShape
+                            )
+                            .bounceClick(scaleDown = 0.94f) {
+                                onAvatarClick()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!avatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = "Partner Avatar",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Avatar Fallback",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
                 }
             }
 
