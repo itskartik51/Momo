@@ -88,7 +88,6 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.Chat.StatusEngine
 import com.personal.momo.UI_Screens.Chat.StatusItem
-import com.personal.momo.UI_Screens.Chat.decodeBlurPreviewBitmap
 import com.personal.momo.UI_Screens.Chat.formatStatusTime
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.delay
@@ -306,7 +305,7 @@ fun PrefPlayer(
     }
 
     val blurBitmap = remember(currentStatus.blurPreview) {
-        decodeBlurPreviewBitmap(currentStatus.blurPreview)
+        StatusEngine.decodeBlur(currentStatus.blurPreview)
     }
 
     val countedStatusIds = remember { mutableSetOf<String>() }
