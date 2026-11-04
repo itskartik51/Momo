@@ -63,6 +63,7 @@ private val MomoCrimsonHighlightBase = Color(0xFFFF2E63)
 internal fun MessageBubbleRow(
     message: ChatMessage,
     replyToMessage: ChatMessage? = null,
+    replyToStatus: StatusItem? = null,
     isStatusActive: Boolean = true,
     isOutgoing: Boolean,
     isSelected: Boolean,
@@ -132,7 +133,7 @@ internal fun MessageBubbleRow(
 
     val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.dp
 
-    val isStatusReply = message.replyToId?.startsWith("STATUS_") == true && !message.replyToText.isNullOrBlank() && isStatusActive
+    val isStatusReply = isStatusActive && (replyToStatus != null || message.replyToId?.startsWith("STATUS_") == true)
     val hasReply = (replyToMessage != null) || isStatusReply
 
     val isMedia = message.mediaType > 0
@@ -311,6 +312,7 @@ internal fun MessageBubbleRow(
                             BubbleMessageContent(
                                 message = message,
                                 replyToMessage = replyToMessage,
+                                replyToStatus = replyToStatus,
                                 isStatusReply = isStatusReply,
                                 isOutgoing = isOutgoing,
                                 isLastInGroup = isLastInGroup,
@@ -329,6 +331,7 @@ internal fun MessageBubbleRow(
 
 @Composable
 internal fun StatusReplySnippet(
+    title: String = "Reply to status",
     caption: String,
     isOutgoing: Boolean,
     onClick: () -> Unit
@@ -364,11 +367,12 @@ internal fun StatusReplySnippet(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "Reply to your status",
+                    text = title,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (isOutgoing) Color.White else MomoRedLight,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     style = TextStyle(
                         platformStyle = PlatformTextStyle(includeFontPadding = false)
                     )
@@ -457,6 +461,7 @@ private fun FloatingEmojiContent(
 private fun BubbleMessageContent(
     message: ChatMessage,
     replyToMessage: ChatMessage?,
+    replyToStatus: StatusItem? = null,
     isStatusReply: Boolean = false,
     isOutgoing: Boolean,
     isLastInGroup: Boolean,
@@ -477,13 +482,36 @@ private fun BubbleMessageContent(
 
     val hasReply = (replyToMessage != null) || isStatusReply
 
+    val statusQuoteTitle = remember(replyToStatus, myCode, partnerDisplayName, isOutgoing) {
+        if (replyToStatus != null) {
+            val ownerName = if (replyToStatus.senderId == myCode) "You" else partnerDisplayName
+            "$ownerName • Status"
+        } else {
+            if (isOutgoing) "$partnerDisplayName • Status" else "You • Status"
+        }
+    }
+
+    val statusQuoteCaption = remember(replyToStatus, message.replyToText) {
+        if (replyToStatus != null) {
+            val typeIcon = if (replyToStatus.mediaType == 2) "🎥" else "📷"
+            if (replyToStatus.caption.isNotBlank()) {
+                "$typeIcon ${replyToStatus.caption}"
+            } else {
+                if (replyToStatus.mediaType == 2) "🎥 Video" else "📷 Photo"
+            }
+        } else {
+            message.replyToText.orEmpty().ifBlank { "📷 Status" }
+        }
+    }
+
     Layout(
         content = {
             if (isStatusReply) {
                 StatusReplySnippet(
-                    caption = message.replyToText.orEmpty(),
+                    title = statusQuoteTitle,
+                    caption = statusQuoteCaption,
                     isOutgoing = isOutgoing,
-                    onClick = { onReplyClick(message.replyToId.orEmpty()) }
+                    onClick = { onReplyClick(message.replyToId ?: replyToStatus?.id.orEmpty()) }
                 )
             } else if (replyToMessage != null) {
                 QuotedReplySnippet(
