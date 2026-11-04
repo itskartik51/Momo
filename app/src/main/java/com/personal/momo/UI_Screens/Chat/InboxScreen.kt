@@ -72,6 +72,7 @@ import com.personal.momo.UI_Screens.Chat.Preference.PrefNameDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNotificationDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
+import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayerUpdate
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
@@ -231,7 +232,7 @@ fun InboxScreen(
     }
 
     if (viewingMyStatus && myStatuses.isNotEmpty()) {
-        PrefPlayer(
+        PrefPlayerUpdate(
             statuses = myStatuses,
             displayName = "You",
             avatarUrl = myAvatarUrl,
@@ -241,16 +242,17 @@ fun InboxScreen(
     }
 
     if (viewingPartnerStatus && partnerStatuses.isNotEmpty()) {
-        PrefPlayer(
+        PrefPlayerUpdate(
             statuses = partnerStatuses,
             displayName = partnerDisplayName,
             avatarUrl = effectiveAvatarUrl,
             isOwnStatus = false,
             onReplySend = { status, replyText ->
+                val taggedStatusId = if (status.id.startsWith("STATUS_")) status.id else "STATUS_${status.id}"
                 ChatEngine.sendMessage(
                     context = context,
                     text = replyText,
-                    replyToId = status.id,
+                    replyToId = taggedStatusId,
                     replyToText = status.caption.ifBlank { if (status.mediaType == 2) "Video" else "Photo" },
                     replyToSenderId = status.senderId
                 )
