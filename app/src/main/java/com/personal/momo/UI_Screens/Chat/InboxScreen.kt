@@ -815,7 +815,7 @@ private fun MessageStatusTicks(status: Int) {
             }
         }
         3 -> {
-            val AquaMintTickColor = Color(0xFF43CEA2)
+            val readTickColor = AquaMintColor
             Box(
                 modifier = Modifier.width(19.dp),
                 contentAlignment = Alignment.CenterStart
@@ -823,13 +823,13 @@ private fun MessageStatusTicks(status: Int) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = "Read",
-                    tint = blueTickColor,
+                    tint = readTickColor,
                     modifier = Modifier.size(15.dp)
                 )
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = AquaMintTickColor,
+                    tint = readTickColor,
                     modifier = Modifier
                         .padding(start = 5.dp)
                         .size(15.dp)
