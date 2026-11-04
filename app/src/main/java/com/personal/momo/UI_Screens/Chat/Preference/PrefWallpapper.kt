@@ -132,21 +132,6 @@ private val ChangeGalleryIcon: ImageVector by lazy {
     ).build()
 }
 
-private val PreviewCameraIcon: ImageVector by lazy {
-    ImageVector.Builder(
-        name = "PreviewCameraIcon",
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).addPath(
-        pathData = PathParser().parsePathString(
-            "M12 12m-3.2 0a3.2 3.2 0 1 0 6.4 0a3.2 3.2 0 1 0 -6.4 0 M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"
-        ).toNodes(),
-        fill = SolidColor(Color.White)
-    ).build()
-}
-
 private val PreviewSendIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "PreviewSendIcon",
@@ -454,45 +439,48 @@ object PrefWallpaperManager {
                 val cacheFolder = File(appContext.cacheDir, "media_cache").apply {
                     if (!exists()) mkdirs()
                 }
-                tempRawFile = File(cacheFolder, "RAW_${newFileId}.tmp")
+                val rawFile = File(cacheFolder, "RAW_${newFileId}.tmp")
+                tempRawFile = rawFile
 
                 appContext.contentResolver.openInputStream(imageUri)?.use { input ->
-                    FileOutputStream(tempRawFile).use { output ->
+                    FileOutputStream(rawFile).use { output ->
                         input.copyTo(output)
                     }
                 } ?: throw IllegalArgumentException("Cannot open stream for wallpaper URI: $imageUri")
 
-                compressedFile = try {
+                val compFile = try {
                     MediaCompressor.compressImage(
                         context = appContext,
-                        inputFile = tempRawFile,
+                        inputFile = rawFile,
                         maxDimension = 1600,
                         quality = 82
                     )
                 } catch (_: Exception) {
-                    tempRawFile
+                    rawFile
                 }
+                compressedFile = compFile
 
                 val localWallFile = getWallpaperFile(appContext, newFileId)
-                compressedFile.copyTo(localWallFile, overwrite = true)
+                compFile.copyTo(localWallFile, overwrite = true)
 
                 val encryptionResult = MediaCrypto.encryptFile(appContext, localWallFile)
-                encryptedFile = encryptionResult.encryptedFile
+                val encFile = encryptionResult.encryptedFile
+                encryptedFile = encFile
 
-                if (compressedFile.exists()) {
-                    compressedFile.delete()
+                if (compFile.absolutePath != rawFile.absolutePath && compFile.exists()) {
+                    compFile.delete()
                 }
-                if (tempRawFile.exists()) {
-                    tempRawFile.delete()
+                if (rawFile.exists()) {
+                    rawFile.delete()
                 }
 
                 val uploadResult = FirebaseMediaManager.uploadEncryptedMedia(
-                    encryptedFile = encryptedFile,
+                    encryptedFile = encFile,
                     fileId = newFileId
                 )
 
-                if (encryptedFile.exists()) {
-                    encryptedFile.delete()
+                if (encFile.exists()) {
+                    encFile.delete()
                 }
 
                 if (uploadResult.isSuccess) {
@@ -553,9 +541,9 @@ object PrefWallpaperManager {
             } catch (e: Exception) {
                 e.printStackTrace()
                 try {
-                    if (tempRawFile?.exists() == true) tempRawFile.delete()
-                    if (compressedFile?.exists() == true) compressedFile.delete()
-                    if (encryptedFile?.exists() == true) encryptedFile.delete()
+                    tempRawFile?.let { if (it.exists()) it.delete() }
+                    compressedFile?.let { if (it.exists()) it.delete() }
+                    encryptedFile?.let { if (it.exists()) it.delete() }
                 } catch (_: Exception) {}
 
                 withContext(Dispatchers.Main) {
@@ -1221,31 +1209,14 @@ private fun DummyWhatsAppChatPreview(
                 .height(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(22.dp)
                     .clip(RoundedCornerShape(11.dp))
                     .background(Color(0xFF171922).copy(alpha = 0.92f))
                     .border(0.7.dp, Color(0xFF262936), RoundedCornerShape(11.dp))
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
-                Icon(
-                    imageVector = ChangeGalleryIcon,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.55f),
-                    modifier = Modifier.size(11.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(
-                    imageVector = PreviewCameraIcon,
-                    contentDescription = null,
-                    tint = Color.White.copy(alpha = 0.55f),
-                    modifier = Modifier.size(11.dp)
-                )
-            }
+            )
 
             Spacer(modifier = Modifier.width(4.dp))
 
