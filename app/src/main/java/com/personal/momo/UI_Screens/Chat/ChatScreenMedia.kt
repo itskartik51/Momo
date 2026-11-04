@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +59,7 @@ import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.Chat.Media.MediaCompressor
 import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
 import com.personal.momo.UI_Screens.bounceClick
+import kotlinx.coroutines.delay
 import java.io.File
 import java.util.Locale
 
@@ -124,14 +126,34 @@ internal fun MediaBubbleMessageContent(
     val hasReply = replyToMessage != null
     val hasCaption = message.text.isNotBlank()
 
-    val mediaFile = remember(message.localPath) {
+    var mediaFile by remember(message.id, message.localPath, message.status) {
         val path = message.localPath
-        if (path.isNullOrBlank()) null
-        else {
-            MediaRenderCache.getFile(path) ?: run {
-                val resolved = MomoStorage.resolveLocalMediaFile(context, path)
-                if (resolved != null) MediaRenderCache.putFile(path, resolved)
-                resolved
+        val resolved = if (path.isNullOrBlank()) null else {
+            val cached = MediaRenderCache.getFile(path)
+            if (cached != null && cached.exists() && cached.length() > 0L) {
+                cached
+            } else {
+                val direct = MomoStorage.resolveLocalMediaFile(context, path)
+                if (direct != null && direct.exists() && direct.length() > 0L) {
+                    MediaRenderCache.putFile(path, direct)
+                    direct
+                } else null
+            }
+        }
+        mutableStateOf(resolved)
+    }
+
+    LaunchedEffect(message.id, message.localPath, mediaFile) {
+        if (mediaFile == null && !message.localPath.isNullOrBlank()) {
+            for (attempt in 1..25) {
+                delay(80L)
+                val path = message.localPath ?: break
+                val found = MomoStorage.resolveLocalMediaFile(context, path)
+                if (found != null && found.exists() && found.length() > 0L) {
+                    MediaRenderCache.putFile(path, found)
+                    mediaFile = found
+                    break
+                }
             }
         }
     }
@@ -149,17 +171,16 @@ internal fun MediaBubbleMessageContent(
     }
 
     val mediaAspectRatio = remember(message.id, mediaFile, blurBitmap) {
-        MediaRenderCache.getAspectRatio(message.id) ?: run {
-            val ratio = when {
-                mediaFile != null -> calculateMediaAspectRatio(mediaFile, message.mediaType == 2)
-                blurBitmap != null && blurBitmap.width > 0 && blurBitmap.height > 0 -> {
-                    (blurBitmap.width.toFloat() / blurBitmap.height.toFloat()).coerceIn(0.68f, 1.75f)
-                }
-                else -> 1f
+        val active = mediaFile
+        val ratio = when {
+            active != null -> calculateMediaAspectRatio(active, message.mediaType == 2)
+            blurBitmap != null && blurBitmap.width > 0 && blurBitmap.height > 0 -> {
+                (blurBitmap.width.toFloat() / blurBitmap.height.toFloat()).coerceIn(0.68f, 1.75f)
             }
-            MediaRenderCache.putAspectRatio(message.id, ratio)
-            ratio
+            else -> 1f
         }
+        MediaRenderCache.putAspectRatio(message.id, ratio)
+        ratio
     }
 
     val progressMap by ChatEngine.mediaProgressFlow.collectAsState()
@@ -175,7 +196,7 @@ internal fun MediaBubbleMessageContent(
 
     if (showPrefPlayer && mediaFile != null) {
         PrefPlayer(
-            mediaFile = mediaFile,
+            mediaFile = mediaFile!!,
             isVideo = message.mediaType == 2,
             onDismiss = { showPrefPlayer = false }
         )
