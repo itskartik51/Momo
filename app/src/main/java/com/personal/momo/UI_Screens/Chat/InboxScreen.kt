@@ -77,6 +77,8 @@ import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
 import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayerUpdate
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileDialog
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
+import com.personal.momo.UI_Screens.Chat.Preference.PrefWallpaperDialog
+import com.personal.momo.UI_Screens.Chat.Preference.PrefWallpaperManager
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
@@ -145,6 +147,7 @@ fun InboxScreen(
 
     var showMessageCountDialog by remember { mutableStateOf(false) }
     var showNotificationDialog by remember { mutableStateOf(false) }
+    var showBackgroundDialog by remember { mutableStateOf(false) }
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
     var showFullScreenAvatar by remember { mutableStateOf(false) }
@@ -179,6 +182,7 @@ fun InboxScreen(
         StatusEngine.startListening(context)
         PrefNameManager.init(context)
         PrefProfileManager.init(context)
+        PrefWallpaperManager.init(context)
     }
 
     LaunchedEffect(toastTriggerKey) {
@@ -202,6 +206,18 @@ fun InboxScreen(
             onModeApplied = { selectedMode ->
                 showNotificationDialog = false
                 toastMessage = selectedMode.appliedToastText
+                toastTriggerKey++
+            }
+        )
+    }
+
+    if (showBackgroundDialog) {
+        PrefWallpaperDialog(
+            partnerDisplayName = partnerDisplayName,
+            onDismiss = { showBackgroundDialog = false },
+            onWallpaperApplied = { appliedText ->
+                showBackgroundDialog = false
+                toastMessage = appliedText
                 toastTriggerKey++
             }
         )
@@ -315,6 +331,9 @@ fun InboxScreen(
                             }
                             ChatPreferenceOption.NOTIFICATION -> {
                                 showNotificationDialog = true
+                            }
+                            ChatPreferenceOption.BACKGROUND -> {
+                                showBackgroundDialog = true
                             }
                             ChatPreferenceOption.EDIT_NAME -> {
                                 showEditNameDialog = true
