@@ -255,6 +255,8 @@ internal fun ChatTopHeader(
         }
     }
 
+    val onlineSubtitleColor = Color.White.copy(alpha = 0.78f)
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -345,10 +347,10 @@ internal fun ChatTopHeader(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Online",
+                            text = "online",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFF25D366),
+                            fontWeight = FontWeight.Normal,
+                            color = onlineSubtitleColor,
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 lineHeight = 14.sp
@@ -357,7 +359,7 @@ internal fun ChatTopHeader(
                         Text(
                             text = "  •  ",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                            color = Color.White.copy(alpha = 0.45f),
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 lineHeight = 14.sp
@@ -366,8 +368,8 @@ internal fun ChatTopHeader(
                         Text(
                             text = "typing${".".repeat(dotCount)}",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            fontWeight = FontWeight.Normal,
+                            color = onlineSubtitleColor,
                             style = TextStyle(
                                 platformStyle = PlatformTextStyle(includeFontPadding = false),
                                 lineHeight = 14.sp
@@ -376,10 +378,10 @@ internal fun ChatTopHeader(
                     }
                 } else if (inChat) {
                     Text(
-                        text = "Online",
+                        text = "online",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF25D366),
+                        fontWeight = FontWeight.Normal,
+                        color = onlineSubtitleColor,
                         style = TextStyle(
                             platformStyle = PlatformTextStyle(includeFontPadding = false),
                             lineHeight = 14.sp
@@ -445,7 +447,7 @@ internal fun ChatTopHeader(
                         }
                     } else {
                         Text(
-                            text = "Offline",
+                            text = "offline",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
