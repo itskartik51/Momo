@@ -405,253 +405,257 @@ fun ChatScreen(
         )
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
     ) {
-        if (isSelectionMode) {
-            SelectionTopHeader(
-                selectedCount = selectedMessageIds.size,
-                canEdit = canEdit,
-                onClearSelection = { selectedMessageIds = emptySet() },
-                onCopy = {
-                    ChatTool.copyMessagesToClipboard(context, messagesList, selectedMessageIds)
-                    selectedMessageIds = emptySet()
-                },
-                onEdit = {
-                    val target = selectedMessages.firstOrNull()
-                    if (target != null) {
-                        replyingToMessage = null
-                        editingMessage = target
-                        inputText = target.text
-                        selectedMessageIds = emptySet()
-                    }
-                },
-                onDelete = {
-                    showDeleteDialog = true
-                }
-            )
-        } else {
-            ChatTopHeader(
-                partnerName = partnerDisplayName,
-                avatarUrl = effectiveAvatarUrl,
-                inChat = partnerPresence.inChat,
-                lastSeen = partnerPresence.lastSeen,
-                isTyping = partnerPresence.isTyping,
-                onAvatarClick = {
-                    if (!effectiveAvatarUrl.isNullOrBlank()) {
-                        showFullScreenAvatar = true
-                    }
-                },
-                onBack = {
-                    ChatEngine.setTyping(context, false)
-                    ChatEngine.setChatScreenActive(context, false)
-                    onBack()
-                }
-            )
-        }
+        ChatWallpaperBackground(
+            modifier = Modifier.fillMaxSize()
+        )
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .clipToBounds()
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            ChatWallpaperBackground(
-                modifier = Modifier.fillMaxSize()
-            )
-
-            LazyColumn(
-                state = listState,
-                reverseLayout = true,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
-                verticalArrangement = Arrangement.Bottom
-            ) {
-                itemsIndexed(reversedMessages, key = { _, message -> message.id }) { index, message ->
-                    val isOutgoing = message.senderId == myCode
-                    val isSelected = selectedMessageIds.contains(message.id)
-                    val isHighlighted = message.id == highlightedMessageId
-                    val replyToMsg = message.replyToId?.let { messageMap[it] }
-
-                    val replyToStatus = remember(message.replyToId, myStatuses, partnerStatuses) {
-                        val rid = message.replyToId
-                        if (!rid.isNullOrBlank()) {
-                            val rawId = rid.removePrefix("STATUS_")
-                            partnerStatuses.find { it.id == rid || it.id == rawId }
-                                ?: myStatuses.find { it.id == rid || it.id == rawId }
-                        } else null
+            if (isSelectionMode) {
+                SelectionTopHeader(
+                    selectedCount = selectedMessageIds.size,
+                    canEdit = canEdit,
+                    onClearSelection = { selectedMessageIds = emptySet() },
+                    onCopy = {
+                        ChatTool.copyMessagesToClipboard(context, messagesList, selectedMessageIds)
+                        selectedMessageIds = emptySet()
+                    },
+                    onEdit = {
+                        val target = selectedMessages.firstOrNull()
+                        if (target != null) {
+                            replyingToMessage = null
+                            editingMessage = target
+                            inputText = target.text
+                            selectedMessageIds = emptySet()
+                        }
+                    },
+                    onDelete = {
+                        showDeleteDialog = true
                     }
+                )
+            } else {
+                ChatTopHeader(
+                    partnerName = partnerDisplayName,
+                    avatarUrl = effectiveAvatarUrl,
+                    inChat = partnerPresence.inChat,
+                    lastSeen = partnerPresence.lastSeen,
+                    isTyping = partnerPresence.isTyping,
+                    onAvatarClick = {
+                        if (!effectiveAvatarUrl.isNullOrBlank()) {
+                            showFullScreenAvatar = true
+                        }
+                    },
+                    onBack = {
+                        ChatEngine.setTyping(context, false)
+                        ChatEngine.setChatScreenActive(context, false)
+                        onBack()
+                    }
+                )
+            }
 
-                    val isStatusActive = replyToStatus != null
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clipToBounds()
+            ) {
+                LazyColumn(
+                    state = listState,
+                    reverseLayout = true,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
+                    verticalArrangement = Arrangement.Bottom
+                ) {
+                    itemsIndexed(reversedMessages, key = { _, message -> message.id }) { index, message ->
+                        val isOutgoing = message.senderId == myCode
+                        val isSelected = selectedMessageIds.contains(message.id)
+                        val isHighlighted = message.id == highlightedMessageId
+                        val replyToMsg = message.replyToId?.let { messageMap[it] }
 
-                    val prevChronologicalMsg = reversedMessages.getOrNull(index + 1)
-                    val isFirstInDay = prevChronologicalMsg == null || !isSameDay(message.timestamp, prevChronologicalMsg.timestamp)
-                    val isFirstInSenderGroup = isFirstInDay || prevChronologicalMsg?.senderId != message.senderId
-
-                    val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
-                    val isDayChangedToNext = nextChronologicalMsg == null || !isSameDay(message.timestamp, nextChronologicalMsg.timestamp)
-                    val isNextSameSender = !isDayChangedToNext && nextChronologicalMsg?.senderId == message.senderId
-                    val isNextSameGroup = isNextSameSender && (nextChronologicalMsg?.let { isSameMinute(message.timestamp, it.timestamp) } ?: false)
-                    val isLastInGroup = !isNextSameGroup
-                    val isLastInSenderGroup = !isNextSameSender
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (isFirstInDay) {
-                            val dateHeaderText = remember(message.timestamp) {
-                                formatChatDateHeader(message.timestamp)
-                            }
-                            if (dateHeaderText.isNotEmpty()) {
-                                DateSeparatorPill(
-                                    text = dateHeaderText,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(
-                                            top = if (index == reversedMessages.lastIndex) 4.dp else 12.dp,
-                                            bottom = 10.dp
-                                        )
-                                )
-                            }
+                        val replyToStatus = remember(message.replyToId, myStatuses, partnerStatuses) {
+                            val rid = message.replyToId
+                            if (!rid.isNullOrBlank()) {
+                                val rawId = rid.removePrefix("STATUS_")
+                                partnerStatuses.find { it.id == rid || it.id == rawId }
+                                    ?: myStatuses.find { it.id == rid || it.id == rawId }
+                            } else null
                         }
 
-                        MessageBubbleRow(
-                            message = message,
-                            replyToMessage = replyToMsg,
-                            replyToStatus = replyToStatus,
-                            isStatusActive = isStatusActive,
-                            isOutgoing = isOutgoing,
-                            isSelected = isSelected,
-                            isHighlighted = isHighlighted,
-                            isSelectionMode = isSelectionMode,
-                            isFirstInSenderGroup = isFirstInSenderGroup,
-                            isLastInGroup = isLastInGroup,
-                            isLastInSenderGroup = isLastInSenderGroup,
-                            myCode = myCode,
-                            partnerDisplayName = partnerDisplayName,
-                            onToggleSelect = { id ->
-                                selectedMessageIds = if (selectedMessageIds.contains(id)) {
-                                    selectedMessageIds - id
-                                } else {
-                                    selectedMessageIds + id
+                        val isStatusActive = replyToStatus != null
+
+                        val prevChronologicalMsg = reversedMessages.getOrNull(index + 1)
+                        val isFirstInDay = prevChronologicalMsg == null || !isSameDay(message.timestamp, prevChronologicalMsg.timestamp)
+                        val isFirstInSenderGroup = isFirstInDay || prevChronologicalMsg?.senderId != message.senderId
+
+                        val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
+                        val isDayChangedToNext = nextChronologicalMsg == null || !isSameDay(message.timestamp, nextChronologicalMsg.timestamp)
+                        val isNextSameSender = !isDayChangedToNext && nextChronologicalMsg?.senderId == message.senderId
+                        val isNextSameGroup = isNextSameSender && (nextChronologicalMsg?.let { isSameMinute(message.timestamp, it.timestamp) } ?: false)
+                        val isLastInGroup = !isNextSameGroup
+                        val isLastInSenderGroup = !isNextSameSender
+
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (isFirstInDay) {
+                                val dateHeaderText = remember(message.timestamp) {
+                                    formatChatDateHeader(message.timestamp)
                                 }
-                            },
-                            onSwipeToReply = { targetMsg ->
-                                editingMessage = null
-                                replyingToMessage = targetMsg
-                            },
-                            onReplyClick = { targetReplyId ->
-                                val rawTargetId = targetReplyId.removePrefix("STATUS_")
-                                val foundStatus = partnerStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
-                                    ?: myStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
+                                if (dateHeaderText.isNotEmpty()) {
+                                    DateSeparatorPill(
+                                        text = dateHeaderText,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(
+                                                top = if (index == reversedMessages.lastIndex) 4.dp else 12.dp,
+                                                bottom = 10.dp
+                                            )
+                                    )
+                                }
+                            }
 
-                                if (foundStatus != null) {
-                                    viewingSingleStatus = foundStatus
-                                } else if (!targetReplyId.startsWith("STATUS_")) {
-                                    val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
-                                    if (targetIndex >= 0) {
-                                        val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
+                            MessageBubbleRow(
+                                message = message,
+                                replyToMessage = replyToMsg,
+                                replyToStatus = replyToStatus,
+                                isStatusActive = isStatusActive,
+                                isOutgoing = isOutgoing,
+                                isSelected = isSelected,
+                                isHighlighted = isHighlighted,
+                                isSelectionMode = isSelectionMode,
+                                isFirstInSenderGroup = isFirstInSenderGroup,
+                                isLastInGroup = isLastInGroup,
+                                isLastInSenderGroup = isLastInSenderGroup,
+                                myCode = myCode,
+                                partnerDisplayName = partnerDisplayName,
+                                onToggleSelect = { id ->
+                                    selectedMessageIds = if (selectedMessageIds.contains(id)) {
+                                        selectedMessageIds - id
+                                    } else {
+                                        selectedMessageIds + id
+                                    }
+                                },
+                                onSwipeToReply = { targetMsg ->
+                                    editingMessage = null
+                                    replyingToMessage = targetMsg
+                                },
+                                onReplyClick = { targetReplyId ->
+                                    val rawTargetId = targetReplyId.removePrefix("STATUS_")
+                                    val foundStatus = partnerStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
+                                        ?: myStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
 
-                                        if (!isAlreadyVisible) {
-                                            coroutineScope.launch {
-                                                val viewportHeight = listState.layoutInfo.viewportSize.height
-                                                val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
-                                                listState.animateScrollToItem(
-                                                    index = targetIndex,
-                                                    scrollOffset = centerOffset
-                                                )
+                                    if (foundStatus != null) {
+                                        viewingSingleStatus = foundStatus
+                                    } else if (!targetReplyId.startsWith("STATUS_")) {
+                                        val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
+                                        if (targetIndex >= 0) {
+                                            val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
+
+                                            if (!isAlreadyVisible) {
+                                                coroutineScope.launch {
+                                                    val viewportHeight = listState.layoutInfo.viewportSize.height
+                                                    val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
+                                                    listState.animateScrollToItem(
+                                                        index = targetIndex,
+                                                        scrollOffset = centerOffset
+                                                    )
+                                                }
                                             }
-                                        }
 
-                                        highlightTimerJob?.cancel()
-                                        highlightedMessageId = targetReplyId
-                                        highlightTimerJob = coroutineScope.launch {
-                                            delay(900L)
-                                            if (highlightedMessageId == targetReplyId) {
-                                                highlightedMessageId = null
+                                            highlightTimerJob?.cancel()
+                                            highlightedMessageId = targetReplyId
+                                            highlightTimerJob = coroutineScope.launch {
+                                                delay(900L)
+                                                if (highlightedMessageId == targetReplyId) {
+                                                    highlightedMessageId = null
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
+
+                StickyDateHeaderOverlay(
+                    dateText = stickyTopDateLabel,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                )
             }
 
-            StickyDateHeaderOverlay(
-                dateText = stickyTopDateLabel,
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp)
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = bottomInsetDp)
-        ) {
-            ChatInputBar(
-                text = inputText,
-                onTextChanged = { inputText = it },
-                replyingToMessage = replyingToMessage,
-                onCancelReply = { replyingToMessage = null },
-                editingMessage = editingMessage,
-                onCancelEdit = {
-                    editingMessage = null
-                    inputText = ""
-                },
-                myCode = myCode,
-                partnerDisplayName = partnerDisplayName,
-                onCameraClick = {
-                    val cacheFolder = File(context.cacheDir, "camera_captures").apply {
-                        if (!exists()) mkdirs()
-                    }
-                    val photoFile = File(cacheFolder, "CAM_${System.currentTimeMillis()}.jpg")
-                    val uri = FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.provider",
-                        photoFile
-                    )
-                    tempCameraUriString = uri.toString()
-                    cameraLauncher.launch(uri)
-                },
-                onGalleryClick = {
-                    galleryLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                    )
-                },
-                onSend = {
-                    val cleanText = inputText.trim()
-                    if (cleanText.isNotEmpty()) {
-                        val activeEdit = editingMessage
-                        if (activeEdit != null) {
-                            ChatEngine.editMessage(context, activeEdit.id, cleanText)
-                            editingMessage = null
-                            inputText = ""
-                        } else {
-                            ChatEngine.setTyping(context, false)
-                            ChatEngine.sendMessage(
-                                context = context,
-                                text = cleanText,
-                                replyToId = replyingToMessage?.id,
-                                replyToText = null,
-                                replyToSenderId = null
-                            )
-                            inputText = ""
-                            replyingToMessage = null
-                            coroutineScope.launch {
-                                if (reversedMessages.isNotEmpty()) {
-                                    listState.animateScrollToItem(0)
+                    .fillMaxWidth()
+                    .padding(bottom = bottomInsetDp)
+            ) {
+                ChatInputBar(
+                    text = inputText,
+                    onTextChanged = { inputText = it },
+                    replyingToMessage = replyingToMessage,
+                    onCancelReply = { replyingToMessage = null },
+                    editingMessage = editingMessage,
+                    onCancelEdit = {
+                        editingMessage = null
+                        inputText = ""
+                    },
+                    myCode = myCode,
+                    partnerDisplayName = partnerDisplayName,
+                    onCameraClick = {
+                        val cacheFolder = File(context.cacheDir, "camera_captures").apply {
+                            if (!exists()) mkdirs()
+                        }
+                        val photoFile = File(cacheFolder, "CAM_${System.currentTimeMillis()}.jpg")
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.provider",
+                            photoFile
+                        )
+                        tempCameraUriString = uri.toString()
+                        cameraLauncher.launch(uri)
+                    },
+                    onGalleryClick = {
+                        galleryLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                        )
+                    },
+                    onSend = {
+                        val cleanText = inputText.trim()
+                        if (cleanText.isNotEmpty()) {
+                            val activeEdit = editingMessage
+                            if (activeEdit != null) {
+                                ChatEngine.editMessage(context, activeEdit.id, cleanText)
+                                editingMessage = null
+                                inputText = ""
+                            } else {
+                                ChatEngine.setTyping(context, false)
+                                ChatEngine.sendMessage(
+                                    context = context,
+                                    text = cleanText,
+                                    replyToId = replyingToMessage?.id,
+                                    replyToText = null,
+                                    replyToSenderId = null
+                                )
+                                inputText = ""
+                                replyingToMessage = null
+                                coroutineScope.launch {
+                                    if (reversedMessages.isNotEmpty()) {
+                                        listState.animateScrollToItem(0)
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }
