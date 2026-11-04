@@ -37,7 +37,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -49,6 +54,9 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
@@ -58,6 +66,98 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 private val MomoCrimsonHighlightBase = Color(0xFFFF2E63)
+private val TailExtensionWidth = 6.dp
+private val BubbleCornerRadius = 12.dp
+
+internal class WhatsAppBubbleShape(
+    private val isOutgoing: Boolean,
+    private val hasTail: Boolean,
+    private val cornerRadius: Dp = BubbleCornerRadius,
+    private val tailWidth: Dp = TailExtensionWidth,
+    private val tailHeight: Dp = 10.dp
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val w = size.width
+        val h = size.height
+        val tw = if (hasTail) with(density) { tailWidth.toPx() } else 0f
+        val th = with(density) { tailHeight.toPx() }.coerceAtMost(h * 0.65f)
+        val bodyWidth = (w - tw).coerceAtLeast(1f)
+        val r = with(density) { cornerRadius.toPx() }.coerceAtMost(minOf(bodyWidth / 2f, h / 2f))
+        val tipR = with(density) { 2.dp.toPx() }
+
+        val path = Path().apply {
+            if (!hasTail) {
+                addRoundRect(
+                    androidx.compose.ui.geometry.RoundRect(
+                        rect = Rect(0f, 0f, w, h),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
+                    )
+                )
+            } else if (isOutgoing) {
+                val right = w - tw
+                moveTo(r, 0f)
+                lineTo(w - tipR, 0f)
+                quadraticBezierTo(w, 0f, w - (tipR * 0.35f), tipR * 1.25f)
+                quadraticBezierTo(right + (tw * 0.22f), th * 0.55f, right, th)
+                lineTo(right, h - r)
+                arcTo(
+                    rect = Rect(right - 2f * r, h - 2f * r, right, h),
+                    startAngleDegrees = 0f,
+                    sweepAngleDegrees = 90f,
+                    forceMoveTo = false
+                )
+                lineTo(r, h)
+                arcTo(
+                    rect = Rect(0f, h - 2f * r, 2f * r, h),
+                    startAngleDegrees = 90f,
+                    sweepAngleDegrees = 90f,
+                    forceMoveTo = false
+                )
+                lineTo(0f, r)
+                arcTo(
+                    rect = Rect(0f, 0f, 2f * r, 2f * r),
+                    startAngleDegrees = 180f,
+                    sweepAngleDegrees = 90f,
+                    forceMoveTo = false
+                )
+                close()
+            } else {
+                val left = tw
+                moveTo(tipR, 0f)
+                lineTo(w - r, 0f)
+                arcTo(
+                    rect = Rect(w - 2f * r, 0f, w, 2f * r),
+                    startAngleDegrees = 270f,
+                    sweepAngleDegrees = 90f,
+                    forceMoveTo = false
+                )
+                lineTo(w, h - r)
+                arcTo(
+                    rect = Rect(w - 2f * r, h - 2f * r, w, h),
+                    startAngleDegrees = 0f,
+                    sweepAngleDegrees = 90f,
+                    forceMoveTo = false
+                )
+                lineTo(left + r, h)
+                arcTo(
+                    rect = Rect(left, h - 2f * r, left + 2f * r, h),
+                    startAngleDegrees = 90f,
+                    sweepAngleDegrees = 90f,
+                    forceMoveTo = false
+                )
+                lineTo(left, th)
+                quadraticBezierTo(left - (tw * 0.22f), th * 0.55f, tipR * 0.35f, tipR * 1.25f)
+                quadraticBezierTo(0f, 0f, tipR, 0f)
+                close()
+            }
+        }
+        return Outline.Generic(path)
+    }
+}
 
 @Composable
 internal fun MessageBubbleRow(
@@ -69,6 +169,7 @@ internal fun MessageBubbleRow(
     isSelected: Boolean,
     isHighlighted: Boolean,
     isSelectionMode: Boolean,
+    isFirstInSenderGroup: Boolean = true,
     isLastInGroup: Boolean,
     isLastInSenderGroup: Boolean = isLastInGroup,
     myCode: Int,
@@ -86,19 +187,10 @@ internal fun MessageBubbleRow(
     val offsetX = remember { Animatable(0f) }
     var isTriggered by remember { mutableStateOf(false) }
 
-    val bubbleShape = if (isOutgoing) {
-        RoundedCornerShape(
-            topStart = 8.dp,
-            topEnd = 2.dp,
-            bottomStart = 8.dp,
-            bottomEnd = if (isLastInSenderGroup) 8.dp else 2.dp
-        )
-    } else {
-        RoundedCornerShape(
-            topStart = 2.dp,
-            topEnd = 8.dp,
-            bottomStart = if (isLastInSenderGroup) 8.dp else 2.dp,
-            bottomEnd = 8.dp
+    val bubbleShape = remember(isOutgoing, isFirstInSenderGroup) {
+        WhatsAppBubbleShape(
+            isOutgoing = isOutgoing,
+            hasTail = isFirstInSenderGroup
         )
     }
 
@@ -131,7 +223,7 @@ internal fun MessageBubbleRow(
         Color.Transparent
     }
 
-    val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.dp
+    val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.5.dp
 
     val isStatusReply = isStatusActive && (replyToStatus != null || message.replyToId?.startsWith("STATUS_") == true)
     val hasReply = (replyToMessage != null) || isStatusReply
@@ -139,6 +231,12 @@ internal fun MessageBubbleRow(
     val isMedia = message.mediaType > 0
     val pureEmojiCount = remember(message.text) { if (!isMedia) getPureEmojiCount(message.text) else 0 }
     val isFloatingEmoji = !hasReply && !isMedia && (pureEmojiCount in 1..3)
+
+    val nonTailIndentStart = if (!isOutgoing && !isFirstInSenderGroup) TailExtensionWidth else 0.dp
+    val nonTailIndentEnd = if (isOutgoing && !isFirstInSenderGroup) TailExtensionWidth else 0.dp
+
+    val innerTailPadStart = if (!isOutgoing && isFirstInSenderGroup) TailExtensionWidth else 0.dp
+    val innerTailPadEnd = if (isOutgoing && isFirstInSenderGroup) TailExtensionWidth else 0.dp
 
     Box(
         modifier = Modifier
@@ -258,6 +356,7 @@ internal fun MessageBubbleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(start = nonTailIndentStart, end = nonTailIndentEnd)
                 .graphicsLayer {
                     val raw = offsetX.value
                     val effective = if (raw <= triggerThresholdPx) {
@@ -280,19 +379,21 @@ internal fun MessageBubbleRow(
                 )
             } else {
                 Surface(
-                    modifier = Modifier.widthIn(max = 290.dp),
+                    modifier = Modifier.widthIn(max = 296.dp),
                     shape = bubbleShape,
                     color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
                     border = if (isOutgoing) null else BorderStroke(
                         width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
                     ),
                     shadowElevation = 1.dp
                 ) {
                     Box(
-                        modifier = Modifier.then(
-                            if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                        )
+                        modifier = Modifier
+                            .then(
+                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                            )
+                            .padding(start = innerTailPadStart, end = innerTailPadEnd)
                     ) {
                         if (message.mediaType > 0) {
                             MediaBubbleMessageContent(
@@ -525,9 +626,9 @@ private fun BubbleMessageContent(
 
             Text(
                 text = message.text,
-                fontSize = 15.5.sp,
+                fontSize = 15.sp,
                 color = textColor,
-                lineHeight = 21.5.sp,
+                lineHeight = 20.sp,
                 style = TextStyle(
                     platformStyle = PlatformTextStyle(includeFontPadding = false)
                 ),
@@ -555,17 +656,17 @@ private fun BubbleMessageContent(
             }
         }
     ) { measurables, constraints ->
-        val bubblePadStart = 8.dp.roundToPx()
-        val bubblePadEnd = 8.dp.roundToPx()
-        val bubblePadTop = if (hasReply) 4.dp.roundToPx() else 5.dp.roundToPx()
-        val bubblePadBottom = 5.dp.roundToPx()
+        val bubblePadStart = 10.dp.roundToPx()
+        val bubblePadEnd = 10.dp.roundToPx()
+        val bubblePadTop = if (hasReply) 5.dp.roundToPx() else 6.dp.roundToPx()
+        val bubblePadBottom = 6.dp.roundToPx()
 
-        val quoteMargin = 4.dp.roundToPx()
-        val quoteSpacing = 4.dp.roundToPx()
+        val quoteMargin = 4.5.dp.roundToPx()
+        val quoteSpacing = 4.5.dp.roundToPx()
 
-        val timePadEnd = 6.dp.roundToPx()
-        val timePadBottom = 2.dp.roundToPx()
-        val horizontalGap = 6.dp.roundToPx()
+        val timePadEnd = 8.5.dp.roundToPx()
+        val timePadBottom = 4.dp.roundToPx()
+        val horizontalGap = 7.dp.roundToPx()
 
         val maxTextWidth = (constraints.maxWidth - bubblePadStart - bubblePadEnd).coerceAtLeast(0)
         val maxQuoteWidth = (constraints.maxWidth - quoteMargin * 2).coerceAtLeast(0)
@@ -645,7 +746,7 @@ private fun BubbleMessageContent(
             val minTimeWidth = bubblePadStart + timeWidth + timePadEnd
             val totalWidth = maxOf(baseBubbleWidth, minTimeWidth)
 
-            val extraBottomSpace = (timeHeight - (bubblePadBottom - timePadBottom)).coerceAtLeast(0) + 2.dp.roundToPx()
+            val extraBottomSpace = (timeHeight - (bubblePadBottom - timePadBottom)).coerceAtLeast(0) + 3.dp.roundToPx()
             val totalHeight = bubblePadTop + quoteHeight + textPlaceable.height + bubblePadBottom + extraBottomSpace
 
             layout(totalWidth, totalHeight) {
