@@ -58,10 +58,12 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
+import com.personal.momo.UI_Screens.Chat.Preference.ChatWallpaperBackground
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
 import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
 import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayerUpdate
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
+import com.personal.momo.UI_Screens.Chat.Preference.PrefWallpaperManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -184,6 +186,7 @@ fun ChatScreen(
     LaunchedEffect(Unit) {
         PrefNameManager.init(context)
         PrefProfileManager.init(context)
+        PrefWallpaperManager.init(context)
         StatusEngine.startListening(context)
     }
 
@@ -455,6 +458,10 @@ fun ChatScreen(
                 .weight(1f)
                 .clipToBounds()
         ) {
+            ChatWallpaperBackground(
+                modifier = Modifier.fillMaxSize()
+            )
+
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
