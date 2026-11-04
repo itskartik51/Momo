@@ -61,7 +61,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
-import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -434,65 +433,67 @@ internal fun MessageBubbleRow(
 internal fun StatusReplySnippet(
     title: String = "Reply to status",
     caption: String,
+    accentColor: Color,
     isOutgoing: Boolean,
     onClick: () -> Unit
 ) {
-    Surface(
+    val containerBg = if (isOutgoing) {
+        OutgoingDeepRoseBg
+    } else {
+        Color.Black.copy(alpha = 0.28f)
+    }
+
+    Row(
         modifier = Modifier
-            .fillMaxWidth()
-            .bounceClick(scaleDown = 0.96f) {
-                onClick()
-            },
-        shape = RoundedCornerShape(8.dp),
-        color = if (isOutgoing) Color.Black.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(if (isOutgoing) Color.White else MomoRedLight)
-            )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 6.dp, horizontal = 4.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isOutgoing) Color.White else MomoRedLight,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(
-                        platformStyle = PlatformTextStyle(includeFontPadding = false)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = caption.ifBlank { "Status" },
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = if (isOutgoing) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 15.sp,
-                    style = TextStyle(
-                        platformStyle = PlatformTextStyle(includeFontPadding = false)
-                    )
+            .clip(RoundedCornerShape(6.dp))
+            .background(containerBg)
+            .pointerInput(title, caption) {
+                detectTapGestures(
+                    onTap = { onClick() }
                 )
             }
+            .height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .fillMaxHeight()
+                .background(accentColor)
+        )
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 7.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+                .widthIn(min = 120.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = accentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                )
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = caption.ifBlank { "Status" },
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = Color.White.copy(alpha = 0.85f),
+                lineHeight = 16.sp,
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                )
+            )
         }
     }
 }
@@ -592,6 +593,14 @@ private fun BubbleMessageContent(
         }
     }
 
+    val statusQuoteAccentColor = remember(replyToStatus, myCode, isOutgoing) {
+        if (replyToStatus != null) {
+            if (replyToStatus.senderId == myCode) GlowingPinkAccent else AquaMintColor
+        } else {
+            if (isOutgoing) AquaMintColor else GlowingPinkAccent
+        }
+    }
+
     val statusQuoteCaption = remember(replyToStatus, message.replyToText) {
         if (replyToStatus != null) {
             val typeIcon = if (replyToStatus.mediaType == 2) "🎥" else "📷"
@@ -611,6 +620,7 @@ private fun BubbleMessageContent(
                 StatusReplySnippet(
                     title = statusQuoteTitle,
                     caption = statusQuoteCaption,
+                    accentColor = statusQuoteAccentColor,
                     isOutgoing = isOutgoing,
                     onClick = { onReplyClick(message.replyToId ?: replyToStatus?.id.orEmpty()) }
                 )
