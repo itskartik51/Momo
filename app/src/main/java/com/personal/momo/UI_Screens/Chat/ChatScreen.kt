@@ -7,6 +7,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,25 +25,35 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -52,6 +66,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.util.Locale
+
+private val DatePillBackgroundColor = Color(0xFF1B1C24).copy(alpha = 0.90f)
 
 @Composable
 fun ChatScreen(
@@ -114,6 +137,50 @@ fun ChatScreen(
     var viewingSingleStatus by remember { mutableStateOf<StatusItem?>(null) }
 
     var tempCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val stickyTopDateLabel by remember(reversedMessages, density) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (visibleItems.isEmpty() || reversedMessages.isEmpty()) {
+                null
+            } else {
+                val viewportTop = layoutInfo.viewportEndOffset
+                val topZonePx = with(density) { 52.dp.roundToPx() }
+                val pillHeightPx = with(density) { 38.dp.roundToPx() }
+
+                val reachesTopOfScreen = visibleItems.any { it.offset + it.size >= viewportTop - topZonePx }
+                if (!reachesTopOfScreen) {
+                    null
+                } else {
+                    val hasInlinePillAtTop = visibleItems.any { itemInfo ->
+                        val idx = itemInfo.index
+                        val msg = reversedMessages.getOrNull(idx)
+                        val olderMsg = reversedMessages.getOrNull(idx + 1)
+                        val isFirstOfDay = msg != null && (olderMsg == null || !isSameDay(msg.timestamp, olderMsg.timestamp))
+                        if (isFirstOfDay) {
+                            val itemTopEdge = itemInfo.offset + itemInfo.size
+                            itemTopEdge in (viewportTop - topZonePx)..(viewportTop + pillHeightPx)
+                        } else {
+                            false
+                        }
+                    }
+
+                    if (hasInlinePillAtTop) {
+                        null
+                    } else {
+                        val topItem = visibleItems
+                            .filter { it.offset < viewportTop }
+                            .maxByOrNull { it.index }
+                            ?: visibleItems.maxByOrNull { it.index }
+
+                        val topMsg = topItem?.let { reversedMessages.getOrNull(it.index) }
+                        topMsg?.let { formatChatDateHeader(it.timestamp) }
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         PrefNameManager.init(context)
@@ -383,97 +450,141 @@ fun ChatScreen(
             )
         }
 
-        LazyColumn(
-            state = listState,
-            reverseLayout = true,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .clipToBounds(),
-            contentPadding = PaddingValues(top = 6.dp, bottom = 6.dp),
-            verticalArrangement = Arrangement.Bottom
+                .clipToBounds()
         ) {
-            itemsIndexed(reversedMessages, key = { _, message -> message.id }) { index, message ->
-                val isOutgoing = message.senderId == myCode
-                val isSelected = selectedMessageIds.contains(message.id)
-                val isHighlighted = message.id == highlightedMessageId
-                val replyToMsg = message.replyToId?.let { messageMap[it] }
+            LazyColumn(
+                state = listState,
+                reverseLayout = true,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
+                verticalArrangement = Arrangement.Bottom
+            ) {
+                itemsIndexed(reversedMessages, key = { _, message -> message.id }) { index, message ->
+                    val isOutgoing = message.senderId == myCode
+                    val isSelected = selectedMessageIds.contains(message.id)
+                    val isHighlighted = message.id == highlightedMessageId
+                    val replyToMsg = message.replyToId?.let { messageMap[it] }
 
-                val replyToStatus = remember(message.replyToId, myStatuses, partnerStatuses) {
-                    val rid = message.replyToId
-                    if (!rid.isNullOrBlank()) {
-                        val rawId = rid.removePrefix("STATUS_")
-                        partnerStatuses.find { it.id == rid || it.id == rawId }
-                            ?: myStatuses.find { it.id == rid || it.id == rawId }
-                    } else null
-                }
+                    val replyToStatus = remember(message.replyToId, myStatuses, partnerStatuses) {
+                        val rid = message.replyToId
+                        if (!rid.isNullOrBlank()) {
+                            val rawId = rid.removePrefix("STATUS_")
+                            partnerStatuses.find { it.id == rid || it.id == rawId }
+                                ?: myStatuses.find { it.id == rid || it.id == rawId }
+                        } else null
+                    }
 
-                val isStatusActive = replyToStatus != null
+                    val isStatusActive = replyToStatus != null
 
-                val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
-                val isNextSameSender = nextChronologicalMsg?.senderId == message.senderId
-                val isNextSameGroup = isNextSameSender && (nextChronologicalMsg?.let { isSameMinute(message.timestamp, it.timestamp) } ?: false)
-                val isLastInGroup = !isNextSameGroup
-                val isLastInSenderGroup = !isNextSameSender
+                    val prevChronologicalMsg = reversedMessages.getOrNull(index + 1)
+                    val isFirstInDay = prevChronologicalMsg == null || !isSameDay(message.timestamp, prevChronologicalMsg.timestamp)
+                    val isFirstInSenderGroup = isFirstInDay || prevChronologicalMsg?.senderId != message.senderId
 
-                MessageBubbleRow(
-                    message = message,
-                    replyToMessage = replyToMsg,
-                    replyToStatus = replyToStatus,
-                    isStatusActive = isStatusActive,
-                    isOutgoing = isOutgoing,
-                    isSelected = isSelected,
-                    isHighlighted = isHighlighted,
-                    isSelectionMode = isSelectionMode,
-                    isLastInGroup = isLastInGroup,
-                    isLastInSenderGroup = isLastInSenderGroup,
-                    myCode = myCode,
-                    partnerDisplayName = partnerDisplayName,
-                    onToggleSelect = { id ->
-                        selectedMessageIds = if (selectedMessageIds.contains(id)) {
-                            selectedMessageIds - id
-                        } else {
-                            selectedMessageIds + id
-                        }
-                    },
-                    onSwipeToReply = { targetMsg ->
-                        editingMessage = null
-                        replyingToMessage = targetMsg
-                    },
-                    onReplyClick = { targetReplyId ->
-                        val rawTargetId = targetReplyId.removePrefix("STATUS_")
-                        val foundStatus = partnerStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
-                            ?: myStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
+                    val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
+                    val isDayChangedToNext = nextChronologicalMsg == null || !isSameDay(message.timestamp, nextChronologicalMsg.timestamp)
+                    val isNextSameSender = !isDayChangedToNext && nextChronologicalMsg?.senderId == message.senderId
+                    val isNextSameGroup = isNextSameSender && (nextChronologicalMsg?.let { isSameMinute(message.timestamp, it.timestamp) } ?: false)
+                    val isLastInGroup = !isNextSameGroup
+                    val isLastInSenderGroup = !isNextSameSender
 
-                        if (foundStatus != null) {
-                            viewingSingleStatus = foundStatus
-                        } else if (!targetReplyId.startsWith("STATUS_")) {
-                            val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
-                            if (targetIndex >= 0) {
-                                val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
-
-                                if (!isAlreadyVisible) {
-                                    coroutineScope.launch {
-                                        val viewportHeight = listState.layoutInfo.viewportSize.height
-                                        val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
-                                        listState.animateScrollToItem(
-                                            index = targetIndex,
-                                            scrollOffset = centerOffset
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isFirstInDay) {
+                            val dateHeaderText = remember(message.timestamp) {
+                                formatChatDateHeader(message.timestamp)
+                            }
+                            if (dateHeaderText.isNotEmpty()) {
+                                DateSeparatorPill(
+                                    text = dateHeaderText,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(
+                                            top = if (index == reversedMessages.lastIndex) 4.dp else 12.dp,
+                                            bottom = 10.dp
                                         )
-                                    }
-                                }
+                                )
+                            }
+                        }
 
-                                highlightTimerJob?.cancel()
-                                highlightedMessageId = targetReplyId
-                                highlightTimerJob = coroutineScope.launch {
-                                    delay(900L)
-                                    if (highlightedMessageId == targetReplyId) {
-                                        highlightedMessageId = null
+                        MessageBubbleRow(
+                            message = message,
+                            replyToMessage = replyToMsg,
+                            replyToStatus = replyToStatus,
+                            isStatusActive = isStatusActive,
+                            isOutgoing = isOutgoing,
+                            isSelected = isSelected,
+                            isHighlighted = isHighlighted,
+                            isSelectionMode = isSelectionMode,
+                            isFirstInSenderGroup = isFirstInSenderGroup,
+                            isLastInGroup = isLastInGroup,
+                            isLastInSenderGroup = isLastInSenderGroup,
+                            myCode = myCode,
+                            partnerDisplayName = partnerDisplayName,
+                            onToggleSelect = { id ->
+                                selectedMessageIds = if (selectedMessageIds.contains(id)) {
+                                    selectedMessageIds - id
+                                } else {
+                                    selectedMessageIds + id
+                                }
+                            },
+                            onSwipeToReply = { targetMsg ->
+                                editingMessage = null
+                                replyingToMessage = targetMsg
+                            },
+                            onReplyClick = { targetReplyId ->
+                                val rawTargetId = targetReplyId.removePrefix("STATUS_")
+                                val foundStatus = partnerStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
+                                    ?: myStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
+
+                                if (foundStatus != null) {
+                                    viewingSingleStatus = foundStatus
+                                } else if (!targetReplyId.startsWith("STATUS_")) {
+                                    val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
+                                    if (targetIndex >= 0) {
+                                        val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
+
+                                        if (!isAlreadyVisible) {
+                                            coroutineScope.launch {
+                                                val viewportHeight = listState.layoutInfo.viewportSize.height
+                                                val centerOffset = -(viewportHeight / 2 - with(density) { 36.dp.roundToPx() })
+                                                listState.animateScrollToItem(
+                                                    index = targetIndex,
+                                                    scrollOffset = centerOffset
+                                                )
+                                            }
+                                        }
+
+                                        highlightTimerJob?.cancel()
+                                        highlightedMessageId = targetReplyId
+                                        highlightTimerJob = coroutineScope.launch {
+                                            delay(900L)
+                                            if (highlightedMessageId == targetReplyId) {
+                                                highlightedMessageId = null
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
+                        )
                     }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = !stickyTopDateLabel.isNullOrEmpty(),
+                enter = fadeIn(animationSpec = tween(150)),
+                exit = fadeOut(animationSpec = tween(150)),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp)
+            ) {
+                DateSeparatorPill(
+                    text = stickyTopDateLabel.orEmpty()
                 )
             }
         }
@@ -542,5 +653,69 @@ fun ChatScreen(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun DateSeparatorPill(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = DatePillBackgroundColor,
+            shadowElevation = 2.dp
+        ) {
+            Text(
+                text = text,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White.copy(alpha = 0.75f),
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.5.dp),
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                    lineHeight = 14.sp
+                )
+            )
+        }
+    }
+}
+
+private fun isSameDay(t1: Long, t2: Long): Boolean {
+    if (t1 <= 0L || t2 <= 0L) return false
+    return try {
+        val d1 = Instant.ofEpochMilli(t1).atZone(ZoneId.systemDefault()).toLocalDate()
+        val d2 = Instant.ofEpochMilli(t2).atZone(ZoneId.systemDefault()).toLocalDate()
+        d1.isEqual(d2)
+    } catch (_: Exception) {
+        false
+    }
+}
+
+private fun formatChatDateHeader(timestamp: Long): String {
+    if (timestamp <= 0L) return ""
+    return try {
+        val msgDate = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
+        val today = LocalDate.now()
+        val daysDiff = ChronoUnit.DAYS.between(msgDate, today)
+
+        when {
+            msgDate.isEqual(today) -> "Today"
+            msgDate.isEqual(today.minusDays(1)) -> "Yesterday"
+            daysDiff in 2..6 -> {
+                val dayFormatter = DateTimeFormatter.ofPattern("EEEE", Locale.ENGLISH)
+                msgDate.format(dayFormatter)
+            }
+            else -> {
+                val dateFormatter = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
+                msgDate.format(dateFormatter)
+            }
+        }
+    } catch (_: Exception) {
+        ""
     }
 }
