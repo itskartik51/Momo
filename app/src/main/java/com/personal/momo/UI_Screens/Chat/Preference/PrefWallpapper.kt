@@ -3,6 +3,8 @@ package com.personal.momo.UI_Screens.Chat.Preference
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,11 +27,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,8 +60,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -90,6 +88,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
 data class WallpaperConfig(
@@ -128,6 +127,36 @@ private val ChangeGalleryIcon: ImageVector by lazy {
     ).addPath(
         pathData = PathParser().parsePathString(
             "M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val PreviewCameraIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "PreviewCameraIcon",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M12 12m-3.2 0a3.2 3.2 0 1 0 6.4 0a3.2 3.2 0 1 0 -6.4 0 M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val PreviewSendIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "PreviewSendIcon",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -416,26 +445,45 @@ object PrefWallpaperManager {
         onProgress(true)
 
         scope.launch {
+            var tempRawFile: File? = null
             var compressedFile: File? = null
             var encryptedFile: File? = null
 
             try {
                 val newFileId = "WALL_${System.currentTimeMillis()}"
-                compressedFile = MediaCompressor.compressImage(
-                    context = appContext,
-                    inputUri = imageUri,
-                    maxDimension = 1600,
-                    quality = 82
-                )
+                val cacheFolder = File(appContext.cacheDir, "media_cache").apply {
+                    if (!exists()) mkdirs()
+                }
+                tempRawFile = File(cacheFolder, "RAW_${newFileId}.tmp")
+
+                appContext.contentResolver.openInputStream(imageUri)?.use { input ->
+                    FileOutputStream(tempRawFile).use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: throw IllegalArgumentException("Cannot open stream for wallpaper URI: $imageUri")
+
+                compressedFile = try {
+                    MediaCompressor.compressImage(
+                        context = appContext,
+                        inputFile = tempRawFile,
+                        maxDimension = 1600,
+                        quality = 82
+                    )
+                } catch (_: Exception) {
+                    tempRawFile
+                }
 
                 val localWallFile = getWallpaperFile(appContext, newFileId)
                 compressedFile.copyTo(localWallFile, overwrite = true)
 
-                val encryptionResult = MediaCrypto.encryptFile(appContext, compressedFile)
+                val encryptionResult = MediaCrypto.encryptFile(appContext, localWallFile)
                 encryptedFile = encryptionResult.encryptedFile
 
                 if (compressedFile.exists()) {
                     compressedFile.delete()
+                }
+                if (tempRawFile.exists()) {
+                    tempRawFile.delete()
                 }
 
                 val uploadResult = FirebaseMediaManager.uploadEncryptedMedia(
@@ -505,6 +553,7 @@ object PrefWallpaperManager {
             } catch (e: Exception) {
                 e.printStackTrace()
                 try {
+                    if (tempRawFile?.exists() == true) tempRawFile.delete()
                     if (compressedFile?.exists() == true) compressedFile.delete()
                     if (encryptedFile?.exists() == true) encryptedFile.delete()
                 } catch (_: Exception) {}
@@ -548,28 +597,73 @@ object PrefWallpaperManager {
     internal suspend fun decodeImageBitmapSafe(file: File): ImageBitmap? = withContext(Dispatchers.IO) {
         if (!file.exists() || file.length() <= 0L) return@withContext null
         try {
+            val bounds = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+            var sampleSize = 1
+            while (maxDim / sampleSize > 2048) {
+                sampleSize *= 2
+            }
+
             val opts = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            BitmapFactory.decodeFile(file.absolutePath, opts)?.asImageBitmap()
+            val decoded = BitmapFactory.decodeFile(file.absolutePath, opts) ?: return@withContext null
+
+            var rotation = 0
+            try {
+                val exif = ExifInterface(file.absolutePath)
+                rotation = when (
+                    exif.getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL
+                    )
+                ) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                    ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                    ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                    else -> 0
+                }
+            } catch (_: Exception) {}
+
+            val oriented = if (rotation != 0) {
+                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true).also {
+                    if (it != decoded) decoded.recycle()
+                }
+            } else {
+                decoded
+            }
+
+            oriented.asImageBitmap()
         } catch (_: Exception) {
             null
         }
     }
 
     internal suspend fun decodeUriBitmapSafe(context: Context, uri: Uri): ImageBitmap? = withContext(Dispatchers.IO) {
+        val cacheFolder = File(context.cacheDir, "media_cache").apply {
+            if (!exists()) mkdirs()
+        }
+        val tempFile = File(cacheFolder, "WALL_PREVIEW_${System.currentTimeMillis()}.tmp")
         try {
-            val compressedTemp = MediaCompressor.compressImage(
-                context = context,
-                inputUri = uri,
-                maxDimension = 1600,
-                quality = 82
-            )
-            val bmp = decodeImageBitmapSafe(compressedTemp)
-            if (compressedTemp.exists()) compressedTemp.delete()
-            bmp
-        } catch (_: Exception) {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return@withContext null
+
+            decodeImageBitmapSafe(tempFile)
+        } catch (e: Exception) {
+            e.printStackTrace()
             null
+        } finally {
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
         }
     }
 }
@@ -647,7 +741,7 @@ internal fun WallpaperCroppedCanvas(
 
 @Composable
 fun PrefWallpaperDialog(
-    partnerDisplayName: String,
+    partnerDisplayName: String = "",
     onDismiss: () -> Unit,
     onWallpaperApplied: (String) -> Unit
 ) {
@@ -659,6 +753,7 @@ fun PrefWallpaperDialog(
 
     var pendingUri by remember { mutableStateOf<Uri?>(null) }
     var pendingBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    var pickSequence by remember { mutableIntStateOf(0) }
 
     var focusX by remember(savedConfig.fileId) { mutableFloatStateOf(savedConfig.focusX) }
     var focusY by remember(savedConfig.fileId) { mutableFloatStateOf(savedConfig.focusY) }
@@ -682,13 +777,14 @@ fun PrefWallpaperDialog(
     ) { uri: Uri? ->
         if (uri != null) {
             pendingUri = uri
+            pickSequence++
             focusX = 0.5f
             focusY = 0.5f
             userZoom = 1.0f
         }
     }
 
-    LaunchedEffect(pendingUri) {
+    LaunchedEffect(pendingUri, pickSequence) {
         val targetUri = pendingUri
         if (targetUri != null) {
             val decoded = PrefWallpaperManager.decodeUriBitmapSafe(context, targetUri)
@@ -847,7 +943,6 @@ fun PrefWallpaperDialog(
                     }
 
                     DummyWhatsAppChatPreview(
-                        partnerDisplayName = partnerDisplayName,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -1014,163 +1109,160 @@ fun PrefWallpaperDialog(
 
 @Composable
 private fun DummyWhatsAppChatPreview(
-    partnerDisplayName: String,
     modifier: Modifier = Modifier
 ) {
-    val incomingShape = remember {
+    val incomingTailShape = remember {
         WhatsAppBubbleShape(
             isOutgoing = false,
             hasTail = true,
-            cornerRadius = 9.dp,
-            tailWidth = 4.5.dp,
-            tailHeight = 7.dp
+            cornerRadius = 7.dp,
+            tailWidth = 4.dp,
+            tailHeight = 6.dp
         )
     }
-    val outgoingShape = remember {
+    val outgoingTailShape = remember {
         WhatsAppBubbleShape(
             isOutgoing = true,
             hasTail = true,
-            cornerRadius = 9.dp,
-            tailWidth = 4.5.dp,
-            tailHeight = 7.dp
+            cornerRadius = 7.dp,
+            tailWidth = 4.dp,
+            tailHeight = 6.dp
+        )
+    }
+    val outgoingGroupShape = remember {
+        WhatsAppBubbleShape(
+            isOutgoing = true,
+            hasTail = false,
+            cornerRadius = 7.dp,
+            tailWidth = 4.dp,
+            tailHeight = 6.dp
         )
     }
 
     Column(
-        modifier = modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+        modifier = modifier.padding(horizontal = 7.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Box(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.Center
+                horizontalArrangement = Arrangement.Start
             ) {
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF1B1C24).copy(alpha = 0.90f)
-                ) {
-                    Text(
-                        text = "Today",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White.copy(alpha = 0.78f),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                    modifier = Modifier
+                        .width(86.dp)
+                        .height(22.dp),
+                    shape = incomingTailShape,
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(
+                        width = 0.7.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
                     )
-                }
+                ) {}
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(106.dp)
+                        .height(22.dp)
+                        .clip(outgoingTailShape)
+                        .background(MomoPrimaryGradient)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(2.5.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 4.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(74.dp)
+                        .height(20.dp)
+                        .clip(outgoingGroupShape)
+                        .background(MomoPrimaryGradient)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Start
             ) {
                 Surface(
-                    shape = incomingShape,
+                    modifier = Modifier
+                        .width(98.dp)
+                        .height(22.dp),
+                    shape = incomingTailShape,
                     color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 11.dp, end = 7.dp, top = 5.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Text(
-                            text = "Hey $partnerDisplayName ✨",
-                            fontSize = 10.5.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = "10:30 am",
-                            fontSize = 8.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                            style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                        )
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                Surface(
-                    shape = outgoingShape,
-                    color = Color.Transparent
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .background(MomoPrimaryGradient)
-                            .padding(start = 8.dp, end = 11.dp, top = 5.dp, bottom = 4.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            Text(
-                                text = "Looks super clean! ❤️",
-                                fontSize = 10.5.sp,
-                                color = Color.White,
-                                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "10:31 am",
-                                fontSize = 8.sp,
-                                color = Color.White.copy(alpha = 0.82f),
-                                style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color(0xFF43CEA2),
-                                modifier = Modifier.size(10.dp)
-                            )
-                        }
-                    }
-                }
+                    border = BorderStroke(
+                        width = 0.7.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
+                    )
+                ) {}
             }
         }
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(26.dp),
+                .height(24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF171922).copy(alpha = 0.90f))
-                    .border(0.8.dp, Color(0xFF262936), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 9.dp),
-                contentAlignment = Alignment.CenterStart
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(Color(0xFF171922).copy(alpha = 0.92f))
+                    .border(0.7.dp, Color(0xFF262936), RoundedCornerShape(11.dp))
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
             ) {
-                Text(
-                    text = "Message...",
-                    fontSize = 9.sp,
-                    color = Color.White.copy(alpha = 0.45f),
-                    style = TextStyle(platformStyle = PlatformTextStyle(includeFontPadding = false))
+                Icon(
+                    imageVector = ChangeGalleryIcon,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.size(11.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = PreviewCameraIcon,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.size(11.dp)
                 )
             }
+
             Spacer(modifier = Modifier.width(4.dp))
+
             Box(
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(22.dp)
                     .clip(CircleShape)
                     .background(MomoPrimaryGradient),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Check,
+                    imageVector = PreviewSendIcon,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(11.dp)
+                    modifier = Modifier
+                        .size(10.dp)
+                        .padding(start = 1.dp)
                 )
             }
         }
