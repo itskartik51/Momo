@@ -1,7 +1,9 @@
 package com.personal.momo.UI_Screens.Chat.Preference
 
+import android.graphics.Rect
 import android.net.Uri
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
@@ -83,6 +85,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
@@ -96,6 +99,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.OnApplyWindowInsetsListener
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -211,6 +217,7 @@ fun PrefStatusPlayer(
     val context = LocalContext.current
     val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val coroutineScope = rememberCoroutineScope()
 
     val exoPlayer = remember {
@@ -245,12 +252,17 @@ fun PrefStatusPlayer(
     var isReplyFocused by remember { mutableStateOf(false) }
     var showReplySentToast by remember { mutableStateOf(false) }
 
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
-    val isKeyboardOpen = imeBottom > 0
+    var imeHeightPx by remember { mutableIntStateOf(0) }
+    var navBarsHeightPx by remember { mutableIntStateOf(0) }
+
+    val isKeyboardOpen = imeHeightPx > 0
 
     val bottomInsetDp = with(density) {
-        if (isKeyboardOpen) imeBottom.toDp() else navBarsBottom.toDp()
+        if (isKeyboardOpen) {
+            imeHeightPx.toDp()
+        } else {
+            navBarsHeightPx.coerceAtLeast(WindowInsets.navigationBars.getBottom(density)).toDp()
+        }
     }
 
     LaunchedEffect(isKeyboardOpen) {
@@ -289,6 +301,7 @@ fun PrefStatusPlayer(
             showDeleteConfirmDialog -> showDeleteConfirmDialog = false
             isMenuOpen -> isMenuOpen = false
             isKeyboardOpen || isReplyFocused || replyInputText.isNotEmpty() -> {
+                keyboardController?.hide()
                 focusManager.clearFocus()
                 replyInputText = ""
                 isReplyFocused = false
@@ -425,8 +438,38 @@ fun PrefStatusPlayer(
         val dialogView = LocalView.current
         DisposableEffect(dialogView) {
             val window = (dialogView.parent as? DialogWindowProvider)?.window
-            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            onDispose {}
+            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+
+            val decorView = window?.decorView ?: dialogView
+
+            val insetsListener = OnApplyWindowInsetsListener { _, insets ->
+                val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+                val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+                imeHeightPx = ime.bottom
+                navBarsHeightPx = nav.bottom
+                insets
+            }
+            ViewCompat.setOnApplyWindowInsetsListener(decorView, insetsListener)
+
+            val layoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+                val r = Rect()
+                decorView.getWindowVisibleDisplayFrame(r)
+                val screenHeight = decorView.rootView.height
+                val diff = screenHeight - r.bottom
+                val threshold = with(density) { 90.dp.roundToPx() }
+                if (diff > threshold) {
+                    imeHeightPx = diff
+                } else if (imeHeightPx > 0 && diff <= threshold) {
+                    imeHeightPx = 0
+                }
+            }
+            decorView.viewTreeObserver.addOnGlobalLayoutListener(layoutListener)
+            decorView.requestApplyInsets()
+
+            onDispose {
+                ViewCompat.setOnApplyWindowInsetsListener(decorView, null)
+                decorView.viewTreeObserver.removeOnGlobalLayoutListener(layoutListener)
+            }
         }
 
         Box(
@@ -494,6 +537,7 @@ fun PrefStatusPlayer(
                         } else {
                             if (!down.isConsumed) {
                                 if (isKeyboardOpen || isReplyFocused) {
+                                    keyboardController?.hide()
                                     focusManager.clearFocus()
                                     isReplyFocused = false
                                 } else if (isImmersiveCleanMode) {
@@ -964,6 +1008,7 @@ fun PrefStatusPlayer(
                                             if (textToSend.isNotEmpty()) {
                                                 onReplySend?.invoke(currentStatus, textToSend)
                                                 replyInputText = ""
+                                                keyboardController?.hide()
                                                 focusManager.clearFocus()
                                                 isReplyFocused = false
                                                 showReplySentToast = true
