@@ -46,6 +46,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
 import com.personal.momo.UI_Screens.Chat.Preference.PrefNameManager
 import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayer
+import com.personal.momo.UI_Screens.Chat.Preference.PrefPlayerUpdate
 import com.personal.momo.UI_Screens.Chat.Preference.PrefProfileManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -75,7 +76,10 @@ fun ChatScreen(
     val myStatuses by StatusEngine.myStatusesFlow.collectAsState()
     val partnerStatuses by StatusEngine.partnerStatusesFlow.collectAsState()
     val allActiveStatusIds = remember(myStatuses, partnerStatuses) {
-        (myStatuses.map { it.id } + partnerStatuses.map { it.id }).toSet()
+        (myStatuses + partnerStatuses).flatMap { st ->
+            val prefixed = if (st.id.startsWith("STATUS_")) st.id else "STATUS_${st.id}"
+            listOf(st.id, prefixed)
+        }.toSet()
     }
 
     val partnerPresence by ChatEngine.partnerPresenceFlow.collectAsState()
@@ -120,6 +124,12 @@ fun ChatScreen(
     LaunchedEffect(allActiveStatusIds) {
         if (allActiveStatusIds.isNotEmpty()) {
             ChatRepository.purgeExpiredStatusQuotes(context, allActiveStatusIds)
+        } else {
+            delay(2000L)
+            val latestStatuses = StatusEngine.myStatusesFlow.value + StatusEngine.partnerStatusesFlow.value
+            if (latestStatuses.isEmpty()) {
+                ChatRepository.purgeExpiredStatusQuotes(context, emptySet())
+            }
         }
     }
 
@@ -304,11 +314,24 @@ fun ChatScreen(
 
     if (viewingSingleStatus != null) {
         val st = viewingSingleStatus!!
-        PrefPlayer(
+        val isOwn = st.senderId == myCode
+        PrefPlayerUpdate(
             statuses = listOf(st),
-            displayName = if (st.senderId == myCode) "You" else partnerDisplayName,
-            avatarUrl = if (st.senderId == myCode) myAvatarUrl else effectiveAvatarUrl,
-            isOwnStatus = st.senderId == myCode,
+            displayName = if (isOwn) "You" else partnerDisplayName,
+            avatarUrl = if (isOwn) myAvatarUrl else effectiveAvatarUrl,
+            isOwnStatus = isOwn,
+            onReplySend = if (!isOwn) {
+                { statusItem, replyText ->
+                    val taggedStatusId = if (statusItem.id.startsWith("STATUS_")) statusItem.id else "STATUS_${statusItem.id}"
+                    ChatEngine.sendMessage(
+                        context = context,
+                        text = replyText,
+                        replyToId = taggedStatusId,
+                        replyToText = statusItem.caption.ifBlank { if (statusItem.mediaType == 2) "Video" else "Photo" },
+                        replyToSenderId = statusItem.senderId
+                    )
+                }
+            } else null,
             onDismiss = { viewingSingleStatus = null }
         )
     }
@@ -376,7 +399,16 @@ fun ChatScreen(
                 val isHighlighted = message.id == highlightedMessageId
                 val replyToMsg = message.replyToId?.let { messageMap[it] }
 
-                val isStatusActive = message.replyToId?.let { allActiveStatusIds.contains(it) } ?: false
+                val replyToStatus = remember(message.replyToId, myStatuses, partnerStatuses) {
+                    val rid = message.replyToId
+                    if (!rid.isNullOrBlank()) {
+                        val rawId = rid.removePrefix("STATUS_")
+                        partnerStatuses.find { it.id == rid || it.id == rawId }
+                            ?: myStatuses.find { it.id == rid || it.id == rawId }
+                    } else null
+                }
+
+                val isStatusActive = replyToStatus != null
 
                 val nextChronologicalMsg = reversedMessages.getOrNull(index - 1)
                 val isNextSameSender = nextChronologicalMsg?.senderId == message.senderId
@@ -387,6 +419,7 @@ fun ChatScreen(
                 MessageBubbleRow(
                     message = message,
                     replyToMessage = replyToMsg,
+                    replyToStatus = replyToStatus,
                     isStatusActive = isStatusActive,
                     isOutgoing = isOutgoing,
                     isSelected = isSelected,
@@ -408,13 +441,13 @@ fun ChatScreen(
                         replyingToMessage = targetMsg
                     },
                     onReplyClick = { targetReplyId ->
-                        if (targetReplyId.startsWith("STATUS_")) {
-                            val found = partnerStatuses.find { it.id == targetReplyId }
-                                ?: myStatuses.find { it.id == targetReplyId }
-                            if (found != null) {
-                                viewingSingleStatus = found
-                            }
-                        } else {
+                        val rawTargetId = targetReplyId.removePrefix("STATUS_")
+                        val foundStatus = partnerStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
+                            ?: myStatuses.find { it.id == targetReplyId || it.id == rawTargetId }
+
+                        if (foundStatus != null) {
+                            viewingSingleStatus = foundStatus
+                        } else if (!targetReplyId.startsWith("STATUS_")) {
                             val targetIndex = reversedMessages.indexOfFirst { it.id == targetReplyId }
                             if (targetIndex >= 0) {
                                 val isAlreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == targetIndex }
