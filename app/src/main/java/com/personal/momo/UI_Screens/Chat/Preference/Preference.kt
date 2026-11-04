@@ -49,6 +49,7 @@ enum class ChatPreferenceOption {
     MESSAGE_COUNT,
     BACKUP_RESTORE,
     NOTIFICATION,
+    BACKGROUND,
     MEDIA_AND_DOCS,
     EDIT_NAME,
     PROFILE
@@ -86,7 +87,7 @@ private val MessageCountIcon: ImageVector by lazy {
         viewportHeight = 24f
     ).addPath(
         pathData = PathParser().parsePathString(
-            "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9z"
+            "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0-2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -117,6 +118,21 @@ private val NotificationIcon: ImageVector by lazy {
     ).addPath(
         pathData = PathParser().parsePathString(
             "M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val BackgroundWallpaperIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "BackgroundWallpaperIcon",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M4 4h7V2H4c-1.1 0-2 .9-2 2v7h2V4zm6 9l-4 5h12l-3-4-2.03 2.71L10 13zm7-4.5c0-.83-.67-1.5-1.5-1.5S14 7.67 14 8.5s.67 1.5 1.5 1.5S17 9.33 17 8.5zM20 2h-7v2h7v7h2V4c0-1.1-.9-2-2-2zm0 18h-7v2h7c1.1 0 2-.9 2-2v-7h-2v7zM4 13H2v7c0 1.1.9 2 2 2h7v-2H4v-7z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -183,6 +199,11 @@ private val DefaultPreferenceItems: List<PreferenceMenuItem> by lazy {
             option = ChatPreferenceOption.NOTIFICATION,
             title = "Notification",
             icon = NotificationIcon
+        ),
+        PreferenceMenuItem(
+            option = ChatPreferenceOption.BACKGROUND,
+            title = "Background",
+            icon = BackgroundWallpaperIcon
         ),
         PreferenceMenuItem(
             option = ChatPreferenceOption.MEDIA_AND_DOCS,
