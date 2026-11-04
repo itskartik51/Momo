@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -114,7 +115,7 @@ internal fun MediaBubbleMessageContent(
     formattedTime: String,
     myCode: Int,
     partnerDisplayName: String,
-    bubbleShape: RoundedCornerShape,
+    bubbleShape: Shape,
     isSelectionMode: Boolean,
     onToggleSelect: (String) -> Unit,
     onReplyClick: (String) -> Unit
@@ -206,18 +207,13 @@ internal fun MediaBubbleMessageContent(
 
         val innerMediaClipShape = if (hasCaption) {
             RoundedCornerShape(
-                topStart = if (isOutgoing) 6.dp else 2.dp,
-                topEnd = if (isOutgoing) 2.dp else 6.dp,
-                bottomStart = 3.dp,
-                bottomEnd = 3.dp
+                topStart = 9.dp,
+                topEnd = 9.dp,
+                bottomStart = 4.dp,
+                bottomEnd = 4.dp
             )
         } else {
-            RoundedCornerShape(
-                topStart = if (isOutgoing) 6.dp else 2.dp,
-                topEnd = if (isOutgoing) 2.dp else 6.dp,
-                bottomStart = 6.dp,
-                bottomEnd = 6.dp
-            )
+            RoundedCornerShape(9.dp)
         }
 
         Box(
@@ -368,7 +364,7 @@ internal fun MediaBubbleMessageContent(
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 6.dp, bottom = 5.dp)
+                        .padding(end = 7.dp, bottom = 6.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color.Black.copy(alpha = 0.55f))
                         .padding(horizontal = 6.5.dp, vertical = 2.5.dp),
@@ -395,7 +391,7 @@ internal fun MediaBubbleMessageContent(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 6.dp)
+                    .padding(start = 10.dp, end = 9.dp, top = 4.dp, bottom = 6.dp)
             ) {
                 Text(
                     text = message.text,
