@@ -20,10 +20,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,6 +62,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -692,27 +695,38 @@ internal fun WallpaperCroppedCanvas(
     userZoom: Float,
     modifier: Modifier = Modifier
 ) {
+    val density = LocalDensity.current
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    var maxObservedH by remember { mutableFloatStateOf(0f) }
+
     Canvas(modifier = modifier.clipToBounds()) {
         val boxW = size.width
         val boxH = size.height
+
+        if (boxH > maxObservedH) {
+            maxObservedH = boxH
+        }
+
+        val effectiveH = maxOf(boxH, maxObservedH, boxH + imeBottomPx)
+
         val imgW = bitmap.width.toFloat()
         val imgH = bitmap.height.toFloat()
 
-        if (boxW > 0f && boxH > 0f && imgW > 0f && imgH > 0f) {
-            val baseScale = maxOf(boxW / imgW, boxH / imgH)
+        if (boxW > 0f && effectiveH > 0f && imgW > 0f && imgH > 0f) {
+            val baseScale = maxOf(boxW / imgW, effectiveH / imgH)
             val effectiveScale = baseScale * userZoom.coerceIn(1f, 4f)
 
             val scaledW = imgW * effectiveScale
             val scaledH = imgH * effectiveScale
 
             val extraW = (scaledW - boxW).coerceAtLeast(0f)
-            val extraH = (scaledH - boxH).coerceAtLeast(0f)
+            val extraH = (scaledH - effectiveH).coerceAtLeast(0f)
 
             val tx = (0.5f - focusX.coerceIn(0f, 1f)) * extraW
             val ty = (0.5f - focusY.coerceIn(0f, 1f)) * extraH
 
             val left = (boxW - scaledW) / 2f + tx
-            val top = (boxH - scaledH) / 2f + ty
+            val top = (effectiveH - scaledH) / 2f + ty
 
             withTransform({
                 translate(left = left, top = top)
