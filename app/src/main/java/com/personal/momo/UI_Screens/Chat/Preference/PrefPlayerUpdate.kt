@@ -51,6 +51,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -258,6 +259,7 @@ fun PrefStatusPlayer(
 
     var isKeyboardOpen by remember { mutableStateOf(false) }
     var bottomOverlayPaddingPx by remember { mutableIntStateOf(0) }
+    var navBarPaddingPx by remember { mutableIntStateOf(0) }
     var fullScreenHeightPx by remember { mutableIntStateOf(0) }
 
     val composeImeBottom = WindowInsets.ime.getBottom(density)
@@ -270,6 +272,10 @@ fun PrefStatusPlayer(
             maxOf(bottomOverlayPaddingPx, composeNavBottom)
         }
         targetPx.toDp()
+    }
+
+    val fixedBottomToastPaddingDp = with(density) {
+        maxOf(navBarPaddingPx, composeNavBottom).toDp() + 28.dp
     }
 
     val lockedMediaHeightDp = with(density) {
@@ -342,7 +348,7 @@ fun PrefStatusPlayer(
 
     LaunchedEffect(showReplySentToast) {
         if (showReplySentToast) {
-            delay(1500L)
+            delay(1800L)
             showReplySentToast = false
         }
     }
@@ -489,6 +495,7 @@ fun PrefStatusPlayer(
 
                 val imeInsetBottom = rootInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
                 val navInsetBottom = rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+                navBarPaddingPx = navInsetBottom
 
                 val frameDiff = maxOf(diffDialog, diffActivity)
                 val rawKeyboardHeight = maxOf(frameDiff, imeInsetBottom)
@@ -1030,11 +1037,10 @@ fun PrefStatusPlayer(
                     }
                 }
 
-                if (!isOwnStatus && !isImmersiveCleanMode) {
+                if (!isOwnStatus && !isImmersiveCleanMode && onReplySend != null) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.Black.copy(alpha = 0.55f))
                             .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
                         Row(
@@ -1042,7 +1048,7 @@ fun PrefStatusPlayer(
                                 .fillMaxWidth()
                                 .heightIn(min = 44.dp, max = 100.dp)
                                 .clip(RoundedCornerShape(22.dp))
-                                .background(Color(0xFF171922).copy(alpha = 0.90f))
+                                .background(Color(0xFF171922).copy(alpha = 0.92f))
                                 .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
                                 .padding(start = 16.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -1091,7 +1097,7 @@ fun PrefStatusPlayer(
                                         .bounceClick(scaleDown = 0.94f) {
                                             val textToSend = replyInputText.trim()
                                             if (textToSend.isNotEmpty()) {
-                                                onReplySend?.invoke(currentStatus, textToSend)
+                                                onReplySend.invoke(currentStatus, textToSend)
                                                 replyInputText = ""
                                                 keyboardController?.hide()
                                                 focusManager.clearFocus(force = true)
@@ -1119,25 +1125,49 @@ fun PrefStatusPlayer(
 
             AnimatedVisibility(
                 visible = showReplySentToast,
-                enter = fadeIn(animationSpec = tween(180)),
-                exit = fadeOut(animationSpec = tween(180)),
+                enter = fadeIn(animationSpec = tween(200)),
+                exit = fadeOut(animationSpec = tween(200)),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = effectiveBottomInsetDp + 18.dp)
+                    .padding(bottom = fixedBottomToastPaddingDp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF222328).copy(alpha = 0.92f))
-                        .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color(0xFF1B1C22).copy(alpha = 0.96f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                    shadowElevation = 6.dp
                 ) {
-                    Text(
-                        text = "Reply sent",
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color.White
-                    )
+                    Row(
+                        modifier = Modifier.padding(start = 10.dp, end = 18.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(MomoPrimaryGradient),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Text(
+                            text = "Reply sent",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White,
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false)
+                            )
+                        )
+                    }
                 }
             }
 
