@@ -68,7 +68,6 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -575,18 +574,12 @@ fun ChatScreen(
                 }
             }
 
-            AnimatedVisibility(
-                visible = !stickyTopDateLabel.isNullOrEmpty(),
-                enter = fadeIn(animationSpec = tween(150)),
-                exit = fadeOut(animationSpec = tween(150)),
+            StickyDateHeaderOverlay(
+                dateText = stickyTopDateLabel,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 8.dp)
-            ) {
-                DateSeparatorPill(
-                    text = stickyTopDateLabel.orEmpty()
-                )
-            }
+            )
         }
 
         Box(
@@ -653,6 +646,28 @@ fun ChatScreen(
                 }
             )
         }
+    }
+}
+
+@Composable
+private fun StickyDateHeaderOverlay(
+    dateText: String?,
+    modifier: Modifier = Modifier
+) {
+    var displayedText by remember { mutableStateOf("") }
+    if (!dateText.isNullOrEmpty()) {
+        displayedText = dateText
+    }
+
+    AnimatedVisibility(
+        visible = !dateText.isNullOrEmpty(),
+        enter = fadeIn(animationSpec = tween(150)),
+        exit = fadeOut(animationSpec = tween(150)),
+        modifier = modifier
+    ) {
+        DateSeparatorPill(
+            text = displayedText
+        )
     }
 }
 
