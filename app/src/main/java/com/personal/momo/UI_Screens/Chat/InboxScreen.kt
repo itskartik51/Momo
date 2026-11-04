@@ -815,7 +815,7 @@ private fun MessageStatusTicks(status: Int) {
             }
         }
         3 -> {
-            val blueTickColor = Color(0xFF34B7F1)
+            val AquaMintTickColor = Color(0xFF43CEA2)
             Box(
                 modifier = Modifier.width(19.dp),
                 contentAlignment = Alignment.CenterStart
@@ -829,7 +829,7 @@ private fun MessageStatusTicks(status: Int) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = blueTickColor,
+                    tint = AquaMintTickColor,
                     modifier = Modifier
                         .padding(start = 5.dp)
                         .size(15.dp)
