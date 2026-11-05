@@ -12,6 +12,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +51,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +87,8 @@ fun ChatScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val fallbackAvatarUrl by CacheManager.avatarUrlFlow.collectAsState()
 
@@ -117,6 +122,8 @@ fun ChatScreen(
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
+    var isEmojiPickerOpen by rememberSaveable { mutableStateOf(false) }
+
     var highlightedMessageId by remember { mutableStateOf<String?>(null) }
     var highlightTimerJob by remember { mutableStateOf<Job?>(null) }
 
@@ -138,6 +145,20 @@ fun ChatScreen(
     var viewingSingleStatus by remember { mutableStateOf<StatusItem?>(null) }
 
     var tempCameraUriString by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
+    val imeBottomDp = with(density) { imeBottom.toDp() }
+    val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
+
+    LaunchedEffect(imeBottomDp) {
+        if (imeBottomDp > 120.dp) {
+            KeyboardHeightHelper.saveKeyboardHeight(context, imeBottomDp.value)
+            if (isEmojiPickerOpen) {
+                isEmojiPickerOpen = false
+            }
+        }
+    }
 
     val stickyTopDateLabel by remember(reversedMessages, density) {
         derivedStateOf {
@@ -271,10 +292,6 @@ fun ChatScreen(
         }
     }
 
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
-    val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
-
     val bgColor = MaterialTheme.colorScheme.background
     SideEffect {
         val window = (context as? Activity)?.window
@@ -316,6 +333,9 @@ fun ChatScreen(
 
     BackHandler {
         when {
+            isEmojiPickerOpen -> {
+                isEmojiPickerOpen = false
+            }
             viewingSingleStatus != null -> {
                 viewingSingleStatus = null
             }
@@ -468,7 +488,17 @@ fun ChatScreen(
                 LazyColumn(
                     state = listState,
                     reverseLayout = true,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            if (isEmojiPickerOpen) {
+                                isEmojiPickerOpen = false
+                            }
+                            keyboardController?.hide()
+                        },
                     contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
                     verticalArrangement = Arrangement.Bottom
                 ) {
@@ -592,14 +622,29 @@ fun ChatScreen(
                 )
             }
 
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = bottomInsetDp)
+                    .padding(bottom = if (isEmojiPickerOpen) 0.dp else bottomInsetDp)
             ) {
                 ChatInputBar(
                     text = inputText,
                     onTextChanged = { inputText = it },
+                    isEmojiPickerOpen = isEmojiPickerOpen,
+                    onToggleEmojiPicker = {
+                        if (isEmojiPickerOpen) {
+                            isEmojiPickerOpen = false
+                            keyboardController?.show()
+                        } else {
+                            keyboardController?.hide()
+                            isEmojiPickerOpen = true
+                        }
+                    },
+                    onInputClick = {
+                        if (isEmojiPickerOpen) {
+                            isEmojiPickerOpen = false
+                        }
+                    },
                     replyingToMessage = replyingToMessage,
                     onCancelReply = { replyingToMessage = null },
                     editingMessage = editingMessage,
@@ -655,6 +700,18 @@ fun ChatScreen(
                         }
                     }
                 )
+
+                if (isEmojiPickerOpen) {
+                    ChatEmojiPicker(
+                        heightDp = KeyboardHeightHelper.getCachedKeyboardHeight(context),
+                        onEmojiClick = { emojiStr ->
+                            inputText += emojiStr
+                        },
+                        onBackspaceClick = {
+                            inputText = deleteLastCharacterOrEmoji(inputText)
+                        }
+                    )
+                }
             }
         }
     }
