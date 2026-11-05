@@ -1,7 +1,6 @@
 package com.personal.momo.UI_Screens.Chat
 
 import android.content.Context
-import android.util.LruCache
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -9,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,12 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.InlineTextContent
-import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,23 +42,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.Placeholder
-import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
-import com.vanniktech.emoji.Emoji
-import com.vanniktech.emoji.EmojiManager
-import com.vanniktech.emoji.ios.IosEmojiProvider
 import kotlinx.coroutines.launch
 
 object KeyboardHeightHelper {
@@ -119,133 +109,6 @@ fun deleteLastCharacterOrEmoji(text: String): String {
     }
 }
 
-private object EmojiInitializer {
-    private var isInstalled = false
-
-    fun ensureInstalled() {
-        if (!isInstalled) {
-            try {
-                EmojiManager.install(IosEmojiProvider())
-                isInstalled = true
-            } catch (_: Exception) {}
-        }
-    }
-}
-
-internal object EmojiDrawableHelper {
-    fun getDrawable(emoji: Emoji, context: Context): android.graphics.drawable.Drawable? {
-        return try {
-            val method = emoji.javaClass.methods.firstOrNull { m ->
-                (m.name == "drawable" || m.name == "getDrawable") &&
-                m.parameterTypes.size == 1 &&
-                Context::class.java.isAssignableFrom(m.parameterTypes[0])
-            } ?: emoji.javaClass.superclass?.methods?.firstOrNull { m ->
-                (m.name == "drawable" || m.name == "getDrawable") &&
-                m.parameterTypes.size == 1 &&
-                Context::class.java.isAssignableFrom(m.parameterTypes[0])
-            }
-            method?.isAccessible = true
-            method?.invoke(emoji, context) as? android.graphics.drawable.Drawable
-        } catch (_: Exception) {
-            null
-        }
-    }
-}
-
-internal data class EmojiSegment(
-    val text: String,
-    val isEmoji: Boolean,
-    val emoji: Emoji? = null
-)
-
-internal object Emoji3DManager {
-    private var isInitialized = false
-    private val emojiMap = HashMap<String, Emoji>(3600)
-    private var sortedKeys = listOf<String>()
-    private val segmentCache = LruCache<String, List<EmojiSegment>>(450)
-
-    fun ensureInitialized() {
-        if (isInitialized) return
-        try {
-            EmojiInitializer.ensureInstalled()
-            val categories = IosEmojiProvider().categories
-            for (cat in categories) {
-                for (emoji in cat.emojis) {
-                    emojiMap[emoji.unicode] = emoji
-                    try {
-                        val vMethod = emoji.javaClass.methods.firstOrNull {
-                            (it.name == "getVariants" || it.name == "variants") && it.parameterTypes.isEmpty()
-                        }
-                        vMethod?.isAccessible = true
-                        val variants = vMethod?.invoke(emoji) as? List<*>
-                        variants?.forEach { v ->
-                            if (v is Emoji) {
-                                emojiMap[v.unicode] = v
-                            }
-                        }
-                    } catch (_: Exception) {}
-                }
-            }
-            sortedKeys = emojiMap.keys.sortedByDescending { it.length }
-            isInitialized = true
-        } catch (_: Exception) {}
-    }
-
-    fun getSegments(text: String): List<EmojiSegment> {
-        if (text.isEmpty()) return emptyList()
-        val cached = segmentCache.get(text)
-        if (cached != null) return cached
-
-        ensureInitialized()
-        if (sortedKeys.isEmpty()) {
-            val single = listOf(EmojiSegment(text, false))
-            segmentCache.put(text, single)
-            return single
-        }
-
-        val result = mutableListOf<EmojiSegment>()
-        var i = 0
-        val len = text.length
-        val buffer = StringBuilder()
-
-        while (i < len) {
-            var foundKey: String? = null
-            val remaining = len - i
-
-            for (k in sortedKeys) {
-                if (k.length <= remaining && text.startsWith(k, i)) {
-                    foundKey = k
-                    break
-                }
-            }
-
-            if (foundKey != null) {
-                if (buffer.isNotEmpty()) {
-                    result.add(EmojiSegment(buffer.toString(), false))
-                    buffer.clear()
-                }
-                val emojiObj = emojiMap[foundKey]
-                result.add(EmojiSegment(foundKey, true, emojiObj))
-                i += foundKey.length
-            } else {
-                buffer.append(text[i])
-                i++
-            }
-        }
-
-        if (buffer.isNotEmpty()) {
-            result.add(EmojiSegment(buffer.toString(), false))
-        }
-
-        segmentCache.put(text, result)
-        return result
-    }
-
-    fun getDrawable(emoji: Emoji, context: Context): android.graphics.drawable.Drawable? {
-        return EmojiDrawableHelper.getDrawable(emoji, context)
-    }
-}
-
 @Composable
 internal fun EmojiText(
     text: String,
@@ -259,91 +122,18 @@ internal fun EmojiText(
     style: TextStyle = TextStyle.Default,
     onTextLayout: (TextLayoutResult) -> Unit = {}
 ) {
-    val context = LocalContext.current
-    val segments = remember(text) { Emoji3DManager.getSegments(text) }
-    val hasEmoji = remember(segments) { segments.any { it.isEmoji && it.emoji != null } }
-
-    if (!hasEmoji) {
-        Text(
-            text = text,
-            modifier = modifier,
-            color = color,
-            fontSize = fontSize,
-            fontWeight = fontWeight,
-            lineHeight = lineHeight,
-            maxLines = maxLines,
-            overflow = overflow,
-            style = style,
-            onTextLayout = onTextLayout
-        )
-    } else {
-        val effectiveFontSize = if (fontSize != TextUnit.Unspecified) {
-            fontSize
-        } else if (style.fontSize != TextUnit.Unspecified) {
-            style.fontSize
-        } else {
-            15.sp
-        }
-        val emojiSize = effectiveFontSize * 1.18f
-
-        val inlineContentMap = remember(segments, emojiSize) {
-            val map = mutableMapOf<String, InlineTextContent>()
-            segments.forEachIndexed { index, seg ->
-                if (seg.isEmoji && seg.emoji != null) {
-                    val key = "em_$index"
-                    val drawable = Emoji3DManager.getDrawable(seg.emoji, context)
-                    map[key] = InlineTextContent(
-                        Placeholder(
-                            width = emojiSize,
-                            height = emojiSize,
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.Center
-                        )
-                    ) {
-                        if (drawable != null) {
-                            AsyncImage(
-                                model = drawable,
-                                contentDescription = seg.text,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Text(
-                                text = seg.text,
-                                fontSize = effectiveFontSize,
-                                style = style
-                            )
-                        }
-                    }
-                }
-            }
-            map
-        }
-
-        val annotatedString = remember(segments) {
-            buildAnnotatedString {
-                segments.forEachIndexed { index, seg ->
-                    if (seg.isEmoji && seg.emoji != null) {
-                        appendInlineContent("em_$index", seg.text)
-                    } else {
-                        append(seg.text)
-                    }
-                }
-            }
-        }
-
-        Text(
-            text = annotatedString,
-            inlineContent = inlineContentMap,
-            modifier = modifier,
-            color = color,
-            fontSize = fontSize,
-            fontWeight = fontWeight,
-            lineHeight = lineHeight,
-            maxLines = maxLines,
-            overflow = overflow,
-            style = style,
-            onTextLayout = onTextLayout
-        )
-    }
+    Text(
+        text = text,
+        modifier = modifier,
+        color = color,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        lineHeight = lineHeight,
+        maxLines = maxLines,
+        overflow = overflow,
+        style = style,
+        onTextLayout = onTextLayout
+    )
 }
 
 private val RecentClockIcon: ImageVector by lazy {
@@ -496,21 +286,120 @@ private val EmojiBackspaceIcon: ImageVector by lazy {
     ).build()
 }
 
-private data class EmojiCategoryHeader(
+private data class NativeEmojiCategory(
     val title: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val emojis: List<String>
 )
 
-private val CategoryTabs = listOf(
-    EmojiCategoryHeader("Recent", RecentClockIcon),
-    EmojiCategoryHeader("Smileys & People", TabSmileIcon),
-    EmojiCategoryHeader("Animals & Nature", TabAnimalsIcon),
-    EmojiCategoryHeader("Food & Drink", TabFoodIcon),
-    EmojiCategoryHeader("Activity", TabActivityIcon),
-    EmojiCategoryHeader("Travel & Places", TabTravelIcon),
-    EmojiCategoryHeader("Objects", TabObjectsIcon),
-    EmojiCategoryHeader("Symbols", TabSymbolsIcon),
-    EmojiCategoryHeader("Flags", TabFlagsIcon)
+private val CategoryTabsMeta = listOf(
+    "Recent" to RecentClockIcon,
+    "Smileys & People" to TabSmileIcon,
+    "Animals & Nature" to TabAnimalsIcon,
+    "Food & Drink" to TabFoodIcon,
+    "Activity" to TabActivityIcon,
+    "Travel & Places" to TabTravelIcon,
+    "Objects" to TabObjectsIcon,
+    "Symbols" to TabSymbolsIcon,
+    "Flags" to TabFlagsIcon
+)
+
+private object NativeEmojiStore {
+    val smileys: List<String> = listOf(
+        "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊", "😇", "🥰", "😍", "🤩", "😘", "😗",
+        "😚", "😙", "😋", "😛", "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐", "🤨", "😐", "😑", "😶", "😏",
+        "😒", "🙄", "😬", "🤥", "😌", "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵", "🥶", "🥴",
+        "😵", "🤯", "🤠", "🥳", "🥸", "😎", "🤓", "🧐", "😕", "😟", "🙁", "😮", "😯", "😲", "😳", "🥺", "😦", "😧",
+        "😨", "😰", "😥", "😢", "😭", "😱", "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠", "🤬", "😈",
+        "👿", "💀", "💩", "🤡", "👹", "👺", "👻", "👽", "👾", "🤖", "😺", "😸", "😹", "😻", "😼", "😽", "🙀", "😿",
+        "😾", "🙈", "🙉", "🙊", "💋", "💌", "💘", "💝", "💖", "💗", "💓", "💞", "💕", "💟", "❣️", "💔", "❤️", "🧡",
+        "💛", "💚", "💙", "💜", "🤎", "🖤", "🤍", "💯", "💢", "💥", "💫", "💦", "💨", "🕳️", "💣", "💬", "🗨️", "🗯️",
+        "💭", "💤", "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉",
+        "👆", "🖕", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "🫶", "👐", "🤲", "🤝", "🙏", "✍️",
+        "💅", "🤳", "💪", "🦵", "🦶", "👂", "👃", "🧠", "👀", "👁️", "👅", "👄"
+    )
+
+    val animals: List<String> = listOf(
+        "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐻‍❄️", "🐨", "🐯", "🦁", "🐮", "🐷", "🐽", "🐸", "🐵", "🐒",
+        "🐔", "🐧", "🐦", "🐤", "🐣", "🐥", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌",
+        "🐞", "🐜", "🦟", "🦗", "🕷️", "🕸️", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
+        "🐠", "🐟", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🦛", "🦏", "🐪", "🐫", "🦒",
+        "🦘", "🐃", "🐂", "🐄", "🐎", "🐖", "🐏", "🐑", "🦙", "🐐", "🦌", "🐕", "🐩", "🦮", "🐈", "🐈‍⬛", "🐓", "🦃",
+        "🦚", "🦜", "🦢", "🦩", "🕊️", "🐇", "🦝", "🦨", "🦡", "🦦", "🦥", "🐁", "🐀", "🐿️", "🦔", "🐾", "🐉", "🐲",
+        "🌵", "🎄", "🌲", "🌳", "🌴", "🌱", "🌿", "☘️", "🍀", "🎍", "🪴", "🎋", "🍃", "🍂", "🍁", "🍄", "🌾", "💐",
+        "🌷", "🌹", "🥀", "🌺", "🌸", "🌼", "🌻", "🌞", "🌝", "🌛", "🌚", "🌕", "🌖", "🌗", "🌘", "🌑", "🌒", "🌓",
+        "🌔", "🌙", "🌎", "🌍", "🌏", "🪐", "⭐", "🌟", "✨", "⚡", "☄️", "💥", "🔥", "🌪️", "🌈", "☀️", "🌤️", "⛅",
+        "🌥️", "☁️", "🌦️", "🌧️", "🌨️", "🌩️", "❄️", "☃️", "⛄", "🌬️", "💨", "💧", "💦", "☔", "🌊"
+    )
+
+    val food: List<String> = listOf(
+        "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅",
+        "🍆", "🥑", "🥦", "🥬", "🥒", "🌶️", "🫑", "🌽", "🥕", "🫒", "🧄", "🧅", "🥔", "🍠", "🥐", "🥯", "🍞", "🥖",
+        "🥨", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🌭", "🍔", "🍟", "🍕", "🫓", "🥪", "🥙",
+        "🧆", "🌮", "🌯", "🫔", "🥗", "🥘", "🫕", "🥫", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤", "🍙",
+        "🍚", "🍘", "🍥", "🥠", "🥮", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫",
+        "🍿", "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "🍼", "🫖", "☕", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂",
+        "🍷", "🥃", "🍸", "🍹", "🧉", "🍾", "🧊", "🥄", "🍴", "🍽️", "🥣", "🥡", "🥢", "🧂"
+    )
+
+    val activity: List<String> = listOf(
+        "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓", "🏸", "🏒", "🏑", "🥍", "🏏", "🪃",
+        "🥅", "⛳", "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛼", "🛷", "⛸️", "🎿", "⛷️", "🏂", "🪂", "🏋️",
+        "🤼", "🤸", "⛹️", "🤺", "🤾", "🏌️", "🏇", "🧘", "🏄", "🏊", "🤽", "🚣", "🧗", "🚵", "🚴", "🏆", "🥇", "🥈",
+        "🥉", "🏅", "🎖️", "🏵️", "🎗️", "🎫", "🎟️", "🎪", "🤹", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹", "🥁",
+        "🎷", "🎺", "🪗", "🎸", "🪕", "🎻", "🎲", "♟️", "🎯", "🎳", "🎮", "🎰", "🧩"
+    )
+
+    val travel: List<String> = listOf(
+        "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🛴", "🚲", "🛵", "🏍️",
+        "🛺", "🚨", "🚔", "🚍", "🚘", "🚖", "🚡", "🚠", "🚟", "🚃", "🚋", "🚞", "🚝", "🚄", "🚅", "🚈", "🚂", "🚆",
+        "🚇", "🚊", "🚉", "🚁", "🛩️", "✈️", "🛫", "🛬", "🪂", "💺", "🛰️", "🚀", "🛸", "🛶", "⛵", "🚤", "🛥️", "🛳️",
+        "⛴️", "🚢", "⚓", "🛟", "⛽", "🚧", "🚦", "🚥", "🚏", "🗺️", "🗿", "🗽", "🗼", "🏰", "🏯", "🏟️", "🎡", "🎢",
+        "🎠", "⛲", "🏖️", "🏝️", "🏜️", "🌋", "⛰️", "🏔️", "🗻", "🏕️", "⛺", "🛖", "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏢",
+        "🏬", "🏣", "🏤", "🏥", "🏦", "🏨", "🏪", "🏫", "🏩", "💒", "🏛️", "⛪", "🕌", "🛕", "🕍", "⛩️", "🕋"
+    )
+
+    val objects: List<String> = listOf(
+        "⌚", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "🕹️", "💽", "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥",
+        "📽️", "🎞️", "📞", "☎️", "📟", "📠", "📺", "📻", "🎙️", "🎚️", "🎛️", "🧭", "⏱️", "⏲️", "⏰", "🕰️", "⌛", "⏳",
+        "📡", "🔋", "🪫", "🔌", "💡", "🔦", "🕯️", "🧯", "🗑️", "🪣", "🛒", "💷", "💶", "💵", "💴", "💰", "🪙", "💳",
+        "💎", "⚖️", "🪜", "🧰", "🪛", "🔧", "🔨", "⚒️", "🛠️", "⛏️", "🪚", "🔩", "⚙️", "🧱", "⛓️", "🧲", "🔫", "💣",
+        "🧨", "🪓", "🔪", "🗡️", "⚔️", "🛡️", "🚬", "⚰️", "🪦", "⚱️", "🏺", "🔮", "📿", "🧿", "💈", "⚗️", "🔭", "🔬",
+        "🩹", "🩺", "🩻", "🩼", "💊", "💉", "🩸", "🧬", "🦠", "🧫", "🧪", "🌡️", "🧹", "🪠", "🧺", "🧻", "🚽", "🚰",
+        "🚿", "🛁", "🧼", "🪥", "🪒", "🧽", "🧴", "🗝️", "🔑", "🔐", "🔏", "🔒", "🔓", "🔔", "🔕", "📢", "📣", "🔍", "🔎"
+    )
+
+    val symbols: List<String> = listOf(
+        "❤️", "🧡", "💛", "💚", "💙", "💜", "🤎", "🖤", "🤍", "💔", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝",
+        "💟", "☮️", "✝️", "☪️", "🕉️", "☸️", "✡️", "🔯", "🕎", "☯️", "☦️", "🛐", "⛎", "♈", "♉", "♊", "♋", "♌",
+        "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🆔", "⚛️", "☢️", "☣️", "📴", "📳", "🈶", "🈚", "🈸", "🈺", "🈷️", "✴️",
+        "🆚", "💮", "🉐", "㊙️", "㊗️", "🈴", "🈵", "🈹", "🈲", "🅰️", "🅱️", "🆎", "🆑", "🅾️", "🆘", "❌", "⭕", "🛑",
+        "⛔", "📛", "🚫", "💯", "💢", "♨️", "🚷", "🚯", "🚳", "🚱", "🔞", "📵", "🚭", "❗", "❕", "❓", "❔", "‼️",
+        "⁉️", "🔅", "🔆", "〽️", "⚠️", "🚸", "🔱", "⚜️", "🔰", "♻️", "✅", "🈯", "💹", "❇️", "✳️", "❎", "🌐", "💠",
+        "Ⓜ️", "🌀", "💤", "🏧", "🚾", "♿", "🅿️", "🛗", "🈳", "🈂️", "🛂", "🛃", "🛄", "🛅", "🚹", "🚺", "🚼", "🚻",
+        "🚮", "🎦", "📶", "🈁", "🔣", "ℹ️", "🔤", "🔡", "🔠", "🔢", "#️⃣", "*️⃣", "0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣",
+        "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟", "🔲", "🔳", "🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪",
+        "🟥", "🟧", "🟨", "🟩", "🟦", "🟪", "🟫", "⬛", "⬜", "🔈", "🔉", "🔊", "🔇", "🔔", "🔕", "📣", "📢", "💬",
+        "💭", "🗯️", "♠️", "♣️", "♥️", "♦️", "🃏", "🎴", "🀄"
+    )
+
+    val flags: List<String> = listOf(
+        "🏁", "🚩", "🎌", "🏴", "🏳️", "🏳️‍🌈", "🏳️‍⚧️", "🏴‍☠️", "🇮🇳", "🇺🇸", "🇬🇧", "🇨🇦", "🇦🇺", "🇩🇪", "🇫🇷", "🇯🇵",
+        "🇰🇷", "🇨🇳", "🇷🇺", "🇧🇷", "🇿🇦", "🇮🇹", "🇪🇸", "🇳🇿", "🇸🇬", "🇦🇪", "🇸🇦", "🇮🇱", "🇹🇷", "🇪🇬", "🇲🇽", "🇦🇷",
+        "🇦🇹", "🇧🇪", "🇨🇭", "🇩🇰", "🇫🇮", "🇬🇷", "🇮🇪", "🇳🇱", "🇳🇴", "🇵🇱", "🇵🇹", "🇸🇪", "🇹🇭", "🇻🇳", "🇲🇾", "🇵🇭",
+        "🇮🇩", "🇵🇰", "🇧🇩", "🇳🇵", "🇱🇰", "🇲🇻", "🇧🇹", "🇦🇫", "🇶🇦", "🇰🇼", "🇴🇲", "🇧🇭", "🇯🇴", "🇱🇧", "🇮🇶", "🇮🇷"
+    )
+}
+
+private val CuratedCategories: List<NativeEmojiCategory> = listOf(
+    NativeEmojiCategory("Smileys & People", TabSmileIcon, NativeEmojiStore.smileys),
+    NativeEmojiCategory("Animals & Nature", TabAnimalsIcon, NativeEmojiStore.animals),
+    NativeEmojiCategory("Food & Drink", TabFoodIcon, NativeEmojiStore.food),
+    NativeEmojiCategory("Activity", TabActivityIcon, NativeEmojiStore.activity),
+    NativeEmojiCategory("Travel & Places", TabTravelIcon, NativeEmojiStore.travel),
+    NativeEmojiCategory("Objects", TabObjectsIcon, NativeEmojiStore.objects),
+    NativeEmojiCategory("Symbols", TabSymbolsIcon, NativeEmojiStore.symbols),
+    NativeEmojiCategory("Flags", TabFlagsIcon, NativeEmojiStore.flags)
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -524,26 +413,28 @@ fun ChatEmojiPicker(
     val coroutineScope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
 
-    LaunchedEffect(Unit) {
-        EmojiInitializer.ensureInstalled()
-        Emoji3DManager.ensureInitialized()
-    }
-
     var selectedTabIndex by remember { mutableIntStateOf(1) }
+    var isProgrammaticScroll by remember { mutableStateOf(false) }
     var recentEmojis by remember { mutableStateOf(RecentEmojiHelper.getRecentEmojis(context)) }
 
-    val categories = remember {
-        try {
-            EmojiInitializer.ensureInstalled()
-            IosEmojiProvider().categories.toList()
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = 1)
+    val tabRowState = rememberLazyListState()
 
-    val listState = rememberLazyListState()
     val screenWidth = configuration.screenWidthDp.dp
-    val itemSlotWidth = remember(screenWidth) { (screenWidth - 16.dp) / 8f }
+    val itemSlotWidth = remember(screenWidth) { (screenWidth - 16.dp) / 7f }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { visibleIndex ->
+                if (!isProgrammaticScroll) {
+                    val targetTab = visibleIndex.coerceIn(0, CategoryTabsMeta.lastIndex)
+                    if (selectedTabIndex != targetTab) {
+                        selectedTabIndex = targetTab
+                        tabRowState.animateScrollToItem((targetTab - 2).coerceAtLeast(0))
+                    }
+                }
+            }
+    }
 
     Column(
         modifier = Modifier
@@ -556,212 +447,178 @@ fun ChatEmojiPicker(
             )
             .navigationBarsPadding()
     ) {
-        LazyRow(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
+                .height(44.dp)
                 .background(Color(0xFF181A22)),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            itemsIndexed(CategoryTabs) { index, tab ->
-                val isSelected = selectedTabIndex == index
-                Box(
-                    modifier = Modifier
-                        .height(42.dp)
-                        .padding(horizontal = 11.dp)
-                        .bounceClick(scaleDown = 0.90f) {
-                            selectedTabIndex = index
-                            coroutineScope.launch {
-                                listState.animateScrollToItem(index)
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = tab.icon,
-                        contentDescription = tab.title,
-                        tint = if (isSelected) MomoRedLight else Color.White.copy(alpha = 0.50f),
-                        modifier = Modifier.size(20.dp)
-                    )
-
-                    if (isSelected) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .height(2.5.dp)
-                                .width(22.dp)
-                                .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
-                                .background(MomoRedLight)
-                        )
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            LazyColumn(
-                state = listState,
+            LazyRow(
+                state = tabRowState,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp)
+                    .weight(1f)
+                    .height(44.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                item(key = "section_recent") {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "Frequently Used",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White.copy(alpha = 0.50f),
-                            modifier = Modifier.padding(top = 10.dp, bottom = 6.dp, start = 4.dp)
+                itemsIndexed(CategoryTabsMeta) { index, (title, icon) ->
+                    val isSelected = selectedTabIndex == index
+                    Box(
+                        modifier = Modifier
+                            .height(44.dp)
+                            .padding(horizontal = 11.dp)
+                            .bounceClick(scaleDown = 0.90f) {
+                                selectedTabIndex = index
+                                isProgrammaticScroll = true
+                                coroutineScope.launch {
+                                    tabRowState.animateScrollToItem((index - 2).coerceAtLeast(0))
+                                    listState.animateScrollToItem(index)
+                                    isProgrammaticScroll = false
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = title,
+                            tint = if (isSelected) MomoRedLight else Color.White.copy(alpha = 0.45f),
+                            modifier = Modifier.size(20.dp)
                         )
 
-                        if (recentEmojis.isNotEmpty()) {
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                maxItemsInEachRow = 8,
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                recentEmojis.forEach { emojiStr ->
-                                    Box(
-                                        modifier = Modifier
-                                            .size(itemSlotWidth)
-                                            .bounceClick(scaleDown = 0.88f) {
-                                                onEmojiClick(emojiStr)
-                                                RecentEmojiHelper.recordEmoji(context, emojiStr)
-                                                recentEmojis = RecentEmojiHelper.getRecentEmojis(context)
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = emojiStr,
-                                            fontSize = 24.sp,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "No recent emojis",
-                                fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.35f),
-                                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 12.dp)
+                        if (isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .height(2.5.dp)
+                                    .width(22.dp)
+                                    .clip(RoundedCornerShape(topStart = 2.dp, topEnd = 2.dp))
+                                    .background(MomoRedLight)
                             )
                         }
                     }
                 }
+            }
 
-                itemsIndexed(categories, key = { idx, _ -> "cat_$idx" }) { index, category ->
-                    val tabInfo = CategoryTabs.getOrNull(index + 1)
-                    val sectionTitle = tabInfo?.title ?: "Emojis"
-                    val emojiList = remember(category) { category.emojis }
+            Box(
+                modifier = Modifier
+                    .height(22.dp)
+                    .width(1.dp)
+                    .background(Color.White.copy(alpha = 0.12f))
+            )
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                    ) {
-                        Text(
-                            text = sectionTitle,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White.copy(alpha = 0.50f),
-                            modifier = Modifier.padding(top = 12.dp, bottom = 6.dp, start = 4.dp)
-                        )
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .bounceClick(scaleDown = 0.88f) {
+                        onBackspaceClick()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = EmojiBackspaceIcon,
+                    contentDescription = "Backspace",
+                    tint = Color.White.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
 
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp)
+        ) {
+            item(key = "section_recent") {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Frequently Used",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.50f),
+                        modifier = Modifier.padding(top = 10.dp, bottom = 6.dp, start = 4.dp)
+                    )
+
+                    if (recentEmojis.isNotEmpty()) {
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            maxItemsInEachRow = 8,
+                            maxItemsInEachRow = 7,
                             horizontalArrangement = Arrangement.Start
                         ) {
-                            emojiList.forEach { emoji ->
-                                EmojiGridCell(
-                                    emoji = emoji,
-                                    sizeDp = itemSlotWidth,
-                                    onClick = { clickedEmojiStr ->
-                                        onEmojiClick(clickedEmojiStr)
-                                        RecentEmojiHelper.recordEmoji(context, clickedEmojiStr)
+                            recentEmojis.forEach { emojiStr ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(itemSlotWidth)
+                                        .bounceClick(scaleDown = 0.88f) {
+                                            onEmojiClick(emojiStr)
+                                            RecentEmojiHelper.recordEmoji(context, emojiStr)
+                                            recentEmojis = RecentEmojiHelper.getRecentEmojis(context)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = emojiStr,
+                                        fontSize = 28.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "No recent emojis",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.35f),
+                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 12.dp)
+                        )
+                    }
+                }
+            }
+
+            itemsIndexed(CuratedCategories, key = { _, cat -> cat.title }) { _, category ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                ) {
+                    Text(
+                        text = category.title,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White.copy(alpha = 0.50f),
+                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp, start = 4.dp)
+                    )
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        maxItemsInEachRow = 7,
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        category.emojis.forEach { emojiStr ->
+                            Box(
+                                modifier = Modifier
+                                    .size(itemSlotWidth)
+                                    .bounceClick(scaleDown = 0.88f) {
+                                        onEmojiClick(emojiStr)
+                                        RecentEmojiHelper.recordEmoji(context, emojiStr)
                                         recentEmojis = RecentEmojiHelper.getRecentEmojis(context)
-                                    }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = emojiStr,
+                                    fontSize = 28.sp,
+                                    textAlign = TextAlign.Center
                                 )
                             }
                         }
                     }
                 }
-
-                item {
-                    Spacer(modifier = Modifier.height(48.dp))
-                }
             }
 
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 12.dp, bottom = 12.dp)
-                    .size(46.dp)
-                    .bounceClick(scaleDown = 0.90f) {
-                        onBackspaceClick()
-                    },
-                shape = CircleShape,
-                color = Color(0xFF1E212B),
-                border = androidx.compose.foundation.BorderStroke(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.12f)
-                ),
-                shadowElevation = 8.dp
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = EmojiBackspaceIcon,
-                        contentDescription = "Backspace",
-                        tint = Color.White.copy(alpha = 0.88f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
             }
-        }
-    }
-}
-
-@Composable
-private fun EmojiGridCell(
-    emoji: Emoji,
-    sizeDp: androidx.compose.ui.unit.Dp,
-    onClick: (String) -> Unit
-) {
-    val context = LocalContext.current
-    val drawable = remember(emoji) {
-        EmojiDrawableHelper.getDrawable(emoji, context)
-    }
-
-    Box(
-        modifier = Modifier
-            .size(sizeDp)
-            .bounceClick(scaleDown = 0.88f) {
-                onClick(emoji.unicode)
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        if (drawable != null) {
-            AsyncImage(
-                model = drawable,
-                contentDescription = emoji.unicode,
-                modifier = Modifier.size(28.dp)
-            )
-        } else {
-            Text(
-                text = emoji.unicode,
-                fontSize = 24.sp,
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
