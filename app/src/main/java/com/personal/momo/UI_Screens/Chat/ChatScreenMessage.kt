@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -61,7 +64,6 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
-import com.personal.momo.UI_Screens.MomoRedLight
 import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -228,7 +230,7 @@ internal fun MessageBubbleRow(
 
     val hasReactions = message.reactions.isNotEmpty()
     val baseBottomSpacing = if (isLastInSenderGroup) 8.dp else 2.5.dp
-    val bottomSpacing = if (hasReactions) baseBottomSpacing + 13.dp else baseBottomSpacing
+    val bottomSpacing = if (hasReactions) baseBottomSpacing + 14.dp else baseBottomSpacing
 
     val isStatusReply = isStatusActive && (replyToStatus != null || message.replyToId?.startsWith("STATUS_") == true)
     val hasReply = (replyToMessage != null) || isStatusReply
@@ -444,11 +446,12 @@ internal fun MessageBubbleRow(
                         ReactionBadge(
                             reactions = message.reactions,
                             isOutgoing = isOutgoing,
+                            isFirstInSenderGroup = isFirstInSenderGroup,
                             modifier = Modifier
                                 .align(if (isOutgoing) Alignment.BottomEnd else Alignment.BottomStart)
                                 .offset(
-                                    x = if (isOutgoing) (-10).dp else (if (isFirstInSenderGroup) 16.dp else 10.dp),
-                                    y = 11.dp
+                                    x = if (isOutgoing) (-12).dp else (if (isFirstInSenderGroup) 16.dp else 10.dp),
+                                    y = 17.dp
                                 )
                                 .bounceClick(scaleDown = 0.90f) {
                                     onReactionBadgeClick(message)
@@ -465,37 +468,69 @@ internal fun MessageBubbleRow(
 private fun ReactionBadge(
     reactions: Map<Int, String>,
     isOutgoing: Boolean,
+    isFirstInSenderGroup: Boolean,
     modifier: Modifier = Modifier
 ) {
     val emojis = remember(reactions) { reactions.values.toList() }
     val distinctEmojis = remember(emojis) { emojis.distinct() }
-    val badgeText = remember(emojis, distinctEmojis) {
-        if (distinctEmojis.size == 1 && emojis.size > 1) {
+    val isSingle = emojis.size == 1
+
+    val badgeBgColor = if (isOutgoing) {
+        Color(0xFF38101E)
+    } else {
+        Color(0xFF222634)
+    }
+
+    val cutoutBorderColor = Color(0xFF0D0E15)
+
+    if (isSingle) {
+        Box(
+            modifier = modifier
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(badgeBgColor)
+                .border(
+                    width = 1.5.dp,
+                    color = cutoutBorderColor,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = emojis.first(),
+                fontSize = 13.5.sp,
+                textAlign = TextAlign.Center,
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                )
+            )
+        }
+    } else {
+        val badgeText = if (distinctEmojis.size == 1 && emojis.size > 1) {
             "${distinctEmojis[0]} 2"
         } else {
             distinctEmojis.joinToString(" ")
         }
-    }
-
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF13151B),
-        border = BorderStroke(
-            width = 1.5.dp,
-            color = if (isOutgoing) Color(0xFF2E0E18) else MaterialTheme.colorScheme.surface
-        ),
-        shadowElevation = 2.dp,
-        modifier = modifier
-    ) {
-        Text(
-            text = badgeText,
-            fontSize = 12.sp,
-            color = Color.White,
-            modifier = Modifier.padding(horizontal = 6.5.dp, vertical = 2.5.dp),
-            style = TextStyle(
-                platformStyle = PlatformTextStyle(includeFontPadding = false)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = badgeBgColor,
+            border = BorderStroke(
+                width = 1.5.dp,
+                color = cutoutBorderColor
+            ),
+            shadowElevation = 1.dp,
+            modifier = modifier
+        ) {
+            Text(
+                text = badgeText,
+                fontSize = 12.5.sp,
+                color = Color.White,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp),
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                )
             )
-        )
+        }
     }
 }
 
