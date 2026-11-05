@@ -1,8 +1,10 @@
 package com.personal.momo.UI_Screens.Chat
 
 import android.app.Activity
+import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import android.view.ViewTreeObserver
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -53,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -89,6 +92,7 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
+    val view = LocalView.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -155,6 +159,26 @@ fun ChatScreen(
     val navBarsBottom = WindowInsets.navigationBars.getBottom(density)
     val imeBottomDp = with(density) { imeBottom.toDp() }
     val bottomInsetDp = with(density) { maxOf(imeBottom, navBarsBottom).toDp() }
+
+    DisposableEffect(view) {
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            val rect = Rect()
+            view.getWindowVisibleDisplayFrame(rect)
+            val screenHeight = view.rootView.height
+            val keypadHeight = screenHeight - rect.bottom
+            if (keypadHeight > screenHeight * 0.15) {
+                val keyboardDp = keypadHeight / density.density
+                KeyboardHeightHelper.saveKeyboardHeight(context, keyboardDp)
+                if (isEmojiPickerOpen) {
+                    isEmojiPickerOpen = false
+                }
+            }
+        }
+        view.viewTreeObserver.addOnGlobalLayoutListener(listener)
+        onDispose {
+            view.viewTreeObserver.removeOnGlobalLayoutListener(listener)
+        }
+    }
 
     LaunchedEffect(imeBottomDp) {
         if (imeBottomDp > 120.dp) {
@@ -665,6 +689,9 @@ fun ChatScreen(
                     myCode = myCode,
                     partnerDisplayName = partnerDisplayName,
                     onCameraClick = {
+                        if (isEmojiPickerOpen) {
+                            isEmojiPickerOpen = false
+                        }
                         val cacheFolder = File(context.cacheDir, "camera_captures").apply {
                             if (!exists()) mkdirs()
                         }
@@ -678,6 +705,9 @@ fun ChatScreen(
                         cameraLauncher.launch(uri)
                     },
                     onGalleryClick = {
+                        if (isEmojiPickerOpen) {
+                            isEmojiPickerOpen = false
+                        }
                         galleryLauncher.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
                         )
