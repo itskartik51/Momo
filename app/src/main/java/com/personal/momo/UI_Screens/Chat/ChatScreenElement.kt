@@ -1,7 +1,10 @@
 package com.personal.momo.UI_Screens.Chat
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +13,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -41,6 +47,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.personal.momo.UI_Screens.MomoRedLight
+import com.personal.momo.UI_Screens.bounceClick
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -80,6 +88,237 @@ private val QuotePlayIcon: ImageVector by lazy {
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
+}
+
+internal val CloseReactionIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "CloseReaction",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+@Composable
+internal fun ReactionPickerHeader(
+    onCancel: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF171922),
+        border = BorderStroke(width = 1.dp, color = Color(0xFF262936))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "React to message",
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White.copy(alpha = 0.90f),
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(includeFontPadding = false)
+                )
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .bounceClick(scaleDown = 0.88f) {
+                        onCancel()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = CloseReactionIcon,
+                    contentDescription = "Cancel",
+                    tint = Color.White.copy(alpha = 0.70f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ReactionDetailsBottomSheet(
+    message: ChatMessage,
+    myCode: Int,
+    partnerDisplayName: String,
+    myAvatarUrl: String?,
+    partnerAvatarUrl: String?,
+    onRemoveMyReaction: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val partnerCode = if (myCode == 1) 2 else 1
+    val hasMyReaction = message.reactions.containsKey(myCode)
+    val myReactionEmoji = message.reactions[myCode]
+    val hasPartnerReaction = message.reactions.containsKey(partnerCode)
+    val partnerReactionEmoji = message.reactions[partnerCode]
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.55f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onDismiss() }
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {}
+                .navigationBarsPadding(),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            color = Color(0xFF171922),
+            border = BorderStroke(1.dp, Color(0xFF262936))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha = 0.25f))
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Reactions",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.90f),
+                    modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
+                )
+
+                if (hasMyReaction && myReactionEmoji != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .bounceClick(scaleDown = 0.97f) {
+                            onRemoveMyReaction()
+                            onDismiss()
+                        }
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.12f)
+                        ) {
+                            if (!myAvatarUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = myAvatarUrl,
+                                    contentDescription = "My Avatar",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text("Y", fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "You",
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Tap to remove",
+                                fontSize = 12.sp,
+                                color = MomoRedLight
+                            )
+                        }
+
+                        Text(
+                            text = myReactionEmoji,
+                            fontSize = 22.sp
+                        )
+                    }
+                }
+
+                if (hasPartnerReaction && partnerReactionEmoji != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.12f)
+                        ) {
+                            if (!partnerAvatarUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = partnerAvatarUrl,
+                                    contentDescription = "Partner Avatar",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        partnerDisplayName.take(1).uppercase(),
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = partnerDisplayName,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+
+                        Text(
+                            text = partnerReactionEmoji,
+                            fontSize = 22.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+        }
+    }
 }
 
 @Composable
