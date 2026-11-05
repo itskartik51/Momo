@@ -123,19 +123,18 @@ private object EmojiInitializer {
 }
 
 private object EmojiDrawableHelper {
-    private var method: java.lang.reflect.Method? = null
-    private var methodSearched = false
-
     fun getDrawable(emoji: Emoji, context: Context): android.graphics.drawable.Drawable? {
         return try {
-            if (!methodSearched) {
-                method = emoji.javaClass.methods.firstOrNull { m ->
-                    (m.name == "drawable" || m.name == "getDrawable") &&
-                    m.parameterTypes.size == 1 &&
-                    Context::class.java.isAssignableFrom(m.parameterTypes[0])
-                }?.apply { isAccessible = true }
-                methodSearched = true
+            val method = emoji.javaClass.methods.firstOrNull { m ->
+                (m.name == "drawable" || m.name == "getDrawable") &&
+                m.parameterTypes.size == 1 &&
+                Context::class.java.isAssignableFrom(m.parameterTypes[0])
+            } ?: emoji.javaClass.superclass?.methods?.firstOrNull { m ->
+                (m.name == "drawable" || m.name == "getDrawable") &&
+                m.parameterTypes.size == 1 &&
+                Context::class.java.isAssignableFrom(m.parameterTypes[0])
             }
+            method?.isAccessible = true
             method?.invoke(emoji, context) as? android.graphics.drawable.Drawable
         } catch (_: Exception) {
             null
@@ -331,7 +330,7 @@ fun ChatEmojiPicker(
     val categories = remember {
         try {
             EmojiInitializer.ensureInstalled()
-            EmojiManager.categories().toList()
+            IosEmojiProvider().categories.toList()
         } catch (_: Exception) {
             emptyList()
         }
