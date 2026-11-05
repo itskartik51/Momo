@@ -50,11 +50,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -88,6 +91,7 @@ fun ChatScreen(
     val density = LocalDensity.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     val currentUserId by CacheManager.appUserIdFlow.collectAsState()
     val fallbackAvatarUrl by CacheManager.avatarUrlFlow.collectAsState()
@@ -118,7 +122,8 @@ fun ChatScreen(
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    var inputText by remember { mutableStateOf("") }
+
+    var inputTextFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
@@ -223,8 +228,8 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(inputText) {
-        if (inputText.trim().isNotEmpty() && editingMessage == null) {
+    LaunchedEffect(inputTextFieldValue.text) {
+        if (inputTextFieldValue.text.trim().isNotEmpty() && editingMessage == null) {
             ChatEngine.setTyping(context, true)
             delay(2500L)
             ChatEngine.setTyping(context, false)
@@ -239,7 +244,7 @@ fun ChatScreen(
         if (success) {
             val photoUri = tempCameraUriString?.let { Uri.parse(it) }
             if (photoUri != null) {
-                val caption = inputText.trim()
+                val caption = inputTextFieldValue.text.trim()
                 ChatEngine.setTyping(context, false)
                 ChatEngine.sendMediaMessage(
                     context = context,
@@ -250,7 +255,7 @@ fun ChatScreen(
                     replyToText = replyingToMessage?.text,
                     replyToSenderId = replyingToMessage?.senderId
                 )
-                inputText = ""
+                inputTextFieldValue = TextFieldValue("")
                 replyingToMessage = null
                 editingMessage = null
                 coroutineScope.launch {
@@ -269,7 +274,7 @@ fun ChatScreen(
             val mimeType = context.contentResolver.getType(uri) ?: ""
             val isVideo = mimeType.startsWith("video", ignoreCase = true)
             val mediaType = if (isVideo) 2 else 1
-            val caption = inputText.trim()
+            val caption = inputTextFieldValue.text.trim()
 
             ChatEngine.setTyping(context, false)
             ChatEngine.sendMediaMessage(
@@ -281,7 +286,7 @@ fun ChatScreen(
                 replyToText = replyingToMessage?.text,
                 replyToSenderId = replyingToMessage?.senderId
             )
-            inputText = ""
+            inputTextFieldValue = TextFieldValue("")
             replyingToMessage = null
             editingMessage = null
             coroutineScope.launch {
@@ -350,7 +355,7 @@ fun ChatScreen(
             }
             editingMessage != null -> {
                 editingMessage = null
-                inputText = ""
+                inputTextFieldValue = TextFieldValue("")
             }
             replyingToMessage != null -> {
                 replyingToMessage = null
@@ -451,7 +456,10 @@ fun ChatScreen(
                         if (target != null) {
                             replyingToMessage = null
                             editingMessage = target
-                            inputText = target.text
+                            inputTextFieldValue = TextFieldValue(
+                                text = target.text,
+                                selection = TextRange(target.text.length)
+                            )
                             selectedMessageIds = emptySet()
                         }
                     },
@@ -497,6 +505,7 @@ fun ChatScreen(
                             if (isEmojiPickerOpen) {
                                 isEmojiPickerOpen = false
                             }
+                            focusManager.clearFocus()
                             keyboardController?.hide()
                         },
                     contentPadding = PaddingValues(top = 8.dp, bottom = 6.dp),
@@ -628,14 +637,15 @@ fun ChatScreen(
                     .padding(bottom = if (isEmojiPickerOpen) 0.dp else bottomInsetDp)
             ) {
                 ChatInputBar(
-                    text = inputText,
-                    onTextChanged = { inputText = it },
+                    textFieldValue = inputTextFieldValue,
+                    onTextFieldValueChange = { inputTextFieldValue = it },
                     isEmojiPickerOpen = isEmojiPickerOpen,
                     onToggleEmojiPicker = {
                         if (isEmojiPickerOpen) {
                             isEmojiPickerOpen = false
                             keyboardController?.show()
                         } else {
+                            focusManager.clearFocus()
                             keyboardController?.hide()
                             isEmojiPickerOpen = true
                         }
@@ -650,7 +660,7 @@ fun ChatScreen(
                     editingMessage = editingMessage,
                     onCancelEdit = {
                         editingMessage = null
-                        inputText = ""
+                        inputTextFieldValue = TextFieldValue("")
                     },
                     myCode = myCode,
                     partnerDisplayName = partnerDisplayName,
@@ -673,13 +683,13 @@ fun ChatScreen(
                         )
                     },
                     onSend = {
-                        val cleanText = inputText.trim()
+                        val cleanText = inputTextFieldValue.text.trim()
                         if (cleanText.isNotEmpty()) {
                             val activeEdit = editingMessage
                             if (activeEdit != null) {
                                 ChatEngine.editMessage(context, activeEdit.id, cleanText)
                                 editingMessage = null
-                                inputText = ""
+                                inputTextFieldValue = TextFieldValue("")
                             } else {
                                 ChatEngine.setTyping(context, false)
                                 ChatEngine.sendMessage(
@@ -689,7 +699,7 @@ fun ChatScreen(
                                     replyToText = null,
                                     replyToSenderId = null
                                 )
-                                inputText = ""
+                                inputTextFieldValue = TextFieldValue("")
                                 replyingToMessage = null
                                 coroutineScope.launch {
                                     if (reversedMessages.isNotEmpty()) {
@@ -705,10 +715,36 @@ fun ChatScreen(
                     ChatEmojiPicker(
                         heightDp = KeyboardHeightHelper.getCachedKeyboardHeight(context),
                         onEmojiClick = { emojiStr ->
-                            inputText += emojiStr
+                            val currentText = inputTextFieldValue.text
+                            val selection = inputTextFieldValue.selection
+                            val start = selection.min
+                            val end = selection.max
+                            val newText = currentText.replaceRange(start, end, emojiStr)
+                            val newCursor = start + emojiStr.length
+                            inputTextFieldValue = TextFieldValue(
+                                text = newText,
+                                selection = TextRange(newCursor)
+                            )
                         },
                         onBackspaceClick = {
-                            inputText = deleteLastCharacterOrEmoji(inputText)
+                            val currentText = inputTextFieldValue.text
+                            val selection = inputTextFieldValue.selection
+                            if (selection.min != selection.max) {
+                                val newText = currentText.removeRange(selection.min, selection.max)
+                                inputTextFieldValue = TextFieldValue(
+                                    text = newText,
+                                    selection = TextRange(selection.min)
+                                )
+                            } else if (selection.min > 0) {
+                                val cursor = selection.min
+                                val codePointBefore = Character.codePointBefore(currentText, cursor)
+                                val charCount = Character.charCount(codePointBefore)
+                                val newText = currentText.substring(0, cursor - charCount) + currentText.substring(cursor)
+                                inputTextFieldValue = TextFieldValue(
+                                    text = newText,
+                                    selection = TextRange(cursor - charCount)
+                                )
+                            }
                         }
                     )
                 }
