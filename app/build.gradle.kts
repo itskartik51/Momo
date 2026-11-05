@@ -122,6 +122,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-ui:1.3.1")
 
-    // Vanniktech Apple Emojis (WhatsApp Style)
-    implementation("com.vanniktech:emoji-apple:0.16.0")
+    // Vanniktech iOS Emojis (WhatsApp 3D Style - Maven Central Verified)
+    implementation("com.vanniktech:emoji-ios:0.20.0")
 }
