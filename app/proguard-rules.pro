@@ -21,3 +21,7 @@
 -keepclasseswithmembers class * {
     native <methods>;
 }
+
+# Vanniktech Emoji Protection Rules
+-keep class com.vanniktech.emoji.** { *; }
+-dontwarn com.vanniktech.emoji.**
