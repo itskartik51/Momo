@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.PlatformTextStyle
@@ -59,6 +60,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
 import kotlinx.coroutines.launch
@@ -483,7 +485,7 @@ internal fun StatusReplySnippet(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            Text(
+            EmojiText(
                 text = caption.ifBlank { "Status" },
                 fontSize = 12.sp,
                 maxLines = 2,
@@ -506,29 +508,49 @@ private fun FloatingEmojiContent(
     formattedTime: String,
     status: Int
 ) {
-    val emojiFontSize = when (emojiCount) {
-        1 -> 48.sp
-        2 -> 34.sp
-        else -> 26.sp
+    val context = LocalContext.current
+    val segments = remember(text) {
+        Emoji3DManager.getSegments(text.trim()).filter { it.isEmoji && it.emoji != null }
     }
-    val emojiLineHeight = when (emojiCount) {
-        1 -> 54.sp
-        2 -> 40.sp
-        else -> 32.sp
+
+    val itemSize = when (emojiCount) {
+        1 -> 52.dp
+        2 -> 38.dp
+        else -> 28.dp
     }
 
     Column(
         horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start,
         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        Text(
-            text = text,
-            fontSize = emojiFontSize,
-            lineHeight = emojiLineHeight,
-            style = TextStyle(
-                platformStyle = PlatformTextStyle(includeFontPadding = false)
+        if (segments.isNotEmpty() && segments.size == emojiCount) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                segments.forEach { seg ->
+                    val drawable = seg.emoji?.let { Emoji3DManager.getDrawable(it, context) }
+                    if (drawable != null) {
+                        AsyncImage(
+                            model = drawable,
+                            contentDescription = seg.text,
+                            modifier = Modifier.size(itemSize)
+                        )
+                    } else {
+                        Text(
+                            text = seg.text,
+                            fontSize = if (emojiCount == 1) 46.sp else 30.sp
+                        )
+                    }
+                }
+            }
+        } else {
+            EmojiText(
+                text = text,
+                fontSize = if (emojiCount == 1) 48.sp else if (emojiCount == 2) 34.sp else 26.sp,
+                lineHeight = if (emojiCount == 1) 54.sp else if (emojiCount == 2) 40.sp else 32.sp
             )
-        )
+        }
 
         Spacer(modifier = Modifier.height(2.dp))
 
@@ -634,7 +656,7 @@ private fun BubbleMessageContent(
                 )
             }
 
-            Text(
+            EmojiText(
                 text = message.text,
                 fontSize = 15.sp,
                 color = textColor,
