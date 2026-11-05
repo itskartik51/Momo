@@ -9,6 +9,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,10 +42,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
@@ -255,7 +260,12 @@ internal fun ChatInputBar(
                         .size(32.dp)
                         .clip(CircleShape)
                         .bounceClick(scaleDown = 0.90f) {
-                            onToggleEmojiPicker()
+                            if (isEmojiPickerOpen) {
+                                onToggleEmojiPicker()
+                                focusRequester.requestFocus()
+                            } else {
+                                onToggleEmojiPicker()
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -273,11 +283,12 @@ internal fun ChatInputBar(
                     modifier = Modifier
                         .weight(1f)
                         .padding(vertical = 4.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            onInputClick()
+                        .pointerInput(isEmojiPickerOpen) {
+                            if (!isEmojiPickerOpen) return@pointerInput
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                onInputClick()
+                            }
                         },
                     contentAlignment = Alignment.CenterStart
                 ) {
@@ -294,7 +305,12 @@ internal fun ChatInputBar(
                         onValueChange = onTextFieldValueChange,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester),
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused && isEmojiPickerOpen) {
+                                    onInputClick()
+                                }
+                            },
                         textStyle = TextStyle(
                             fontSize = 15.5.sp,
                             color = MaterialTheme.colorScheme.onSurface,
