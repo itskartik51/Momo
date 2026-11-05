@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.momo.UI_Screens.MomoPrimaryGradient
 import com.personal.momo.UI_Screens.MomoRedLight
+import com.personal.momo.UI_Screens.bounceClick
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -175,7 +177,9 @@ internal fun MessageBubbleRow(
     partnerDisplayName: String,
     onToggleSelect: (String) -> Unit,
     onSwipeToReply: (ChatMessage) -> Unit,
-    onReplyClick: (String) -> Unit
+    onReplyClick: (String) -> Unit,
+    onDoubleTapReact: (String) -> Unit = {},
+    onReactionBadgeClick: (ChatMessage) -> Unit = {}
 ) {
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -222,7 +226,9 @@ internal fun MessageBubbleRow(
         Color.Transparent
     }
 
-    val bottomSpacing = if (isLastInSenderGroup) 8.dp else 2.5.dp
+    val hasReactions = message.reactions.isNotEmpty()
+    val baseBottomSpacing = if (isLastInSenderGroup) 8.dp else 2.5.dp
+    val bottomSpacing = if (hasReactions) baseBottomSpacing + 13.dp else baseBottomSpacing
 
     val isStatusReply = isStatusActive && (replyToStatus != null || message.replyToId?.startsWith("STATUS_") == true)
     val hasReply = (replyToMessage != null) || isStatusReply
@@ -320,6 +326,11 @@ internal fun MessageBubbleRow(
                         if (isSelectionMode) {
                             onToggleSelect(message.id)
                         }
+                    },
+                    onDoubleTap = {
+                        if (!isSelectionMode) {
+                            onDoubleTapReact(message.id)
+                        }
                     }
                 )
             }
@@ -377,55 +388,114 @@ internal fun MessageBubbleRow(
                     status = message.status
                 )
             } else {
-                Surface(
-                    modifier = Modifier.widthIn(max = 296.dp),
-                    shape = bubbleShape,
-                    color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
-                    border = if (isOutgoing) null else BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
-                    ),
-                    shadowElevation = 1.dp
+                Box(
+                    modifier = Modifier.wrapContentSize()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .then(
-                                if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
-                            )
-                            .padding(start = innerTailPadStart, end = innerTailPadEnd)
+                    Surface(
+                        modifier = Modifier.widthIn(max = 296.dp),
+                        shape = bubbleShape,
+                        color = if (isOutgoing) Color.Transparent else MaterialTheme.colorScheme.surface,
+                        border = if (isOutgoing) null else BorderStroke(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
+                        ),
+                        shadowElevation = 1.dp
                     ) {
-                        if (message.mediaType > 0) {
-                            MediaBubbleMessageContent(
-                                message = message,
-                                replyToMessage = replyToMessage,
-                                isOutgoing = isOutgoing,
-                                isLastInGroup = isLastInGroup,
-                                formattedTime = formattedTime,
-                                myCode = myCode,
-                                partnerDisplayName = partnerDisplayName,
-                                bubbleShape = bubbleShape,
-                                isSelectionMode = isSelectionMode,
-                                onToggleSelect = onToggleSelect,
-                                onReplyClick = onReplyClick
-                            )
-                        } else {
-                            BubbleMessageContent(
-                                message = message,
-                                replyToMessage = replyToMessage,
-                                replyToStatus = replyToStatus,
-                                isStatusReply = isStatusReply,
-                                isOutgoing = isOutgoing,
-                                isLastInGroup = isLastInGroup,
-                                formattedTime = formattedTime,
-                                myCode = myCode,
-                                partnerDisplayName = partnerDisplayName,
-                                onReplyClick = onReplyClick
-                            )
+                        Box(
+                            modifier = Modifier
+                                .then(
+                                    if (isOutgoing) Modifier.background(MomoPrimaryGradient) else Modifier
+                                )
+                                .padding(start = innerTailPadStart, end = innerTailPadEnd)
+                        ) {
+                            if (message.mediaType > 0) {
+                                MediaBubbleMessageContent(
+                                    message = message,
+                                    replyToMessage = replyToMessage,
+                                    isOutgoing = isOutgoing,
+                                    isLastInGroup = isLastInGroup,
+                                    formattedTime = formattedTime,
+                                    myCode = myCode,
+                                    partnerDisplayName = partnerDisplayName,
+                                    bubbleShape = bubbleShape,
+                                    isSelectionMode = isSelectionMode,
+                                    onToggleSelect = onToggleSelect,
+                                    onReplyClick = onReplyClick,
+                                    onDoubleTapReact = onDoubleTapReact
+                                )
+                            } else {
+                                BubbleMessageContent(
+                                    message = message,
+                                    replyToMessage = replyToMessage,
+                                    replyToStatus = replyToStatus,
+                                    isStatusReply = isStatusReply,
+                                    isOutgoing = isOutgoing,
+                                    isLastInGroup = isLastInGroup,
+                                    formattedTime = formattedTime,
+                                    myCode = myCode,
+                                    partnerDisplayName = partnerDisplayName,
+                                    onReplyClick = onReplyClick
+                                )
+                            }
                         }
+                    }
+
+                    if (hasReactions) {
+                        ReactionBadge(
+                            reactions = message.reactions,
+                            isOutgoing = isOutgoing,
+                            modifier = Modifier
+                                .align(if (isOutgoing) Alignment.BottomEnd else Alignment.BottomStart)
+                                .offset(
+                                    x = if (isOutgoing) (-10).dp else (if (isFirstInSenderGroup) 16.dp else 10.dp),
+                                    y = 11.dp
+                                )
+                                .bounceClick(scaleDown = 0.90f) {
+                                    onReactionBadgeClick(message)
+                                }
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ReactionBadge(
+    reactions: Map<Int, String>,
+    isOutgoing: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val emojis = remember(reactions) { reactions.values.toList() }
+    val distinctEmojis = remember(emojis) { emojis.distinct() }
+    val badgeText = remember(emojis, distinctEmojis) {
+        if (distinctEmojis.size == 1 && emojis.size > 1) {
+            "${distinctEmojis[0]} 2"
+        } else {
+            distinctEmojis.joinToString(" ")
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF13151B),
+        border = BorderStroke(
+            width = 1.5.dp,
+            color = if (isOutgoing) Color(0xFF2E0E18) else MaterialTheme.colorScheme.surface
+        ),
+        shadowElevation = 2.dp,
+        modifier = modifier
+    ) {
+        Text(
+            text = badgeText,
+            fontSize = 12.sp,
+            color = Color.White,
+            modifier = Modifier.padding(horizontal = 6.5.dp, vertical = 2.5.dp),
+            style = TextStyle(
+                platformStyle = PlatformTextStyle(includeFontPadding = false)
+            )
+        )
     }
 }
 
