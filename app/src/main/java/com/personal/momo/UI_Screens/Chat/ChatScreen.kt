@@ -132,6 +132,7 @@ fun ChatScreen(
     var editingMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     var isEmojiPickerOpen by rememberSaveable { mutableStateOf(false) }
+    var isSwitchingToEmoji by remember { mutableStateOf(false) }
     var reactingMessageId by rememberSaveable { mutableStateOf<String?>(null) }
     var viewingReactionsMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
@@ -171,9 +172,11 @@ fun ChatScreen(
             if (keypadHeight > screenHeight * 0.15) {
                 val keyboardDp = keypadHeight / density.density
                 KeyboardHeightHelper.saveKeyboardHeight(context, keyboardDp)
-                if (isEmojiPickerOpen) {
+                if (!isSwitchingToEmoji && isEmojiPickerOpen) {
                     isEmojiPickerOpen = false
                 }
+            } else {
+                isSwitchingToEmoji = false
             }
         }
         view.viewTreeObserver.addOnGlobalLayoutListener(listener)
@@ -185,9 +188,11 @@ fun ChatScreen(
     LaunchedEffect(imeBottomDp) {
         if (imeBottomDp > 120.dp) {
             KeyboardHeightHelper.saveKeyboardHeight(context, imeBottomDp.value)
-            if (isEmojiPickerOpen) {
+            if (!isSwitchingToEmoji && isEmojiPickerOpen) {
                 isEmojiPickerOpen = false
             }
+        } else if (imeBottomDp <= 20.dp) {
+            isSwitchingToEmoji = false
         }
     }
 
@@ -668,10 +673,37 @@ fun ChatScreen(
                                     }
                                 },
                                 onDoubleTapReact = { targetId ->
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
+                                    isSwitchingToEmoji = false
                                     isEmojiPickerOpen = false
                                     reactingMessageId = targetId
+
+                                    coroutineScope.launch {
+                                        val targetIndex = reversedMessages.indexOfFirst { it.id == targetId }
+                                        if (targetIndex >= 0) {
+                                            val visibleInfo = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+                                            if (visibleInfo != null) {
+                                                val keyboardHeightDp = KeyboardHeightHelper.getCachedKeyboardHeight(context)
+                                                val pickerTotalHeightPx = with(density) { (keyboardHeightDp + 48f).dp.roundToPx() }
+                                                val currentBottomInsetPx = maxOf(imeBottom, navBarsBottom)
+                                                val deltaHeightPx = (pickerTotalHeightPx - currentBottomInsetPx).coerceAtLeast(0)
+
+                                                if (visibleInfo.offset < deltaHeightPx) {
+                                                    delay(50L)
+                                                    listState.animateScrollToItem(
+                                                        index = targetIndex,
+                                                        scrollOffset = with(density) { 10.dp.roundToPx() }
+                                                    )
+                                                } else {
+                                                    delay(20L)
+                                                    val desiredOffset = (visibleInfo.offset - deltaHeightPx).coerceAtLeast(0)
+                                                    listState.scrollToItem(
+                                                        index = targetIndex,
+                                                        scrollOffset = desiredOffset
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 },
                                 onReactionBadgeClick = { targetMsg ->
                                     viewingReactionsMessage = targetMsg
@@ -726,12 +758,13 @@ fun ChatScreen(
                                 isEmojiPickerOpen = false
                                 keyboardController?.show()
                             } else {
-                                focusManager.clearFocus()
+                                isSwitchingToEmoji = true
                                 keyboardController?.hide()
                                 isEmojiPickerOpen = true
                             }
                         },
                         onInputClick = {
+                            isSwitchingToEmoji = false
                             if (isEmojiPickerOpen) {
                                 isEmojiPickerOpen = false
                             }
