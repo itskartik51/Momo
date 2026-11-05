@@ -52,7 +52,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -414,7 +413,7 @@ internal fun MediaBubbleMessageContent(
                     .fillMaxWidth()
                     .padding(start = 10.dp, end = 9.dp, top = 4.dp, bottom = 6.dp)
             ) {
-                Text(
+                EmojiText(
                     text = message.text,
                     fontSize = 15.sp,
                     color = if (isOutgoing) Color.White else MaterialTheme.colorScheme.onSurface,
