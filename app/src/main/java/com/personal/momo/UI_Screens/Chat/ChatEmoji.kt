@@ -413,11 +413,11 @@ fun ChatEmojiPicker(
     val coroutineScope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
 
-    var selectedTabIndex by remember { mutableIntStateOf(1) }
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
     var isProgrammaticScroll by remember { mutableStateOf(false) }
     var recentEmojis by remember { mutableStateOf(RecentEmojiHelper.getRecentEmojis(context)) }
 
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = 1)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = 0)
     val tabRowState = rememberLazyListState()
 
     val screenWidth = configuration.screenWidthDp.dp
