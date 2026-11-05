@@ -63,6 +63,36 @@ import com.personal.momo.UI_Screens.bounceClick
 private val DarkInputSurfaceColor = Color(0xFF171922)
 private val DarkInputBorderColor = Color(0xFF262936)
 
+private val InputSmileIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "InputSmile",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
+private val InputKeyboardIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "InputKeyboard",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).addPath(
+        pathData = PathParser().parsePathString(
+            "M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"
+        ).toNodes(),
+        fill = SolidColor(Color.White)
+    ).build()
+}
+
 private val GalleryIcon: ImageVector by lazy {
     ImageVector.Builder(
         name = "Gallery",
@@ -142,6 +172,9 @@ private val InputPlayIcon: ImageVector by lazy {
 internal fun ChatInputBar(
     text: String,
     onTextChanged: (String) -> Unit,
+    isEmojiPickerOpen: Boolean = false,
+    onToggleEmojiPicker: () -> Unit = {},
+    onInputClick: () -> Unit = {},
     replyingToMessage: ChatMessage?,
     onCancelReply: () -> Unit,
     editingMessage: ChatMessage? = null,
@@ -209,7 +242,7 @@ internal fun ChatInputBar(
                         shape = RoundedCornerShape(22.dp)
                     )
                     .padding(
-                        start = 16.dp,
+                        start = 12.dp,
                         end = if (text.isEmpty() && editingMessage == null) 12.dp else 16.dp,
                         top = 6.dp,
                         bottom = 6.dp
@@ -218,8 +251,33 @@ internal fun ChatInputBar(
             ) {
                 Box(
                     modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .bounceClick(scaleDown = 0.90f) {
+                            onToggleEmojiPicker()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isEmojiPickerOpen) InputKeyboardIcon else InputSmileIcon,
+                        contentDescription = if (isEmojiPickerOpen) "Keyboard" else "Emoji",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        modifier = Modifier.size(23.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Box(
+                    modifier = Modifier
                         .weight(1f)
-                        .padding(vertical = 4.dp),
+                        .padding(vertical = 4.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            onInputClick()
+                        },
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (text.isEmpty()) {
@@ -363,7 +421,7 @@ private fun EditPreviewBar(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = message.text.ifBlank { if (message.mediaType == 2) "🎥 Video" else "📷 Photo" },
+                    text = message.text.ifBlank { if (message.mediaType == 2) "Video" else "Photo" },
                     fontSize = 12.5.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -412,8 +470,8 @@ private fun ReplyPreviewBar(
 
     val isMedia = message.mediaType > 0
     val previewText = when {
-        message.mediaType == 1 -> if (message.text.isNotBlank()) "📷 ${message.text}" else "📷 Photo"
-        message.mediaType == 2 -> if (message.text.isNotBlank()) "🎥 ${message.text}" else "🎥 Video"
+        message.mediaType == 1 -> if (message.text.isNotBlank()) "Photo: ${message.text}" else "Photo"
+        message.mediaType == 2 -> if (message.text.isNotBlank()) "Video: ${message.text}" else "Video"
         else -> message.text.ifBlank { "Message" }
     }
 
