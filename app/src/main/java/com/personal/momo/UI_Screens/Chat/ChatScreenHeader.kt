@@ -327,7 +327,7 @@ internal fun ChatTopHeader(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
+                EmojiText(
                     text = partnerName,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
