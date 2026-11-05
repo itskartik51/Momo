@@ -1,6 +1,7 @@
 package com.personal.momo.UI_Screens.Chat
 
 import android.content.Context
+import android.util.LruCache
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,8 +45,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -122,7 +132,7 @@ private object EmojiInitializer {
     }
 }
 
-private object EmojiDrawableHelper {
+internal object EmojiDrawableHelper {
     fun getDrawable(emoji: Emoji, context: Context): android.graphics.drawable.Drawable? {
         return try {
             val method = emoji.javaClass.methods.firstOrNull { m ->
@@ -139,6 +149,200 @@ private object EmojiDrawableHelper {
         } catch (_: Exception) {
             null
         }
+    }
+}
+
+internal data class EmojiSegment(
+    val text: String,
+    val isEmoji: Boolean,
+    val emoji: Emoji? = null
+)
+
+internal object Emoji3DManager {
+    private var isInitialized = false
+    private val emojiMap = HashMap<String, Emoji>(3600)
+    private var sortedKeys = listOf<String>()
+    private val segmentCache = LruCache<String, List<EmojiSegment>>(450)
+
+    fun ensureInitialized() {
+        if (isInitialized) return
+        try {
+            EmojiInitializer.ensureInstalled()
+            val categories = IosEmojiProvider().categories
+            for (cat in categories) {
+                for (emoji in cat.emojis) {
+                    emojiMap[emoji.unicode] = emoji
+                    try {
+                        val vMethod = emoji.javaClass.methods.firstOrNull {
+                            (it.name == "getVariants" || it.name == "variants") && it.parameterTypes.isEmpty()
+                        }
+                        vMethod?.isAccessible = true
+                        val variants = vMethod?.invoke(emoji) as? List<*>
+                        variants?.forEach { v ->
+                            if (v is Emoji) {
+                                emojiMap[v.unicode] = v
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+            sortedKeys = emojiMap.keys.sortedByDescending { it.length }
+            isInitialized = true
+        } catch (_: Exception) {}
+    }
+
+    fun getSegments(text: String): List<EmojiSegment> {
+        if (text.isEmpty()) return emptyList()
+        val cached = segmentCache.get(text)
+        if (cached != null) return cached
+
+        ensureInitialized()
+        if (sortedKeys.isEmpty()) {
+            val single = listOf(EmojiSegment(text, false))
+            segmentCache.put(text, single)
+            return single
+        }
+
+        val result = mutableListOf<EmojiSegment>()
+        var i = 0
+        val len = text.length
+        val buffer = StringBuilder()
+
+        while (i < len) {
+            var foundKey: String? = null
+            val remaining = len - i
+
+            for (k in sortedKeys) {
+                if (k.length <= remaining && text.startsWith(k, i)) {
+                    foundKey = k
+                    break
+                }
+            }
+
+            if (foundKey != null) {
+                if (buffer.isNotEmpty()) {
+                    result.add(EmojiSegment(buffer.toString(), false))
+                    buffer.clear()
+                }
+                val emojiObj = emojiMap[foundKey]
+                result.add(EmojiSegment(foundKey, true, emojiObj))
+                i += foundKey.length
+            } else {
+                buffer.append(text[i])
+                i++
+            }
+        }
+
+        if (buffer.isNotEmpty()) {
+            result.add(EmojiSegment(buffer.toString(), false))
+        }
+
+        segmentCache.put(text, result)
+        return result
+    }
+
+    fun getDrawable(emoji: Emoji, context: Context): android.graphics.drawable.Drawable? {
+        return EmojiDrawableHelper.getDrawable(emoji, context)
+    }
+}
+
+@Composable
+internal fun EmojiText(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    maxLines: Int = Int.MAX_VALUE,
+    overflow: TextOverflow = TextOverflow.Clip,
+    style: TextStyle = TextStyle.Default,
+    onTextLayout: (TextLayoutResult) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val segments = remember(text) { Emoji3DManager.getSegments(text) }
+    val hasEmoji = remember(segments) { segments.any { it.isEmoji && it.emoji != null } }
+
+    if (!hasEmoji) {
+        Text(
+            text = text,
+            modifier = modifier,
+            color = color,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            lineHeight = lineHeight,
+            maxLines = maxLines,
+            overflow = overflow,
+            style = style,
+            onTextLayout = onTextLayout
+        )
+    } else {
+        val effectiveFontSize = if (fontSize != TextUnit.Unspecified) {
+            fontSize
+        } else if (style.fontSize != TextUnit.Unspecified) {
+            style.fontSize
+        } else {
+            15.sp
+        }
+        val emojiSize = effectiveFontSize * 1.18f
+
+        val inlineContentMap = remember(segments, emojiSize) {
+            val map = mutableMapOf<String, InlineTextContent>()
+            segments.forEachIndexed { index, seg ->
+                if (seg.isEmoji && seg.emoji != null) {
+                    val key = "em_$index"
+                    val drawable = Emoji3DManager.getDrawable(seg.emoji, context)
+                    map[key] = InlineTextContent(
+                        Placeholder(
+                            width = emojiSize,
+                            height = emojiSize,
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                        )
+                    ) {
+                        if (drawable != null) {
+                            AsyncImage(
+                                model = drawable,
+                                contentDescription = seg.text,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Text(
+                                text = seg.text,
+                                fontSize = effectiveFontSize,
+                                style = style
+                            )
+                        }
+                    }
+                }
+            }
+            map
+        }
+
+        val annotatedString = remember(segments) {
+            buildAnnotatedString {
+                segments.forEachIndexed { index, seg ->
+                    if (seg.isEmoji && seg.emoji != null) {
+                        appendInlineContent("em_$index", seg.text)
+                    } else {
+                        append(seg.text)
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = annotatedString,
+            inlineContent = inlineContentMap,
+            modifier = modifier,
+            color = color,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            lineHeight = lineHeight,
+            maxLines = maxLines,
+            overflow = overflow,
+            style = style,
+            onTextLayout = onTextLayout
+        )
     }
 }
 
@@ -322,6 +526,7 @@ fun ChatEmojiPicker(
 
     LaunchedEffect(Unit) {
         EmojiInitializer.ensureInstalled()
+        Emoji3DManager.ensureInitialized()
     }
 
     var selectedTabIndex by remember { mutableIntStateOf(1) }
