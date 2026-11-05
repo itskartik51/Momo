@@ -34,26 +34,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -178,8 +171,8 @@ private val InputPlayIcon: ImageVector by lazy {
 
 @Composable
 internal fun ChatInputBar(
-    text: String,
-    onTextChanged: (String) -> Unit,
+    textFieldValue: TextFieldValue,
+    onTextFieldValueChange: (TextFieldValue) -> Unit,
     isEmojiPickerOpen: Boolean = false,
     onToggleEmojiPicker: () -> Unit = {},
     onInputClick: () -> Unit = {},
@@ -194,27 +187,6 @@ internal fun ChatInputBar(
     onSend: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    var textFieldValue by remember {
-        mutableStateOf(TextFieldValue(text = text, selection = TextRange(text.length)))
-    }
-
-    LaunchedEffect(text) {
-        if (textFieldValue.text != text) {
-            val newCursor = if (text.length > textFieldValue.text.length && text.startsWith(textFieldValue.text.take(textFieldValue.selection.min))) {
-                val addedLength = text.length - textFieldValue.text.length
-                (textFieldValue.selection.min + addedLength).coerceIn(0, text.length)
-            } else {
-                text.length
-            }
-            textFieldValue = textFieldValue.copy(
-                text = text,
-                selection = TextRange(newCursor)
-            )
-        }
-    }
 
     LaunchedEffect(replyingToMessage, editingMessage) {
         if (replyingToMessage != null || editingMessage != null) {
@@ -272,7 +244,7 @@ internal fun ChatInputBar(
                     )
                     .padding(
                         start = 12.dp,
-                        end = if (text.isEmpty() && editingMessage == null) 12.dp else 16.dp,
+                        end = if (textFieldValue.text.isEmpty() && editingMessage == null) 12.dp else 16.dp,
                         top = 6.dp,
                         bottom = 6.dp
                     ),
@@ -283,15 +255,7 @@ internal fun ChatInputBar(
                         .size(32.dp)
                         .clip(CircleShape)
                         .bounceClick(scaleDown = 0.90f) {
-                            if (isEmojiPickerOpen) {
-                                onToggleEmojiPicker()
-                                focusRequester.requestFocus()
-                                keyboardController?.show()
-                            } else {
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                                onToggleEmojiPicker()
-                            }
+                            onToggleEmojiPicker()
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -313,16 +277,11 @@ internal fun ChatInputBar(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            if (isEmojiPickerOpen) {
-                                onToggleEmojiPicker()
-                            }
                             onInputClick()
-                            focusRequester.requestFocus()
-                            keyboardController?.show()
                         },
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    if (text.isEmpty()) {
+                    if (textFieldValue.text.isEmpty()) {
                         Text(
                             text = if (editingMessage != null) "Edit message..." else "Message...",
                             fontSize = 15.5.sp,
@@ -332,20 +291,10 @@ internal fun ChatInputBar(
 
                     BasicTextField(
                         value = textFieldValue,
-                        onValueChange = { newValue ->
-                            textFieldValue = newValue
-                            if (newValue.text != text) {
-                                onTextChanged(newValue.text)
-                            }
-                        },
+                        onValueChange = onTextFieldValueChange,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester)
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused && isEmojiPickerOpen) {
-                                    onToggleEmojiPicker()
-                                }
-                            },
+                            .focusRequester(focusRequester),
                         textStyle = TextStyle(
                             fontSize = 15.5.sp,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -361,7 +310,7 @@ internal fun ChatInputBar(
                     )
                 }
 
-                if (text.isEmpty() && editingMessage == null) {
+                if (textFieldValue.text.isEmpty() && editingMessage == null) {
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Icon(
