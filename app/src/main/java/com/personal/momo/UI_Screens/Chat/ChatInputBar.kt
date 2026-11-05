@@ -9,8 +9,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,15 +40,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -192,6 +188,7 @@ internal fun ChatInputBar(
     onSend: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(replyingToMessage, editingMessage) {
         if (replyingToMessage != null || editingMessage != null) {
@@ -282,14 +279,7 @@ internal fun ChatInputBar(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(vertical = 4.dp)
-                        .pointerInput(isEmojiPickerOpen) {
-                            if (!isEmojiPickerOpen) return@pointerInput
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                                onInputClick()
-                            }
-                        },
+                        .padding(vertical = 4.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (textFieldValue.text.isEmpty()) {
@@ -305,12 +295,7 @@ internal fun ChatInputBar(
                         onValueChange = onTextFieldValueChange,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester)
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused && isEmojiPickerOpen) {
-                                    onInputClick()
-                                }
-                            },
+                            .focusRequester(focusRequester),
                         textStyle = TextStyle(
                             fontSize = 15.5.sp,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -324,6 +309,21 @@ internal fun ChatInputBar(
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
                     )
+
+                    if (isEmojiPickerOpen) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    onInputClick()
+                                    focusRequester.requestFocus()
+                                    keyboardController?.show()
+                                }
+                        )
+                    }
                 }
 
                 if (textFieldValue.text.isEmpty() && editingMessage == null) {
