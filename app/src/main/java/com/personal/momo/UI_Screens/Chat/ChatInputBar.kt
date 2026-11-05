@@ -288,6 +288,21 @@ internal fun ChatInputBar(
                         )
                     }
 
+                    val segments = remember(text) { Emoji3DManager.getSegments(text) }
+                    val hasEmoji = remember(segments) { segments.any { it.isEmoji && it.emoji != null } }
+
+                    if (hasEmoji && text.isNotEmpty()) {
+                        EmojiText(
+                            text = text,
+                            modifier = Modifier.fillMaxWidth(),
+                            fontSize = 15.5.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false)
+                            )
+                        )
+                    }
+
                     BasicTextField(
                         value = text,
                         onValueChange = onTextChanged,
@@ -296,7 +311,8 @@ internal fun ChatInputBar(
                             .focusRequester(focusRequester),
                         textStyle = TextStyle(
                             fontSize = 15.5.sp,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = if (hasEmoji) Color.Transparent else MaterialTheme.colorScheme.onSurface,
+                            platformStyle = PlatformTextStyle(includeFontPadding = false)
                         ),
                         keyboardOptions = KeyboardOptions(
                             capitalization = KeyboardCapitalization.Sentences,
@@ -420,7 +436,7 @@ private fun EditPreviewBar(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                Text(
+                EmojiText(
                     text = message.text.ifBlank { if (message.mediaType == 2) "Video" else "Photo" },
                     fontSize = 12.5.sp,
                     maxLines = 2,
@@ -544,7 +560,7 @@ private fun ReplyPreviewBar(
 
                 Spacer(modifier = Modifier.height(2.dp))
 
-                Text(
+                EmojiText(
                     text = previewText,
                     fontSize = 12.5.sp,
                     maxLines = 2,
