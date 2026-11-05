@@ -34,24 +34,32 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -186,6 +194,27 @@ internal fun ChatInputBar(
     onSend: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(text = text, selection = TextRange(text.length)))
+    }
+
+    LaunchedEffect(text) {
+        if (textFieldValue.text != text) {
+            val newCursor = if (text.length > textFieldValue.text.length && text.startsWith(textFieldValue.text.take(textFieldValue.selection.min))) {
+                val addedLength = text.length - textFieldValue.text.length
+                (textFieldValue.selection.min + addedLength).coerceIn(0, text.length)
+            } else {
+                text.length
+            }
+            textFieldValue = textFieldValue.copy(
+                text = text,
+                selection = TextRange(newCursor)
+            )
+        }
+    }
 
     LaunchedEffect(replyingToMessage, editingMessage) {
         if (replyingToMessage != null || editingMessage != null) {
@@ -254,7 +283,15 @@ internal fun ChatInputBar(
                         .size(32.dp)
                         .clip(CircleShape)
                         .bounceClick(scaleDown = 0.90f) {
-                            onToggleEmojiPicker()
+                            if (isEmojiPickerOpen) {
+                                onToggleEmojiPicker()
+                                focusRequester.requestFocus()
+                                keyboardController?.show()
+                            } else {
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                                onToggleEmojiPicker()
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -276,7 +313,12 @@ internal fun ChatInputBar(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
+                            if (isEmojiPickerOpen) {
+                                onToggleEmojiPicker()
+                            }
                             onInputClick()
+                            focusRequester.requestFocus()
+                            keyboardController?.show()
                         },
                     contentAlignment = Alignment.CenterStart
                 ) {
@@ -288,30 +330,25 @@ internal fun ChatInputBar(
                         )
                     }
 
-                    val segments = remember(text) { Emoji3DManager.getSegments(text) }
-                    val hasEmoji = remember(segments) { segments.any { it.isEmoji && it.emoji != null } }
-
-                    if (hasEmoji && text.isNotEmpty()) {
-                        EmojiText(
-                            text = text,
-                            modifier = Modifier.fillMaxWidth(),
-                            fontSize = 15.5.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = TextStyle(
-                                platformStyle = PlatformTextStyle(includeFontPadding = false)
-                            )
-                        )
-                    }
-
                     BasicTextField(
-                        value = text,
-                        onValueChange = onTextChanged,
+                        value = textFieldValue,
+                        onValueChange = { newValue ->
+                            textFieldValue = newValue
+                            if (newValue.text != text) {
+                                onTextChanged(newValue.text)
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester),
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused && isEmojiPickerOpen) {
+                                    onToggleEmojiPicker()
+                                }
+                            },
                         textStyle = TextStyle(
                             fontSize = 15.5.sp,
-                            color = if (hasEmoji) Color.Transparent else MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.colorScheme.onSurface,
                             platformStyle = PlatformTextStyle(includeFontPadding = false)
                         ),
                         keyboardOptions = KeyboardOptions(
