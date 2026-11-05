@@ -116,6 +116,7 @@ object MomoStorage {
  * Storing only [replyToId] for message references to prevent redundant text duplicates.
  * Optional [replyToText] and [replyToSenderId] are maintained with null defaults
  * for zero-breakage backward compatibility during CI/CD builds.
+ * [reactions] stores map of senderId to emoji (e.g. 1 -> "❤️", 2 -> "🔥").
  */
 data class ChatMessage(
     val id: String,
@@ -132,7 +133,8 @@ data class ChatMessage(
     val cryptoIv: String? = null,
     val localPath: String? = null,
     val fileSize: Long = 0L,
-    val blurPreview: String? = null
+    val blurPreview: String? = null,
+    val reactions: Map<Int, String> = emptyMap()
 )
 
 object ChatRepository {
@@ -173,48 +175,69 @@ object ChatRepository {
 
             for (i in 0 until jsonArray.length()) {
                 val tuple = jsonArray.optJSONArray(i) ?: continue
-                if (tuple.length() >= 5) {
-                    val isOldSchema = tuple.length() == 15 || tuple.length() == 8
+                val rawLength = tuple.length()
+                if (rawLength >= 5) {
+                    val lastIndex = rawLength - 1
+                    val hasReactionObj = lastIndex >= 5 && tuple.optJSONObject(lastIndex) != null
+                    var reactions = emptyMap<Int, String>()
 
-                    val replyToId = if (tuple.length() > 5 && !tuple.isNull(5)) {
+                    if (hasReactionObj) {
+                        val rObj = tuple.getJSONObject(lastIndex)
+                        val rMap = mutableMapOf<Int, String>()
+                        val keys = rObj.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            val v = rObj.optString(k, "")
+                            val kInt = k.toIntOrNull()
+                            if (kInt != null && v.isNotEmpty()) {
+                                rMap[kInt] = v
+                            }
+                        }
+                        reactions = rMap
+                    }
+
+                    val effectiveLength = if (hasReactionObj) rawLength - 1 else rawLength
+                    val isOldSchema = effectiveLength == 15 || effectiveLength == 8
+
+                    val replyToId = if (effectiveLength > 5 && !tuple.isNull(5)) {
                         tuple.optString(5).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val replyToText = if (isOldSchema && tuple.length() > 6 && !tuple.isNull(6)) {
+                    val replyToText = if (isOldSchema && effectiveLength > 6 && !tuple.isNull(6)) {
                         tuple.optString(6).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val replyToSenderId = if (isOldSchema && tuple.length() > 7 && !tuple.isNull(7)) {
+                    val replyToSenderId = if (isOldSchema && effectiveLength > 7 && !tuple.isNull(7)) {
                         tuple.optInt(7).takeIf { it > 0 }
                     } else null
 
                     val mediaOffset = if (isOldSchema) 8 else 6
 
-                    val mediaType = if (tuple.length() > mediaOffset && !tuple.isNull(mediaOffset)) {
+                    val mediaType = if (effectiveLength > mediaOffset && !tuple.isNull(mediaOffset)) {
                         tuple.optInt(mediaOffset, 0)
                     } else 0
 
-                    val fileId = if (tuple.length() > mediaOffset + 1 && !tuple.isNull(mediaOffset + 1)) {
+                    val fileId = if (effectiveLength > mediaOffset + 1 && !tuple.isNull(mediaOffset + 1)) {
                         tuple.optString(mediaOffset + 1).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val cryptoKey = if (tuple.length() > mediaOffset + 2 && !tuple.isNull(mediaOffset + 2)) {
+                    val cryptoKey = if (effectiveLength > mediaOffset + 2 && !tuple.isNull(mediaOffset + 2)) {
                         tuple.optString(mediaOffset + 2).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val cryptoIv = if (tuple.length() > mediaOffset + 3 && !tuple.isNull(mediaOffset + 3)) {
+                    val cryptoIv = if (effectiveLength > mediaOffset + 3 && !tuple.isNull(mediaOffset + 3)) {
                         tuple.optString(mediaOffset + 3).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val localPath = if (tuple.length() > mediaOffset + 4 && !tuple.isNull(mediaOffset + 4)) {
+                    val localPath = if (effectiveLength > mediaOffset + 4 && !tuple.isNull(mediaOffset + 4)) {
                         tuple.optString(mediaOffset + 4).takeIf { it.isNotEmpty() }
                     } else null
 
-                    val fileSize = if (tuple.length() > mediaOffset + 5 && !tuple.isNull(mediaOffset + 5)) {
+                    val fileSize = if (effectiveLength > mediaOffset + 5 && !tuple.isNull(mediaOffset + 5)) {
                         tuple.optLong(mediaOffset + 5, 0L)
                     } else 0L
 
-                    val blurPreview = if (tuple.length() > mediaOffset + 6 && !tuple.isNull(mediaOffset + 6)) {
+                    val blurPreview = if (effectiveLength > mediaOffset + 6 && !tuple.isNull(mediaOffset + 6)) {
                         tuple.optString(mediaOffset + 6).takeIf { it.isNotEmpty() }
                     } else null
 
@@ -234,7 +257,8 @@ object ChatRepository {
                             cryptoIv = cryptoIv,
                             localPath = localPath,
                             fileSize = fileSize,
-                            blurPreview = blurPreview
+                            blurPreview = blurPreview,
+                            reactions = reactions
                         )
                     )
                 }
@@ -316,7 +340,11 @@ object ChatRepository {
             if (existingIndex >= 0) {
                 val existing = currentList[existingIndex]
                 val resolvedStatus = maxOf(existing.status, message.status)
-                currentList[existingIndex] = message.copy(status = resolvedStatus)
+                val mergedReactions = if (message.reactions.isNotEmpty()) message.reactions else existing.reactions
+                currentList[existingIndex] = message.copy(
+                    status = resolvedStatus,
+                    reactions = mergedReactions
+                )
             } else {
                 currentList.add(message)
             }
@@ -324,6 +352,41 @@ object ChatRepository {
             currentList.sortBy { it.timestamp }
             writeMessagesToFile(appContext, currentList)
             _messagesFlow.value = currentList
+        }
+    }
+
+    suspend fun updateMessageReaction(
+        context: Context,
+        messageId: String,
+        senderId: Int,
+        emoji: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val appContext = context.applicationContext
+            ensureLoadedLocked(appContext)
+
+            val currentList = _messagesFlow.value.toMutableList()
+            val index = currentList.indexOfFirst { it.id == messageId }
+
+            if (index >= 0) {
+                val existing = currentList[index]
+                val updatedReactions = existing.reactions.toMutableMap()
+
+                if (emoji.isBlank() || updatedReactions[senderId] == emoji) {
+                    updatedReactions.remove(senderId)
+                } else {
+                    updatedReactions[senderId] = emoji
+                }
+
+                if (updatedReactions != existing.reactions) {
+                    currentList[index] = existing.copy(reactions = updatedReactions)
+                    writeMessagesToFile(appContext, currentList)
+                    _messagesFlow.value = currentList
+                }
+                true
+            } else {
+                false
+            }
         }
     }
 
@@ -457,6 +520,14 @@ object ChatRepository {
                         tuple.put(msg.fileSize)
                         tuple.put(msg.blurPreview ?: JSONObject.NULL)
                     }
+                }
+
+                if (msg.reactions.isNotEmpty()) {
+                    val rObj = JSONObject()
+                    for ((sId, emoji) in msg.reactions) {
+                        rObj.put(sId.toString(), emoji)
+                    }
+                    tuple.put(rObj)
                 }
 
                 rootArray.put(tuple)
