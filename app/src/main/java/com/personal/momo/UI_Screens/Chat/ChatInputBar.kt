@@ -261,6 +261,7 @@ internal fun ChatInputBar(
                                 onToggleEmojiPicker()
                                 focusRequester.requestFocus()
                             } else {
+                                focusRequester.requestFocus()
                                 onToggleEmojiPicker()
                             }
                         },
