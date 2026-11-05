@@ -120,7 +120,8 @@ internal fun MediaBubbleMessageContent(
     bubbleShape: Shape,
     isSelectionMode: Boolean,
     onToggleSelect: (String) -> Unit,
-    onReplyClick: (String) -> Unit
+    onReplyClick: (String) -> Unit,
+    onDoubleTapReact: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val hasReply = replyToMessage != null
@@ -256,6 +257,11 @@ internal fun MediaBubbleMessageContent(
                                 onToggleSelect(message.id)
                             } else if (mediaFile != null) {
                                 showPrefPlayer = true
+                            }
+                        },
+                        onDoubleTap = {
+                            if (!isSelectionMode) {
+                                onDoubleTapReact(message.id)
                             }
                         }
                     )
