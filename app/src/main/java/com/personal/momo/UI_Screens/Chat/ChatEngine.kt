@@ -390,6 +390,37 @@ object ChatEngine {
         }
     }
 
+    fun setReaction(
+        context: Context,
+        messageId: String,
+        emoji: String
+    ) {
+        val appContext = context.applicationContext
+        appContextRef = appContext
+        val myCode = getMySenderCode(appContext)
+        val partnerCode = getPartnerSenderCode(appContext)
+
+        engineScope.launch {
+            ChatRepository.updateMessageReaction(appContext, messageId, myCode, emoji)
+
+            val syncQueueRef = database.reference
+                .child("momo_chat")
+                .child("sync")
+                .child(partnerCode.toString())
+                .push()
+
+            val payload = mapOf<String, Any>(
+                "action" to "REACT",
+                "id" to messageId,
+                "senderId" to myCode,
+                "emoji" to emoji,
+                "time" to ServerValue.TIMESTAMP
+            )
+
+            syncQueueRef.setValue(payload)
+        }
+    }
+
     fun sendMediaMessage(
         context: Context,
         mediaUri: Uri,
@@ -654,6 +685,12 @@ object ChatEngine {
                             "EDIT" -> {
                                 val newText = snapshot.child("text").getValue(String::class.java) ?: ""
                                 ChatRepository.editMessageText(context, messageId, newText)
+                            }
+                            "REACT" -> {
+                                val partnerCode = if (myCode == 1) 2 else 1
+                                val senderId = snapshot.child("senderId").getValue(Long::class.java)?.toInt() ?: partnerCode
+                                val emoji = snapshot.child("emoji").getValue(String::class.java) ?: ""
+                                ChatRepository.updateMessageReaction(context, messageId, senderId, emoji)
                             }
                         }
                         snapshot.ref.removeValue()
