@@ -47,6 +47,8 @@ object CacheManager {
     private const val KEY_FINDER_ENABLED = "cached_finder_enabled"
     private const val KEY_TYM = "cached_tym"
     private const val KEY_APP_USER_ID = "cached_app_user_id"
+    private const val KEY_VERIFIED_DEVICE_HASH = "cached_verified_device_hash"
+    private const val KEY_UNAUTH_ATTEMPTS = "cached_unauth_attempts"
 
     private var prefs: SharedPreferences? = null
     private var homeConfigListener: ListenerRegistration? = null
@@ -81,6 +83,38 @@ object CacheManager {
 
     fun updateTrackerState(state: TrackerState) {
         _trackerStateFlow.value = state
+    }
+
+    fun getVerifiedDeviceHash(context: Context): String? {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        return prefs?.getString(KEY_VERIFIED_DEVICE_HASH, null)
+    }
+
+    fun setVerifiedDeviceHash(context: Context, hash: String?) {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        if (hash.isNullOrBlank()) {
+            prefs?.edit()?.remove(KEY_VERIFIED_DEVICE_HASH)?.apply()
+        } else {
+            prefs?.edit()?.putString(KEY_VERIFIED_DEVICE_HASH, hash)?.apply()
+        }
+    }
+
+    fun getUnauthAttempts(context: Context): Int {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        return prefs?.getInt(KEY_UNAUTH_ATTEMPTS, 0) ?: 0
+    }
+
+    fun setUnauthAttempts(context: Context, attempts: Int) {
+        if (prefs == null) {
+            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+        prefs?.edit()?.putInt(KEY_UNAUTH_ATTEMPTS, attempts)?.apply()
     }
 
     fun init(context: Context) {
