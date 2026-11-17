@@ -357,7 +357,6 @@ class MainActivity : FragmentActivity() {
         detachDeviceAuthListener()
 
         val ref = FirebaseDatabase.getInstance().reference
-            .child("momo_chat")
             .child("security")
             .child("allowed_hashes")
 
