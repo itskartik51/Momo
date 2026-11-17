@@ -48,7 +48,6 @@ object CacheManager {
     private const val KEY_TYM = "cached_tym"
     private const val KEY_APP_USER_ID = "cached_app_user_id"
     private const val KEY_VERIFIED_DEVICE_HASH = "cached_verified_device_hash"
-    private const val KEY_UNAUTH_ATTEMPTS = "cached_unauth_attempts"
 
     private var prefs: SharedPreferences? = null
     private var homeConfigListener: ListenerRegistration? = null
@@ -97,24 +96,10 @@ object CacheManager {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         }
         if (hash.isNullOrBlank()) {
-            prefs?.edit()?.remove(KEY_VERIFIED_DEVICE_HASH)?.apply()
+            prefs?.edit()?.remove(KEY_VERIFIED_DEVICE_HASH)?.commit()
         } else {
-            prefs?.edit()?.putString(KEY_VERIFIED_DEVICE_HASH, hash)?.apply()
+            prefs?.edit()?.putString(KEY_VERIFIED_DEVICE_HASH, hash)?.commit()
         }
-    }
-
-    fun getUnauthAttempts(context: Context): Int {
-        if (prefs == null) {
-            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        }
-        return prefs?.getInt(KEY_UNAUTH_ATTEMPTS, 0) ?: 0
-    }
-
-    fun setUnauthAttempts(context: Context, attempts: Int) {
-        if (prefs == null) {
-            prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        }
-        prefs?.edit()?.putInt(KEY_UNAUTH_ATTEMPTS, attempts)?.apply()
     }
 
     fun init(context: Context) {
