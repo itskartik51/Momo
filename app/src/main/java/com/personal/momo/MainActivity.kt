@@ -76,6 +76,11 @@ class MainActivity : FragmentActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var verificationTimeoutRunnable: Runnable? = null
+    private var focusFallbackRunnable: Runnable? = null
+
+    private var pendingHashToCopy: String? = null
+    private var isHandlingUnauthorized = false
+    private var hasCopiedAndScheduledExit = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -266,6 +271,18 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            val hash = pendingHashToCopy
+            if (!hash.isNullOrBlank()) {
+                pendingHashToCopy = null
+                cancelFocusFallback()
+                copyHashAndScheduleExit(hash)
+            }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -277,6 +294,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onDestroy() {
         cancelVerificationTimeout()
+        cancelFocusFallback()
         detachDeviceAuthListener()
         super.onDestroy()
     }
@@ -302,7 +320,7 @@ class MainActivity : FragmentActivity() {
                     handleUnauthorizedFailure(currentDeviceHash)
                 }
             }.also { runnable ->
-                mainHandler.postDelayed(runnable, 4500L)
+                mainHandler.postDelayed(runnable, 5000L)
             }
         }
 
@@ -355,7 +373,6 @@ class MainActivity : FragmentActivity() {
 
                 if (isAuthorizedInDb) {
                     CacheManager.setVerifiedDeviceHash(applicationContext, currentDeviceHash)
-                    CacheManager.setUnauthAttempts(applicationContext, 0)
                     if (!isDeviceVerifiedState.value) {
                         isDeviceVerifiedState.value = true
                     }
@@ -392,25 +409,50 @@ class MainActivity : FragmentActivity() {
         verificationTimeoutRunnable = null
     }
 
+    private fun cancelFocusFallback() {
+        focusFallbackRunnable?.let { mainHandler.removeCallbacks(it) }
+        focusFallbackRunnable = null
+    }
+
     private fun handleUnauthorizedFailure(deviceHash: String) {
-        val nextAttempts = CacheManager.getUnauthAttempts(applicationContext) + 1
-        if (nextAttempts >= 3) {
-            CacheManager.setUnauthAttempts(applicationContext, 0)
-            try {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                val clip = ClipData.newPlainText("Device Hash", deviceHash)
-                clipboard?.setPrimaryClip(clip)
-                Toast.makeText(applicationContext, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            mainHandler.postDelayed({
-                killAppImmediately()
-            }, 350L)
+        if (isHandlingUnauthorized) return
+        isHandlingUnauthorized = true
+
+        if (hasWindowFocus()) {
+            copyHashAndScheduleExit(deviceHash)
         } else {
-            CacheManager.setUnauthAttempts(applicationContext, nextAttempts)
-            killAppImmediately()
+            pendingHashToCopy = deviceHash
+            focusFallbackRunnable = Runnable {
+                val remainingHash = pendingHashToCopy
+                if (!remainingHash.isNullOrBlank()) {
+                    pendingHashToCopy = null
+                    copyHashAndScheduleExit(remainingHash)
+                }
+            }.also { runnable ->
+                mainHandler.postDelayed(runnable, 1500L)
+            }
         }
+    }
+
+    private fun copyHashAndScheduleExit(deviceHash: String) {
+        if (hasCopiedAndScheduledExit) return
+        hasCopiedAndScheduledExit = true
+
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = ClipData.newPlainText("Device Hash", deviceHash)
+            clipboard?.setPrimaryClip(clip)
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                Toast.makeText(applicationContext, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        mainHandler.postDelayed({
+            killAppImmediately()
+        }, 750L)
     }
 
     private fun killAppImmediately() {
