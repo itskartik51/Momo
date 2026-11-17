@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.personal.momo.Cache.CacheManager
@@ -329,12 +331,39 @@ fun ChatScreen(
     }
 
     val bgColor = MaterialTheme.colorScheme.background
+    val headerSurfaceColor = MaterialTheme.colorScheme.surface
+    val isLightHeader = headerSurfaceColor.luminance() > 0.5f
+
     SideEffect {
         val window = (context as? Activity)?.window
         if (window != null) {
             val colorInt = bgColor.toArgb()
             window.setBackgroundDrawable(ColorDrawable(colorInt))
             window.decorView.setBackgroundColor(colorInt)
+            @Suppress("DEPRECATION")
+            window.statusBarColor = headerSurfaceColor.toArgb()
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = isLightHeader
+        }
+    }
+
+    DisposableEffect(context, view) {
+        val window = (context as? Activity)?.window
+        @Suppress("DEPRECATION")
+        val previousStatusBarColor = window?.statusBarColor
+        val previousLightStatusBars = window?.let {
+            WindowCompat.getInsetsController(it, view).isAppearanceLightStatusBars
+        }
+
+        onDispose {
+            if (window != null) {
+                if (previousStatusBarColor != null) {
+                    @Suppress("DEPRECATION")
+                    window.statusBarColor = previousStatusBarColor
+                }
+                if (previousLightStatusBars != null) {
+                    WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = previousLightStatusBars
+                }
+            }
         }
     }
 
