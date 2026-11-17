@@ -1,6 +1,7 @@
 package com.personal.momo.UI_Screens.Chat
 
 import android.content.Context
+import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -147,9 +148,116 @@ object ChatRepository {
     @Volatile
     private var isInitialized = false
 
+    @Volatile
+    private var hasUnreadableExistingFile = false
+
     suspend fun init(context: Context) {
         if (isInitialized) return
         loadMessages(context.applicationContext)
+    }
+
+    private fun parseMessagesFromJson(content: String): ArrayList<ChatMessage> {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty() || trimmed == "[]") {
+            return ArrayList()
+        }
+
+        val jsonArray = JSONArray(trimmed)
+        val list = ArrayList<ChatMessage>(jsonArray.length())
+
+        for (i in 0 until jsonArray.length()) {
+            val tuple = jsonArray.optJSONArray(i) ?: continue
+            val rawLength = tuple.length()
+            if (rawLength >= 5) {
+                val lastIndex = rawLength - 1
+                val hasReactionObj = lastIndex >= 5 && tuple.optJSONObject(lastIndex) != null
+                var reactions = emptyMap<Int, String>()
+
+                if (hasReactionObj) {
+                    val rObj = tuple.getJSONObject(lastIndex)
+                    val rMap = mutableMapOf<Int, String>()
+                    val keys = rObj.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        val v = rObj.optString(k, "")
+                        val kInt = k.toIntOrNull()
+                        if (kInt != null && v.isNotEmpty()) {
+                            rMap[kInt] = v
+                        }
+                    }
+                    reactions = rMap
+                }
+
+                val effectiveLength = if (hasReactionObj) rawLength - 1 else rawLength
+                val isOldSchema = effectiveLength == 15 || effectiveLength == 8
+
+                val replyToId = if (effectiveLength > 5 && !tuple.isNull(5)) {
+                    tuple.optString(5).takeIf { it.isNotEmpty() }
+                } else null
+
+                val replyToText = if (isOldSchema && effectiveLength > 6 && !tuple.isNull(6)) {
+                    tuple.optString(6).takeIf { it.isNotEmpty() }
+                } else null
+
+                val replyToSenderId = if (isOldSchema && effectiveLength > 7 && !tuple.isNull(7)) {
+                    tuple.optInt(7).takeIf { it > 0 }
+                } else null
+
+                val mediaOffset = if (isOldSchema) 8 else 6
+
+                val mediaType = if (effectiveLength > mediaOffset && !tuple.isNull(mediaOffset)) {
+                    tuple.optInt(mediaOffset, 0)
+                } else 0
+
+                val fileId = if (effectiveLength > mediaOffset + 1 && !tuple.isNull(mediaOffset + 1)) {
+                    tuple.optString(mediaOffset + 1).takeIf { it.isNotEmpty() }
+                } else null
+
+                val cryptoKey = if (effectiveLength > mediaOffset + 2 && !tuple.isNull(mediaOffset + 2)) {
+                    tuple.optString(mediaOffset + 2).takeIf { it.isNotEmpty() }
+                } else null
+
+                val cryptoIv = if (effectiveLength > mediaOffset + 3 && !tuple.isNull(mediaOffset + 3)) {
+                    tuple.optString(mediaOffset + 3).takeIf { it.isNotEmpty() }
+                } else null
+
+                val localPath = if (effectiveLength > mediaOffset + 4 && !tuple.isNull(mediaOffset + 4)) {
+                    tuple.optString(mediaOffset + 4).takeIf { it.isNotEmpty() }
+                } else null
+
+                val fileSize = if (effectiveLength > mediaOffset + 5 && !tuple.isNull(mediaOffset + 5)) {
+                    tuple.optLong(mediaOffset + 5, 0L)
+                } else 0L
+
+                val blurPreview = if (effectiveLength > mediaOffset + 6 && !tuple.isNull(mediaOffset + 6)) {
+                    tuple.optString(mediaOffset + 6).takeIf { it.isNotEmpty() }
+                } else null
+
+                list.add(
+                    ChatMessage(
+                        id = tuple.optString(0, ""),
+                        senderId = tuple.optInt(1, 1),
+                        text = tuple.optString(2, ""),
+                        timestamp = tuple.optLong(3, 0L),
+                        status = tuple.optInt(4, 0),
+                        replyToId = replyToId,
+                        replyToText = replyToText,
+                        replyToSenderId = replyToSenderId,
+                        mediaType = mediaType,
+                        fileId = fileId,
+                        cryptoKey = cryptoKey,
+                        cryptoIv = cryptoIv,
+                        localPath = localPath,
+                        fileSize = fileSize,
+                        blurPreview = blurPreview,
+                        reactions = reactions
+                    )
+                )
+            }
+        }
+
+        list.sortBy { it.timestamp }
+        return list
     }
 
     private fun ensureLoadedLocked(context: Context) {
@@ -157,6 +265,7 @@ object ChatRepository {
 
         val file = File(MomoStorage.getChatDir(context), FILE_NAME)
         if (!file.exists()) {
+            hasUnreadableExistingFile = false
             _messagesFlow.value = emptyList()
             isInitialized = true
             return
@@ -165,106 +274,14 @@ object ChatRepository {
         try {
             val content = file.readText().trim()
             if (content.isEmpty() || content == "[]") {
+                hasUnreadableExistingFile = false
                 _messagesFlow.value = emptyList()
                 isInitialized = true
                 return
             }
 
-            val jsonArray = JSONArray(content)
-            val list = ArrayList<ChatMessage>(jsonArray.length())
-
-            for (i in 0 until jsonArray.length()) {
-                val tuple = jsonArray.optJSONArray(i) ?: continue
-                val rawLength = tuple.length()
-                if (rawLength >= 5) {
-                    val lastIndex = rawLength - 1
-                    val hasReactionObj = lastIndex >= 5 && tuple.optJSONObject(lastIndex) != null
-                    var reactions = emptyMap<Int, String>()
-
-                    if (hasReactionObj) {
-                        val rObj = tuple.getJSONObject(lastIndex)
-                        val rMap = mutableMapOf<Int, String>()
-                        val keys = rObj.keys()
-                        while (keys.hasNext()) {
-                            val k = keys.next()
-                            val v = rObj.optString(k, "")
-                            val kInt = k.toIntOrNull()
-                            if (kInt != null && v.isNotEmpty()) {
-                                rMap[kInt] = v
-                            }
-                        }
-                        reactions = rMap
-                    }
-
-                    val effectiveLength = if (hasReactionObj) rawLength - 1 else rawLength
-                    val isOldSchema = effectiveLength == 15 || effectiveLength == 8
-
-                    val replyToId = if (effectiveLength > 5 && !tuple.isNull(5)) {
-                        tuple.optString(5).takeIf { it.isNotEmpty() }
-                    } else null
-
-                    val replyToText = if (isOldSchema && effectiveLength > 6 && !tuple.isNull(6)) {
-                        tuple.optString(6).takeIf { it.isNotEmpty() }
-                    } else null
-
-                    val replyToSenderId = if (isOldSchema && effectiveLength > 7 && !tuple.isNull(7)) {
-                        tuple.optInt(7).takeIf { it > 0 }
-                    } else null
-
-                    val mediaOffset = if (isOldSchema) 8 else 6
-
-                    val mediaType = if (effectiveLength > mediaOffset && !tuple.isNull(mediaOffset)) {
-                        tuple.optInt(mediaOffset, 0)
-                    } else 0
-
-                    val fileId = if (effectiveLength > mediaOffset + 1 && !tuple.isNull(mediaOffset + 1)) {
-                        tuple.optString(mediaOffset + 1).takeIf { it.isNotEmpty() }
-                    } else null
-
-                    val cryptoKey = if (effectiveLength > mediaOffset + 2 && !tuple.isNull(mediaOffset + 2)) {
-                        tuple.optString(mediaOffset + 2).takeIf { it.isNotEmpty() }
-                    } else null
-
-                    val cryptoIv = if (effectiveLength > mediaOffset + 3 && !tuple.isNull(mediaOffset + 3)) {
-                        tuple.optString(mediaOffset + 3).takeIf { it.isNotEmpty() }
-                    } else null
-
-                    val localPath = if (effectiveLength > mediaOffset + 4 && !tuple.isNull(mediaOffset + 4)) {
-                        tuple.optString(mediaOffset + 4).takeIf { it.isNotEmpty() }
-                    } else null
-
-                    val fileSize = if (effectiveLength > mediaOffset + 5 && !tuple.isNull(mediaOffset + 5)) {
-                        tuple.optLong(mediaOffset + 5, 0L)
-                    } else 0L
-
-                    val blurPreview = if (effectiveLength > mediaOffset + 6 && !tuple.isNull(mediaOffset + 6)) {
-                        tuple.optString(mediaOffset + 6).takeIf { it.isNotEmpty() }
-                    } else null
-
-                    list.add(
-                        ChatMessage(
-                            id = tuple.optString(0, ""),
-                            senderId = tuple.optInt(1, 1),
-                            text = tuple.optString(2, ""),
-                            timestamp = tuple.optLong(3, 0L),
-                            status = tuple.optInt(4, 0),
-                            replyToId = replyToId,
-                            replyToText = replyToText,
-                            replyToSenderId = replyToSenderId,
-                            mediaType = mediaType,
-                            fileId = fileId,
-                            cryptoKey = cryptoKey,
-                            cryptoIv = cryptoIv,
-                            localPath = localPath,
-                            fileSize = fileSize,
-                            blurPreview = blurPreview,
-                            reactions = reactions
-                        )
-                    )
-                }
-            }
-
-            list.sortBy { it.timestamp }
+            val list = parseMessagesFromJson(content)
+            hasUnreadableExistingFile = false
 
             val validIds = list.map { it.id }.toSet()
             var hadOrphanQuotes = false
@@ -288,8 +305,93 @@ object ChatRepository {
             isInitialized = true
         } catch (e: Exception) {
             e.printStackTrace()
+            if (file.exists() && file.length() > 0L) {
+                hasUnreadableExistingFile = true
+            }
             isInitialized = true
         }
+    }
+
+    suspend fun restoreFromDefaultFile(context: Context): Result<Int> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            try {
+                val appContext = context.applicationContext
+                val file = File(MomoStorage.getChatDir(appContext), FILE_NAME)
+                if (!file.exists() || file.length() <= 0L) {
+                    return@withLock Result.failure(Exception("Backup file not found in Chat folder"))
+                }
+                if (!file.canRead()) {
+                    return@withLock Result.failure(SecurityException("Permission denied by Android storage"))
+                }
+
+                val content = file.readText()
+                val importedList = parseMessagesFromJson(content)
+                if (importedList.isEmpty()) {
+                    return@withLock Result.failure(Exception("No messages found in backup file"))
+                }
+
+                val mergedList = mergeAndSaveMessagesLocked(appContext, importedList)
+                Result.success(mergedList.size)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun restoreFromUri(context: Context, uri: Uri): Result<Int> = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            try {
+                val appContext = context.applicationContext
+                val content = appContext.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                    it.readText()
+                } ?: return@withLock Result.failure(Exception("Unable to read selected file"))
+
+                val importedList = parseMessagesFromJson(content)
+                if (importedList.isEmpty()) {
+                    return@withLock Result.failure(Exception("No messages found in selected file"))
+                }
+
+                val mergedList = mergeAndSaveMessagesLocked(appContext, importedList)
+                Result.success(mergedList.size)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    private fun mergeAndSaveMessagesLocked(
+        appContext: Context,
+        importedList: List<ChatMessage>
+    ): List<ChatMessage> {
+        val mergedById = LinkedHashMap<String, ChatMessage>()
+        for (msg in importedList) {
+            mergedById[msg.id] = msg
+        }
+        for (existing in _messagesFlow.value) {
+            val prev = mergedById[existing.id]
+            if (prev == null) {
+                mergedById[existing.id] = existing
+            } else {
+                val resolvedStatus = maxOf(prev.status, existing.status)
+                val mergedReactions = if (existing.reactions.isNotEmpty()) existing.reactions else prev.reactions
+                mergedById[existing.id] = prev.copy(
+                    status = resolvedStatus,
+                    reactions = mergedReactions
+                )
+            }
+        }
+
+        val finalList = mergedById.values.sortedBy { it.timestamp }
+        val targetFile = File(MomoStorage.getChatDir(appContext), FILE_NAME)
+        if (targetFile.exists() && !targetFile.canWrite()) {
+            runCatching { targetFile.delete() }
+        }
+
+        hasUnreadableExistingFile = false
+        writeMessagesToFile(appContext, finalList)
+        _messagesFlow.value = finalList
+        isInitialized = true
+        return finalList
     }
 
     suspend fun purgeExpiredStatusQuotes(context: Context, activeStatusIds: Set<String>) = withContext(Dispatchers.IO) {
@@ -496,6 +598,11 @@ object ChatRepository {
 
     private fun writeMessagesToFile(context: Context, messages: List<ChatMessage>) {
         try {
+            val file = File(MomoStorage.getChatDir(context), FILE_NAME)
+            if (hasUnreadableExistingFile && file.exists() && file.length() > 0L) {
+                return
+            }
+
             val rootArray = JSONArray()
             for (msg in messages) {
                 val tuple = JSONArray()
@@ -533,7 +640,6 @@ object ChatRepository {
                 rootArray.put(tuple)
             }
 
-            val file = File(MomoStorage.getChatDir(context), FILE_NAME)
             file.writeText(rootArray.toString())
         } catch (e: Exception) {
             e.printStackTrace()
