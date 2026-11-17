@@ -87,7 +87,7 @@ private val MessageCountIcon: ImageVector by lazy {
         viewportHeight = 24f
     ).addPath(
         pathData = PathParser().parsePathString(
-            "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0-2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9z"
+            "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12zM7 9h2v2H7V9zm4 0h2v2h-2V9zm4 0h2v2h-2V9z"
         ).toNodes(),
         fill = SolidColor(Color.White)
     ).build()
@@ -229,6 +229,7 @@ fun ChatPreferenceMenuAction(
 ) {
     val density = LocalDensity.current
     var isMenuExpanded by remember { mutableStateOf(false) }
+    val triggerPreRestoreBackup = rememberPreRestoreBackupLauncher()
 
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = isMenuExpanded
@@ -318,6 +319,9 @@ fun ChatPreferenceMenuAction(
                                     .fillMaxWidth()
                                     .bounceClick(scaleDown = 0.94f) {
                                         isMenuExpanded = false
+                                        if (item.option == ChatPreferenceOption.BACKUP_RESTORE) {
+                                            triggerPreRestoreBackup()
+                                        }
                                         onOptionSelected(item.option)
                                     }
                                     .padding(horizontal = 15.dp, vertical = 11.5.dp),
