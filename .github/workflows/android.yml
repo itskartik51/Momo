@@ -35,26 +35,15 @@ jobs:
 
     - name: Inject Security Configuration & Credentials
       env:
-        RAW_IDS: ${{ secrets.ALLOWED_ANDROID_IDS }}
         AUTH_EMAIL: ${{ secrets.FIREBASE_AUTH_EMAIL }}
         AUTH_PASS: ${{ secrets.FIREBASE_AUTH_PASS }}
       run: |
         python3 -c '
-        import os, hashlib
+        import os
 
-        raw_ids = os.environ.get("RAW_IDS", "").strip()
         auth_email = os.environ.get("AUTH_EMAIL", "").strip()
         auth_pass = os.environ.get("AUTH_PASS", "").strip()
         salt = "MomoSec_Salt_2026_"
-        hashes = []
-        if raw_ids:
-            for device_id in raw_ids.split(","):
-                clean_id = device_id.strip().lower()
-                if clean_id:
-                    h = hashlib.sha256((salt + clean_id).encode("utf-8")).hexdigest()
-                    hashes.append(f"\"{h}\"")
-
-        hash_set_str = ",\n        ".join(hashes)
 
         os.makedirs("app/src/main/java/com/personal/momo", exist_ok=True)
         with open("app/src/main/java/com/personal/momo/SecurityConfig.kt", "w") as f:
@@ -64,9 +53,6 @@ jobs:
             const val SALT = "{salt}"
             const val AUTH_EMAIL = "{auth_email}"
             const val AUTH_PASS = "{auth_pass}"
-            val ALLOWED_HASHES: Set<String> = setOf(
-                {hash_set_str}
-            )
         }}
         """)
         '
